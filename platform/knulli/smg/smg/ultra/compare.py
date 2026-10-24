@@ -27,6 +27,9 @@ METRICS = [
     ("draws", "draws/frame", "", False, 0.05, 5.0),
     ("uber_pct", "draws uber", "%", False, 0.20, 0.5),
     ("texturas_kib_s", "texturas", "KiB/s", False, 0.20, 50.0),
+    ("compilados", "shaders en hilo", "", False, 0.20, 2.0),
+    ("compilar_ms", "compilar", "ms", False, 0.20, 200.0),
+    ("frames_lentos", "frames >25 ms", "", False, 0.10, 10.0),
 ]
 
 
@@ -136,7 +139,8 @@ def main(argv):
 
     # Los ajustes que cambian entre ejecuciones.
     keys = sorted(set().union(*[set(r.get("ajustes", {})) for r in runs]))
-    differing = [k for k in keys if len({r.get("ajustes", {}).get(k, "(sin poner)") for r in runs}) > 1]
+    differing = [k for k in keys if k != "NEBULA_ULTRA_ETIQUETA" and
+                 len({r.get("ajustes", {}).get(k, "(sin poner)") for r in runs}) > 1]
     if differing:
         print("\nAjustes que difieren:")
         for k in differing:

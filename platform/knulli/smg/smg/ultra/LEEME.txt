@@ -28,5 +28,10 @@ ULTRA-GLES: medir el rendimiento grafico del port en tu consola
    Dice, metrica por metrica y galaxia por galaxia, si mejora, empeora o queda igual (dentro del ruido), y la PSNR de
    las capturas (40 dB o mas: igual a la vista; menos de 30: revisa la imagen).
 
+4. Para probar varios ajustes de una vez, sin estar cambiando el archivo: NEBULA_ULTRA=serie en smg/ultra.cfg.
+   Hace un recorrido por cada seccion de smg/ultra/serie.cfg ([base], [uber], [res75], [hilos]: editalo a tu gusto)
+   y deja smg/ultra/<fecha>-serie/comparacion.txt con todos frente al primero. Con NEBULA_ULTRA_GALAXIAS=6, unos
+   20-25 minutos en total.
+
 NEBULA_ULTRA=1 mide una partida normal (sin recorrido) y deja el informe al salir del juego.
 Quita NEBULA_ULTRA del archivo (o ponlo a 0) para jugar sin medir.

@@ -71,6 +71,7 @@ struct Stats {
     std::int64_t first_ns = 0, last_ns = 0;
     double interval_sum = 0.0;
     std::vector<float> intervals;
+    std::vector<std::uint8_t> frame_causes;  // each interval's likely cause, should it turn out a hitch
     double cpu_ms = 0.0, draw_ms = 0.0, slot_wait_ms = 0.0, swap_wait_ms = 0.0, readback_ms = 0.0;
     double gpu_ms = 0.0, gpu_max_ms = 0.0;
     std::uint64_t gpu_frames = 0;
@@ -297,7 +298,8 @@ private:
         return kOther;
     }
 
-    static void account(Stats& s, const Record& r, bool hitch, Cause cause, bool stall) {
+    // slow: over 1.5 periods (a missed vsync); hitches are decided at the end, against the scene's own median.
+    static void account(Stats& s, const Record& r, bool slow, Cause cause, bool stall) {
         const FrameSample& f = r.sample;
         if (s.frames == 0u) {
             s.first_ns = f.present_ns;
@@ -311,6 +313,7 @@ private:
         if (r.interval_ms > 0.0) {
             s.interval_sum += r.interval_ms;
             s.intervals.push_back(static_cast<float>(r.interval_ms));
+            s.frame_causes.push_back(static_cast<std::uint8_t>(cause));
         }
         s.cpu_ms += static_cast<double>(f.cpu_ns) / 1e6;
         s.draw_ms += static_cast<double>(f.draw_ns) / 1e6;
@@ -337,9 +340,8 @@ private:
         s.gl_errors += f.gl_errors;
         s.efb_min = std::min(s.efb_min, f.efb_width);
         s.efb_max = std::max(s.efb_max, f.efb_width);
-        if (hitch) {
-            ++s.hitches;
-            ++s.causes[cause];
+        if (slow) {
+            ++s.hitches;  // the slow frames (the hitches proper are counted in figures())
         }
         if (stall) {
             ++s.stalls;
@@ -391,7 +393,7 @@ private:
     void consume(const Record& r) {
         const bool hitch = r.interval_ms > period_ms_ * 1.5;
         const bool stall = r.interval_ms > 250.0;
-        const Cause cause = hitch ? cause_of(r) : kOther;
+        const Cause cause = cause_of(r);
         recent_gpu_ = {r.gpu_ms, recent_gpu_[0]};
         if (scene_stats_.size() <= r.scene) {
             scene_stats_.resize(r.scene + 1u);
@@ -475,10 +477,16 @@ private:
     struct Figures {
         double seconds = 0, fps = 0, drawn_fps = 0, mean = 0, p50 = 0, p95 = 0, p99 = 0, max = 0, low1 = 0;
         double hitches_per_min = 0, cpu = 0, gpu = 0, draws = 0, programs = 0, uber_pct = 0, upload_kib_s = 0;
+        // A hitch: a frame over twice the scene's median (and over 1.5 periods), so a scene that runs slowly
+        // throughout is not all hitches; its causes; the slow frames (over 1.5 periods) apart.
+        double hitch_ms = 0;
+        std::uint64_t hitches = 0, slow = 0;
+        std::array<std::uint64_t, kCauseCount> causes{};
     };
 
-    static Figures figures(Stats s) {
+    Figures figures(Stats s) const {
         Figures f{};
+        f.slow = s.hitches;
         if (s.frames == 0u) {
             return f;
         }
@@ -488,9 +496,9 @@ private:
         if (active_s > 0.0) {
             f.fps = static_cast<double>(s.intervals.size()) / active_s;
             f.drawn_fps = static_cast<double>(s.drawn) / active_s;
-            f.hitches_per_min = static_cast<double>(s.hitches) * 60.0 / active_s;
             f.upload_kib_s = static_cast<double>(s.upload_bytes) / 1024.0 / active_s;
         }
+        const std::vector<float> in_order = s.intervals;
         std::vector<float>& v = s.intervals;
         if (!v.empty()) {
             std::sort(v.begin(), v.end());
@@ -509,6 +517,16 @@ private:
                 sum += v[i];
             }
             f.low1 = sum > 0.0 ? 1000.0 * static_cast<double>(worst) / sum : 0.0;
+            f.hitch_ms = std::max(period_ms_ * 1.5, f.p50 * 2.0);
+        }
+        for (std::size_t i = 0; i < in_order.size() && i < s.frame_causes.size(); ++i) {
+            if (in_order[i] > f.hitch_ms) {
+                ++f.hitches;
+                ++f.causes[s.frame_causes[i]];
+            }
+        }
+        if (f.seconds > 0.0) {
+            f.hitches_per_min = static_cast<double>(f.hitches) * 60.0 / f.seconds;
         }
         const double frames = static_cast<double>(s.frames);
         f.cpu = s.cpu_ms / frames;
@@ -537,21 +555,38 @@ private:
         return out + "\"";
     }
 
-    static std::string json_stats(const Stats& s) {
-        const Figures f = figures(s);
+    // The total's hitches are each scene's against its own median, added up.
+    Figures total_figures() const {
+        Figures t = figures(total_);
+        t.hitches = 0;
+        t.causes = {};
+        for (const Stats& scene : scene_stats_) {
+            const Figures f = figures(scene);
+            t.hitches += f.hitches;
+            for (unsigned c = 0; c < kCauseCount; ++c) {
+                t.causes[c] += f.causes[c];
+            }
+        }
+        t.hitches_per_min = t.seconds > 0.0 ? static_cast<double>(t.hitches) * 60.0 / t.seconds : 0.0;
+        return t;
+    }
+
+    std::string json_stats(const Stats& s, const Figures* given = nullptr) const {
+        const Figures f = given != nullptr ? *given : figures(s);
         char text[2048];
         std::snprintf(text, sizeof(text),
                       "{\"frames\": %llu, \"segundos\": %.2f, \"fps\": %.2f, \"fps_dibujados\": %.2f, "
                       "\"frame_ms\": {\"media\": %.3f, \"p50\": %.3f, \"p95\": %.3f, \"p99\": %.3f, \"max\": %.3f}, "
-                      "\"fps_1pct_bajo\": %.2f, \"tirones\": %llu, \"tirones_min\": %.2f, \"paradas\": %llu, "
+                      "\"fps_1pct_bajo\": %.2f, \"tirones\": %llu, \"tirones_min\": %.2f, \"umbral_tiron_ms\": %.2f, "
+                      "\"frames_lentos\": %llu, \"paradas\": %llu, "
                       "\"cpu_render_ms\": %.3f, \"gpu_ms\": %.3f, \"gpu_max_ms\": %.3f, \"draws\": %.1f, "
                       "\"cambios_programa\": %.1f, \"uber_pct\": %.2f, \"omitidos\": %llu, \"compilados\": %llu, "
                       "\"compilar_ms\": %.1f, \"texturas_kib_s\": %.1f, \"copias\": %.2f, \"peeks\": %.2f, "
                       "\"peeks_sync\": %llu, \"vertices\": %.0f, \"errores_gl\": %llu, \"efb\": [%u, %u], "
                       "\"causas\": {",
                       static_cast<unsigned long long>(s.frames), f.seconds, f.fps, f.drawn_fps, f.mean, f.p50, f.p95,
-                      f.p99, f.max, f.low1, static_cast<unsigned long long>(s.hitches), f.hitches_per_min,
-                      static_cast<unsigned long long>(s.stalls), f.cpu, f.gpu, s.gpu_max_ms, f.draws, f.programs,
+                      f.p99, f.max, f.low1, static_cast<unsigned long long>(f.hitches), f.hitches_per_min, f.hitch_ms,
+                      static_cast<unsigned long long>(f.slow), static_cast<unsigned long long>(s.stalls), f.cpu, f.gpu, s.gpu_max_ms, f.draws, f.programs,
                       f.uber_pct, static_cast<unsigned long long>(s.pending),
                       static_cast<unsigned long long>(s.compiles), s.compile_ms, f.upload_kib_s,
                       s.frames != 0u ? static_cast<double>(s.copies) / static_cast<double>(s.frames) : 0.0,
@@ -561,7 +596,7 @@ private:
                       static_cast<unsigned long long>(s.gl_errors), s.efb_min, s.efb_max);
         std::string out = text;
         for (unsigned c = 0; c < kCauseCount; ++c) {
-            out += (c != 0u ? ", " : "") + json_string(kCauseKeys[c]) + ": " + std::to_string(s.causes[c]);
+            out += (c != 0u ? ", " : "") + json_string(kCauseKeys[c]) + ": " + std::to_string(f.causes[c]);
         }
         return out + "}}";
     }
@@ -606,7 +641,8 @@ private:
                          static_cast<unsigned long long>(memory_.rss_peak_kib),
                          static_cast<unsigned long long>(memory_.available_min_kib == ~0ull ? 0u
                                                                                             : memory_.available_min_kib));
-            std::fprintf(json, "  \"total\": %s,\n  \"carga\": %s,\n  \"escenas\": [", json_stats(total_).c_str(),
+            const Figures total = total_figures();
+            std::fprintf(json, "  \"total\": %s,\n  \"carga\": %s,\n  \"escenas\": [", json_stats(total_, &total).c_str(),
                          json_stats(load_).c_str());
             bool first = true;
             for (std::size_t i = 0; i < scene_stats_.size(); ++i) {
@@ -635,12 +671,74 @@ private:
             std::fclose(memory_csv_);
             memory_csv_ = nullptr;
         }
-        const Figures t = figures(total_);
+        const Figures t = total_figures();
         std::fprintf(stderr,
                      "[ultra] %.1f FPS (%.1f dibujados), frame %.2f ms (p95 %.2f, p99 %.2f), 1%% bajo %.1f FPS, "
                      "%llu tirones; informe en %s/informe.txt\n",
-                     t.fps, t.drawn_fps, t.mean, t.p95, t.p99, t.low1, static_cast<unsigned long long>(total_.hitches),
+                     t.fps, t.drawn_fps, t.mean, t.p95, t.p99, t.low1, static_cast<unsigned long long>(t.hitches),
                      dir_.c_str());
+    }
+
+    // The analyser: what costs the most in this run and which setting (or which ULTRA-GLES optimiser) to try first.
+    void write_diagnosis(FILE* out, const Figures& t, double compile_per, double draw_per, double rest_per) const {
+        struct Finding {
+            double weight;  // ms per frame it costs, roughly
+            std::string text;
+        };
+        std::vector<Finding> findings;
+        const double per = total_.frames != 0u ? 1.0 / static_cast<double>(total_.frames) : 0.0;
+        char line[512];
+        if (compile_per > 0.5) {
+            std::snprintf(line, sizeof(line),
+                          "Shaders compilados en el hilo de render: %.1f ms por frame (%.0f s en total). La cache "
+                          "(data/shadercache) los guarda: una segunda vuelta mide sin ellos. Para no esperarlos: "
+                          "GALAXY_GLES_PENDING=uber (dibuja con el uber mientras compila) o skip.",
+                          compile_per, (total_.compile_ms + load_.compile_ms) / 1000.0);
+            findings.push_back({compile_per, line});
+        }
+        if (rest_per > 4.0) {
+            std::snprintf(line, sizeof(line),
+                          "El trabajo GX del hilo de render fuera de los draws: %.1f ms por frame (leer el FIFO, "
+                          "convertir %.0f vertices por frame, decodificar texturas, copias del EFB). Para ver en que "
+                          "funciones: NEBULA_ULTRA_HILOS=1.",
+                          rest_per, total_.frames != 0u ? static_cast<double>(total_.vertices) * per : 0.0);
+            findings.push_back({rest_per, line});
+        }
+        if (draw_per > 3.0) {
+            std::snprintf(line, sizeof(line),
+                          "Los draws: %.1f ms por frame, %.0f draws (%.0f us cada uno, sobre todo el driver).",
+                          draw_per, t.draws, t.draws > 0.0 ? draw_per * 1000.0 / t.draws : 0.0);
+            findings.push_back({draw_per, line});
+        }
+        const double gpu_drawn = t.gpu >= 0.0 && t.drawn_fps > 0.0 && t.fps > 0.0 ? t.gpu * t.fps / t.drawn_fps : -1.0;
+        if (gpu_drawn > period_ms_ * 0.6 || total_.slot_wait_ms * per > 2.0) {
+            std::snprintf(line, sizeof(line),
+                          "La GPU: %.1f ms por frame dibujado y %.1f ms de espera por frame, con el EFB a %u px de "
+                          "ancho. Prueba GALAXY_GLES_RESOLUTION=%s.",
+                          gpu_drawn, total_.slot_wait_ms * per, total_.efb_max,
+                          total_.efb_max >= 640u ? "75 (o auto)" : total_.efb_max > 400u ? "50 (o auto)" : "auto");
+            findings.push_back({std::max(gpu_drawn - period_ms_ * 0.5, total_.slot_wait_ms * per), line});
+        }
+        if (total_.readback_ms * per > 1.0) {
+            std::snprintf(line, sizeof(line),
+                          "Lecturas del EFB (destellos del sol, puntero): %.1f ms por frame. GALAXY_PEEK_MODE=off "
+                          "mide cuanto cuestan (sin ellas el sol no se oculta tras los objetos).",
+                          total_.readback_ms * per);
+            findings.push_back({total_.readback_ms * per, line});
+        }
+        if (memory_.available_min_kib != ~0ull && memory_.available_min_kib < 100u * 1024u) {
+            findings.push_back({1.0, "Memoria justa: menos de 100 MiB libres en algun momento. Baja GALAXY_TEXTURE_POOL_MB "
+                                     "o GALAXY_GX_DISPLAY_LIST_CACHE_MB."});
+        }
+        std::sort(findings.begin(), findings.end(), [](const Finding& a, const Finding& b) { return a.weight > b.weight; });
+        std::fprintf(out, "Lo que mas pesa (de mas a menos) y que probar:\n");
+        if (findings.empty()) {
+            std::fprintf(out, "  Nada destaca: el frame cabe en su tiempo.\n");
+        }
+        for (std::size_t i = 0; i < findings.size(); ++i) {
+            std::fprintf(out, "  %zu. %s\n", i + 1u, findings[i].text.c_str());
+        }
+        std::fprintf(out, "\n");
     }
 
     void write_text_report(const char* started, double run_s,
@@ -650,7 +748,7 @@ private:
         if (out == nullptr) {
             return;
         }
-        const Figures t = figures(total_);
+        const Figures t = total_figures();
         std::fprintf(out, "ULTRA-GLES -- informe de rendimiento (%s, %s, %.0f s%s)\n\n", started,
                      bench_ ? "benchmark" : "partida", run_s,
                      final ? "" : "; PARCIAL: la ejecucion seguia, se actualiza cada 20 s");
@@ -660,22 +758,27 @@ private:
         std::fprintf(out, "  Tiempo por fotograma .... media %.2f ms, p50 %.2f, p95 %.2f, p99 %.2f, maximo %.1f\n", t.mean,
                      t.p50, t.p95, t.p99, t.max);
         std::fprintf(out, "  1%% mas lento ............ %.1f FPS\n", t.low1);
-        std::fprintf(out, "  Tirones (> %.0f ms) ...... %llu (%.1f por minuto), paradas de mas de 250 ms: %llu\n",
-                     period_ms_ * 1.5, static_cast<unsigned long long>(total_.hitches), t.hitches_per_min,
-                     static_cast<unsigned long long>(total_.stalls));
-        if (total_.hitches != 0u) {
+        std::fprintf(out, "  Tirones ................. %llu (%.1f por minuto): frames de mas del doble de la mediana de su escena\n",
+                     static_cast<unsigned long long>(t.hitches), t.hitches_per_min);
+        if (t.hitches != 0u) {
             std::fprintf(out, "    causas probables:\n");
             for (unsigned c = 0; c < kCauseCount; ++c) {
-                if (total_.causes[c] != 0u) {
-                    std::fprintf(out, "      %5llu  %s\n", static_cast<unsigned long long>(total_.causes[c]),
-                                 kCauseNames[c]);
+                if (t.causes[c] != 0u) {
+                    std::fprintf(out, "      %5llu  %s\n", static_cast<unsigned long long>(t.causes[c]), kCauseNames[c]);
                 }
             }
         }
-        std::fprintf(out, "  CPU del hilo de render .. %.2f ms por frame (en draws %.2f; esperando la GPU %.2f; vsync %.2f)\n",
-                     t.cpu, total_.frames != 0u ? total_.draw_ms / static_cast<double>(total_.frames) : 0.0,
-                     total_.frames != 0u ? total_.slot_wait_ms / static_cast<double>(total_.frames) : 0.0,
-                     total_.frames != 0u ? total_.swap_wait_ms / static_cast<double>(total_.frames) : 0.0);
+        std::fprintf(out, "  Frames lentos ........... %llu de %llu pasan de %.0f ms (se pierde un vsync); paradas de mas de 250 ms: %llu\n",
+                     static_cast<unsigned long long>(t.slow), static_cast<unsigned long long>(total_.frames),
+                     period_ms_ * 1.5, static_cast<unsigned long long>(total_.stalls));
+        const double per = total_.frames != 0u ? 1.0 / static_cast<double>(total_.frames) : 0.0;
+        const double compile_per = total_.compile_ms * per;
+        const double draw_per = total_.draw_ms * per;
+        const double rest_per = std::max(0.0, t.cpu - compile_per - draw_per);
+        std::fprintf(out, "  CPU del hilo de render .. %.2f ms por frame: compilar shaders %.2f, draws %.2f, el resto %.2f (GX: FIFO,\n"
+                          "                            vertices, texturas, copias); y espera %.2f a la GPU, %.2f al vsync, %.2f a lecturas\n",
+                     t.cpu, compile_per, draw_per, rest_per, total_.slot_wait_ms * per, total_.swap_wait_ms * per,
+                     total_.readback_ms * per);
         if (t.gpu >= 0.0) {
             std::fprintf(out, "  GPU ..................... %.2f ms por frame (maximo %.1f)\n", t.gpu, total_.gpu_max_ms);
         } else {
@@ -696,8 +799,9 @@ private:
         std::fprintf(out, "  Estabilidad ............. %llu errores de GL\n\n",
                      static_cast<unsigned long long>(total_.gl_errors + load_.gl_errors));
         const Figures l = figures(load_);
-        std::fprintf(out, "Cargas (primeros segundos de cada escena): %llu tirones, frame maximo %.0f ms\n\n",
-                     static_cast<unsigned long long>(load_.hitches), l.max);
+        std::fprintf(out, "Cargas (primeros segundos de cada escena): frame maximo %.0f ms, %llu compilaciones (%.0f ms)\n\n",
+                     l.max, static_cast<unsigned long long>(load_.compiles), load_.compile_ms);
+        write_diagnosis(out, t, compile_per, draw_per, rest_per);
 
         std::fprintf(out, "%-28s %6s %6s %7s %7s %7s %6s %6s %6s %6s\n", "Escena", "FPS", "dibuj", "p95 ms",
                      "p99 ms", "1%bajo", "tiron", "CPU", "GPU", "draws");
@@ -709,7 +813,7 @@ private:
             const Figures f = figures(s);
             std::fprintf(out, "%-28.28s %6.1f %6.1f %7.2f %7.2f %7.1f %6llu %6.2f %6.2f %6.0f\n",
                          scene_name(static_cast<std::uint32_t>(i)).c_str(), f.fps, f.drawn_fps, f.p95, f.p99, f.low1,
-                         static_cast<unsigned long long>(s.hitches), f.cpu, f.gpu, f.draws);
+                         static_cast<unsigned long long>(f.hitches), f.cpu, f.gpu, f.draws);
         }
         std::fprintf(out, "\nAjustes de esta ejecucion:\n");
         for (const auto& [name, value] : config) {
