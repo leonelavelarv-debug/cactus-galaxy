@@ -2496,6 +2496,17 @@ int svc_test_scene_frame(void*, NebulaTestAction* action) {
         log_line("tour:", text);
         return 1;
     }
+#if defined(NEBULA_GPU_GLES)
+    // ULTRA-GLES's picture of each stop at the same game frame in every run (GALAXY_ULTRA_CAPTURE_FRAME, 600: 10 s
+    // in), so two runs' pictures show the same moment whatever their frame rates.
+    static const uint64_t ultra_capture_frame = [] {
+        const char* value = std::getenv("GALAXY_ULTRA_CAPTURE_FRAME");
+        return value != nullptr ? std::strtoull(value, nullptr, 10) : 600ull;
+    }();
+    if (touring && ultra_capture_frame != 0 && since_stop == ultra_capture_frame) {
+        galaxy::gx::ultra::request_capture();
+    }
+#endif
     if (touring && stop_frame == 0) {
         return 0;
     }

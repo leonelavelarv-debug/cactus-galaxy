@@ -226,6 +226,30 @@ sobrecoste de punto flotante medido arriba.
 | ULTRA-GLES (medición del rendimiento gráfico) | `runtime/src/gx/gles/ultra_gles.cpp`: con `GALAXY_ULTRA=1|bench`, cada present (intervalo, CPU del hilo de render, GPU por sus timer queries emparejadas por frame, esperas de slot/vsync/lecturas, draws, cambios de programa, draws uber y omitidos, programas compilados en el hilo de render y su tiempo, texturas subidas, copias, peeks, vértices, frames repetidos, EFB, errores de GL) va a `frames.csv` desde un hilo escritor; al final, `resumen.json` e `informe.txt` por escena (FPS mostrados/dibujados, frame medio/p50/p95/p99/máx, 1 % bajo, tirones > 1,5 periodos con causa probable, paradas > 250 ms, memoria RSS y disponible), sin los primeros 3 s de cada escena (cargas, aparte) ni los frames de sus propias capturas (`capturas/<galaxia>.ppm` a los 360 presents estables). Lanzador: `NEBULA_ULTRA=bench` (tour automático, 900 frames por galaxia, `NEBULA_ULTRA_GALAXIAS=n`, NAND aparte, sin capturas ni perfilador de hilos) o `smg/ultra.cfg`; `smg/ultra/compare.py` compara ejecuciones (umbrales de ruido por métrica, por galaxia, ajustes que difieren, PSNR de las capturas). Probado en x86: `nebula_ultra_gles_tests` (escenas, cargas, tirones de shader y de GPU con tiempos que llegan 3 frames tarde, capturas) y `nebula_gles_renderer_tests` con ULTRA activo (0 fallos). Sin datos del aparato todavía |
 | Port `smg` (`platform/knulli/smg`) | Lanzador PortMaster con modo 4:3 nativo del juego y capturas de diagnóstico |
 
+### Mediciones ULTRA-GLES en el aparato (RG35XX H, KNULLI; 23-10-2026) (M)
+
+Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático hasta 2), EFB al 100 %:
+
+| | base (caché de shaders llena) | res75 | primera vez (caché vacía) |
+|---|---|---|---|
+| FPS mostrados / dibujados | 26,1 / 10,2 | 27,6 / 11,2 | 21,0 / 8,2 |
+| Frame p50 / p99 | 38 / 94 ms | — / 91 ms | 36 / 109 ms |
+| CPU del hilo de render por present | 25,9 ms | 25,5 ms | 35,5 ms (8 ms de compilar) |
+| GPU por frame (timer queries) | 14,0 ms | 9,9 ms | 13,9 ms |
+| Shaders compilados en el hilo de render | 0 | 3 | 166 (62 s en total; 12,8 s seguidos en AstroGalaxy) |
+
+- El límite es el hilo de render: un frame **saltado** (sin dibujar) le cuesta 16-35 ms (`[frameskip] ... skipped`), uno
+  dibujado 30-70 ms, así que ni saltando el máximo llega a 60: la lógica del juego va a un 35-50 % de su velocidad
+  (15 s de juego por galaxia tardan 30-45 s).
+- El muestreo de hilos (`[sampler]`) del hilo de render: ~16 % esperando fences de la Mali, ~10 % esperando trabajo en
+  `render_thread_main`, ~5 % en `complete_readback` (copiar los campos de peek de un PBO sin caché), y el resto repartido
+  en el frente GX (`FifoParser::run_window`, `find_cached_display_list` con `memcmp`, invalidaciones por escrituras del
+  juego en memoria, `replay_cached_display_list`). El hilo del juego pasa ~60 % esperando.
+- `GALAXY_GLES_PENDING=uber` no cambia nada con la caché llena y evita las paradas de compilar: pasa a ser el valor por
+  defecto del lanzador. `res75` baja la GPU un 29 % y sube los FPS dibujados un 10 %.
+- Siguiente: perfil de pila completa (`NEBULA_PROFILE_DUMP`, pilas agregadas en `muestras.txt`, simbolizadas fuera del
+  aparato) y `GALAXY_GX_FRAME_TIMING_SAMPLE` para repartir esos 16-35 ms del frente GX por fases.
+
 ### Diseño del renderer GLES (H)
 
 - Misma interfaz que `RendererVk` (GxBackend no cambia salvo `gx_backend.h`, que elige el backend, y la decodificación de

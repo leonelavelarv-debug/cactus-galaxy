@@ -61,6 +61,8 @@ void frame(const FrameSample& sample) noexcept;
 void gpu(std::uint64_t frame_index, double total_ms) noexcept;
 // The stage the game reports before each 3D scene (host_main.cpp's svc_game_stage).
 void set_scene(const char* name) noexcept;
+// A picture of the current scene at the next present (the host asks at a fixed game frame of each tour stop).
+void request_capture() noexcept;
 // GALAXY_ULTRA_CAPTURE: the path to write this present's picture to, or empty (gx_backend's present snapshots).
 [[nodiscard]] std::string capture_path();
 // The run's end (the renderer's shutdown, and at exit): the last frames, resumen.json and informe.txt. Idempotent.

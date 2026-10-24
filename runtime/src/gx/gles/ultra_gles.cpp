@@ -24,6 +24,7 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#include <pthread.h>
 #include <unistd.h>
 #endif
 
@@ -100,7 +101,10 @@ public:
         bench_ = mode != nullptr && std::strcmp(mode, "bench") == 0;
         warmup_ns_ = static_cast<std::int64_t>(env_double("GALAXY_ULTRA_WARMUP", 3.0) * 1e9);
         period_ms_ = 1000.0 / std::max(1.0, env_double("GALAXY_ULTRA_HZ", 60.0));
-        capture_at_ = static_cast<std::uint64_t>(env_double("GALAXY_ULTRA_CAPTURE", bench_ ? 360.0 : 0.0));
+        // A tour asks for its pictures itself, at a game frame (request_capture); otherwise the n-th steady present.
+        const bool touring = std::getenv("GALAXY_TEST_GALAXY_TOUR") != nullptr;
+        capture_at_ = static_cast<std::uint64_t>(
+            env_double("GALAXY_ULTRA_CAPTURE", bench_ && !touring ? 360.0 : 0.0));
         std::error_code error;
         std::filesystem::create_directories(dir_, error);
         frames_csv_ = std::fopen((dir_ + "/frames.csv").c_str(), "w");
@@ -118,7 +122,12 @@ public:
         start_time_ = std::time(nullptr);
         scenes_.push_back("-");
         scene_index_.emplace("-", 0u);
-        writer_ = std::thread([this] { write_loop(); });
+        writer_ = std::thread([this] {
+#if defined(__linux__)
+            pthread_setname_np(pthread_self(), "Nebula Ultra");  // not taken for the render thread by the sampler
+#endif
+            write_loop();
+        });
         std::fprintf(stderr, "[ultra] midiendo en %s (%s; hitch > %.1f ms, carga %.1f s por escena)\n", dir_.c_str(),
                      bench_ ? "benchmark" : "juego", period_ms_ * 1.5, static_cast<double>(warmup_ns_) / 1e9);
     }
@@ -188,6 +197,14 @@ public:
         if (pending_scene_ != name) {
             pending_scene_ = name;
             ++scene_generation_;
+        }
+    }
+
+    void request_capture() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (!finished_) {
+            const std::string& scene = scene_generation_ != seen_generation_ ? pending_scene_ : scenes_[current_scene_];
+            request_capture(scene.empty() ? std::string("-") : scene);
         }
     }
 
@@ -884,6 +901,15 @@ void set_scene(const char* name) noexcept {
     }
     if (Profiler* p = profiler()) {
         p->set_scene(name);
+    }
+}
+
+void request_capture() noexcept {
+    if (Profiler* p = profiler()) {
+        try {
+            p->request_capture();
+        } catch (...) {
+        }
     }
 }
 

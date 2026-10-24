@@ -47,20 +47,26 @@ constexpr std::size_t kMaxSamples = 8192;
 // so a sample inside memcpy names who copies.
 std::atomic<std::uintptr_t> g_samples[kMaxSamples];
 std::atomic<std::uintptr_t> g_callers[kMaxSamples];
+// NEBULA_PROFILE_DUMP=<file>: every sample's stack too (the PC and up to kStackDepth - 1 callers), appended to the file
+// as "thread|lib+offset|lib+offset|..." lines, for a whole-stack profile symbolised off the device (ULTRA-GLES).
+constexpr int kStackDepth = 24;
+std::atomic<std::uintptr_t> g_stacks[kMaxSamples][kStackDepth];
+std::atomic<std::uint8_t> g_stack_depth[kMaxSamples];
+std::FILE* g_dump = nullptr;
 std::atomic<std::uint32_t> g_sample_count{0};
 
 std::uintptr_t g_libc_begin = 0;
 std::uintptr_t g_libc_end = 0;
 
 struct Walk {
-    std::uintptr_t frames[8];
+    std::uintptr_t frames[kStackDepth + 8];
     int count;
 };
 
 _Unwind_Reason_Code walk_frame(_Unwind_Context* context, void* data) {
     auto* walk = static_cast<Walk*>(data);
     walk->frames[walk->count++] = static_cast<std::uintptr_t>(_Unwind_GetIP(context));
-    return walk->count < 8 ? _URC_NO_REASON : _URC_END_OF_STACK;
+    return walk->count < kStackDepth + 8 ? _URC_NO_REASON : _URC_END_OF_STACK;
 }
 
 void on_sample(int, siginfo_t*, void* context) {
@@ -78,10 +84,12 @@ void on_sample(int, siginfo_t*, void* context) {
     _Unwind_Backtrace(walk_frame, &walk);
     std::uintptr_t caller = 0;
     bool past_pc = false;
+    int first = walk.count;  // the interrupted code's frames start here
     for (int i = 0; i < walk.count; ++i) {
         const std::uintptr_t frame = walk.frames[i];
         if (!past_pc) {
             past_pc = frame >= pc - 1 && frame <= pc + 1;
+            first = i + 1;
             continue;
         }
         if (frame < g_libc_begin || frame >= g_libc_end) {
@@ -93,6 +101,14 @@ void on_sample(int, siginfo_t*, void* context) {
     if (at < kMaxSamples) {
         g_samples[at].store(pc, std::memory_order_relaxed);
         g_callers[at].store(caller, std::memory_order_relaxed);
+        if (g_dump != nullptr) {
+            int depth = 0;
+            g_stacks[at][depth++].store(pc, std::memory_order_relaxed);
+            for (int i = first; i < walk.count && depth < kStackDepth; ++i) {
+                g_stacks[at][depth++].store(walk.frames[i], std::memory_order_relaxed);
+            }
+            g_stack_depth[at].store(static_cast<std::uint8_t>(depth), std::memory_order_relaxed);
+        }
     }
 }
 
@@ -168,6 +184,34 @@ void sample(pid_t tid, const std::string& name) {
     }
     std::sort(ranked.rbegin(), ranked.rend());
     std::fprintf(stderr, "[sampler] %s (tid %d): %u samples\n", name.c_str(), tid, count);
+    if (g_dump != nullptr) {
+        // Identical stacks once, with their count ("count|thread|lib+offset|..."). Return addresses point after the
+        // call: one byte back names the calling line (not for the PC itself).
+        std::map<std::string, std::uint32_t> stacks;
+        for (std::uint32_t i = 0; i < count; ++i) {
+            std::string line;
+            const int depth = g_stack_depth[i].load(std::memory_order_relaxed);
+            for (int d = 0; d < depth; ++d) {
+                std::uintptr_t offset = 0;
+                const std::uintptr_t address = g_stacks[i][d].load(std::memory_order_relaxed);
+                Dl_info info{};
+                const char* lib = "?";
+                if (address != 0u && dladdr(reinterpret_cast<void*>(address), &info) != 0 && info.dli_fname != nullptr) {
+                    const char* slash = std::strrchr(info.dli_fname, '/');
+                    lib = slash != nullptr ? slash + 1 : info.dli_fname;
+                    offset = address - reinterpret_cast<std::uintptr_t>(info.dli_fbase) - (d != 0 ? 1u : 0u);
+                }
+                char frame[160];
+                std::snprintf(frame, sizeof(frame), "|%s+0x%zx", lib, static_cast<std::size_t>(offset));
+                line += frame;
+            }
+            ++stacks[line];
+        }
+        for (const auto& [stack, samples] : stacks) {
+            std::fprintf(g_dump, "%u|%s%s\n", samples, name.c_str(), stack.c_str());
+        }
+        std::fflush(g_dump);
+    }
     for (std::size_t i = 0; i < ranked.size() && i < 12u; ++i) {
         std::fprintf(stderr, "[sampler]   %5.1f%% %s\n", 100.0 * ranked[i].first / std::max(count, 1u),
                      ranked[i].second.c_str());
@@ -193,6 +237,9 @@ void start_thread_sampler() noexcept {
     const char* rounds_text = std::getenv("NEBULA_PROFILE_ROUNDS");
     const int rounds = rounds_text != nullptr && std::atoi(rounds_text) > 0 ? std::atoi(rounds_text) : 3;
 #endif
+    if (const char* dump = std::getenv("NEBULA_PROFILE_DUMP"); dump != nullptr && dump[0] != '\0') {
+        g_dump = std::fopen(dump, "a");
+    }
     const char* every_text = std::getenv("NEBULA_PROFILE_EVERY");
     const int every = every_text != nullptr && std::atoi(every_text) > 0 ? std::atoi(every_text) : 30;
     const int delay = std::max(1, std::atoi(value));
