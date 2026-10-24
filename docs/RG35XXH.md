@@ -272,6 +272,23 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   ULTRA lo cuenta (`dl_comparadas`, `dl_comparadas_kib`, `dl_saltadas`). Las capturas se toman a los 300 frames del
   primer frame 3D de cada galaxia (no de la petición de cambio, que incluye la carga), y `compare.py` usa las
   repeticiones de la base (mismos ajustes, `base2`) como medida del ruido de cada métrica y de cada captura.
+- update49, el hilo GL (`GALAXY_GLES_THREAD=1`, `runtime/src/gx/gles/gl_thread.cpp`): el hilo de render traduce el
+  GX y graba sus llamadas de GL en una cola (8 MiB, un productor y un consumidor); otro hilo, con el contexto, se las da
+  al driver, en otro núcleo. Cada entrada de `gl_api.h` se envuelve al cargar GL: en el hilo que graba se encola (una
+  llamada de valores tal cual; una que lee memoria del llamador la copia: subidas de texturas con su row length,
+  borrados, valores de clear, glBufferSubData), en los demás hilos (los workers de la caché de shaders, el arranque)
+  va directa. Las que devuelven algo esperan su respuesta (vacían la cola antes), pero el estado estable no hace
+  ninguna: los nombres salen de pools que el hilo GL rellena, `glGetError` responde GL_NO_ERROR y el hilo GL cuenta
+  los errores, `glCheckFramebufferStatus` se comprueba allí y se registra, las fences son valores que el hilo GL
+  inserta y sondea (`submit_fence`, `completed`, `wait_fence`), las timer queries se leen allí y sus resultados
+  vuelven, y las lecturas del EFB se copian del PBO en el hilo GL antes de dar su fence por pasada
+  (`after_fence`/`arm_readback`). El swap es del hilo GL. Los anillos de la CPU siguen siendo seguros: un segmento se
+  reescribe cuando la fence de su frame pasó, y esa fence va tras el último comando del frame. ULTRA da la CPU del
+  hilo GL y lo que el de render le esperó. Probado en x86 (Mesa llvmpipe): `nebula_gles_renderer_tests` igual con y
+  sin el hilo (también con `PEEK_FIELD=25`, `RESOLUTION=50/75`, ULTRA y `GALAXY_GLES_CHECK=1`), y
+  `nebula_gl_thread_tests` con funciones GL falsas (orden, hilo, copias, pools, la cola dando la vuelta con ~200 MB,
+  fences y trabajos tras ellas), limpio con ThreadSanitizer. La serie mide base, hilo, hilo con 4 frames en vuelo,
+  hilo con cola 3 y las repeticiones; cada recorrido se corta a los 900 s (`NEBULA_ULTRA_LIMITE`) si se colgara.
 
 ### Diseño del renderer GLES (H)
 

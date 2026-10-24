@@ -3,6 +3,7 @@
 
 #include "galaxy/gx/gles/renderer_gles.h"
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/gles/gl_thread.h"
 
 #include "galaxy/content_viewport.h"
 #include "galaxy/experimental_ultrawide_aspect.h"
@@ -272,7 +273,15 @@ bool RendererGles::make_current() {
     if (context.on_owner_thread()) {
         return true;
     }
-    if (!host_window::gles_make_current(window_, true)) {
+    // GALAXY_GLES_THREAD=1: the GL thread takes the context (the pipeline cache released it after start-up) and this
+    // thread records its calls (gl_thread.h); if it cannot, this thread makes them itself as before.
+    bool threaded = false;
+    if (gles::glthread::installed() && !gles::glthread::active() && !gl_thread_done_) {
+        host_window::NativeWindow window = window_;
+        threaded = gles::glthread::start([window](bool on) { return host_window::gles_make_current(window, on); },
+                                         context.completed_value(), context.take_pending_fences());
+    }
+    if (!threaded && !host_window::gles_make_current(window_, true)) {
         return false;
     }
     context.set_owner_thread();
@@ -284,6 +293,13 @@ bool RendererGles::make_current() {
 void RendererGles::shutdown() {
     ultra::finish();  // the run's report, while everything it reads still exists
     gles::Context& context = gles::Context::get();
+    gl_thread_done_ = true;  // shutdown's own calls run on this thread
+    if (gles::glthread::active()) {
+        // Everything queued is made and the GL thread lets the context go: the rest runs here, as before.
+        gles::glthread::stop();
+        context.adopt_completed(context.submitted_value());
+        context.clear_owner_thread();
+    }
     const bool usable = context.ready() && make_current();
     if (usable) {
         glFinish();
@@ -358,7 +374,11 @@ void RendererGles::shutdown() {
 void RendererGles::drain_gpu() {
     if (make_current()) {
         glFinish();
-        gles::Context::get().completed_value();
+        if (gles::glthread::recording()) {
+            // The GL thread reports the fences as it polls them: every one submitted has passed now.
+            (void)gles::Context::get().wait(gles::Context::get().submitted_value(), 10'000'000'000ull);
+        }
+        (void)gles::Context::get().completed_value();
         gles::Context::get().collect();
     }
 }
@@ -728,7 +748,60 @@ void RendererGles::gpu_part(int part) {
     gpu_part_ = part;
 }
 
+void RendererGles::apply_gpu_parts(std::uint64_t frame, const std::array<double, 5>& parts, double total) {
+    for (std::size_t i = 0; i < parts.size(); ++i) {
+        window_stats_.gpu_part_ms[i] += parts[i];
+    }
+    window_stats_.gpu_ms += total;
+    ultra::gpu(frame, total);
+    dynamic_gpu_ms_ += total;
+    window_stats_.gpu_max_ms = std::max(window_stats_.gpu_max_ms, total);
+    ++window_stats_.gpu_frames;
+}
+
 void RendererGles::read_gpu_parts(GpuSegments& segments) {
+    if (gles::glthread::recording()) {
+        // The results come back from the GL thread (it reads them when it reaches this point, after the frame they
+        // timed): what earlier frames posted is taken now.
+        if (segments.pending && segments.used != 0u) {
+            std::vector<GLuint> queries(segments.queries.begin(),
+                                        segments.queries.begin() + static_cast<std::ptrdiff_t>(segments.used));
+            std::vector<std::uint8_t> parts(segments.parts.begin(),
+                                            segments.parts.begin() + static_cast<std::ptrdiff_t>(segments.used));
+            const std::uint64_t frame = segments.frame;
+            gles::glthread::enqueue([this, queries = std::move(queries), parts = std::move(parts), frame] {
+                GLuint available = GL_FALSE;
+                glGetQueryObjectuiv(queries.back(), GL_QUERY_RESULT_AVAILABLE, &available);
+                GLint disjoint = 0;
+                glGetIntegerv(GL_GPU_DISJOINT_EXT, &disjoint);
+                if (available != GL_TRUE || disjoint != 0) {
+                    return;
+                }
+                GpuResult result{};
+                result.frame = frame;
+                for (std::size_t i = 0; i < queries.size(); ++i) {
+                    GLuint64 ns = 0;
+                    glGetQueryObjectui64vEXT(queries[i], GL_QUERY_RESULT, &ns);
+                    const double ms = ns < 1'000'000'000ull ? static_cast<double>(ns) / 1e6 : 0.0;
+                    result.parts[parts[i]] += ms;
+                    result.total += ms;
+                }
+                std::lock_guard<std::mutex> lock(gpu_results_mutex_);
+                gpu_results_.push_back(result);
+            });
+        }
+        segments.used = 0u;
+        segments.pending = false;
+        std::vector<GpuResult> results;
+        {
+            std::lock_guard<std::mutex> lock(gpu_results_mutex_);
+            results.swap(gpu_results_);
+        }
+        for (const GpuResult& result : results) {
+            apply_gpu_parts(result.frame, result.parts, result.total);
+        }
+        return;
+    }
     if (segments.pending && segments.used != 0u) {
         GLuint available = GL_FALSE;
         glGetQueryObjectuiv(segments.queries[segments.used - 1u], GL_QUERY_RESULT_AVAILABLE, &available);
@@ -744,14 +817,7 @@ void RendererGles::read_gpu_parts(GpuSegments& segments) {
                 parts[segments.parts[i]] += ms;
                 total += ms;
             }
-            for (std::size_t i = 0; i < parts.size(); ++i) {
-                window_stats_.gpu_part_ms[i] += parts[i];
-            }
-            window_stats_.gpu_ms += total;
-            ultra::gpu(segments.frame, total);
-            dynamic_gpu_ms_ += total;
-            window_stats_.gpu_max_ms = std::max(window_stats_.gpu_max_ms, total);
-            ++window_stats_.gpu_frames;
+            apply_gpu_parts(segments.frame, parts, total);
         }
     }
     segments.used = 0u;
@@ -810,6 +876,18 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
     gpu_in_frame_ = false;
     gpu_segments_[frame_slot_].pending = gpu_segments_[frame_slot_].used != 0u;
     gpu_segments_[frame_slot_].frame = frame_index_;
+    {
+        // The readbacks this fence completes are copied out on the GL thread before it reports the fence passed.
+        const std::uint64_t next = context.submitted_value() + 1u;
+        if (pointer_depth_in_frame_ && pointer_depth_readback_ != nullptr) {
+            arm_readback(*pointer_depth_readback_, next);
+        }
+        for (AsyncField& field : async_fields_) {
+            if (field.fence == kAsyncPeekInFrame) {
+                arm_readback(field.readbacks[field.pending_slot], next);
+            }
+        }
+    }
     const std::uint64_t fence = context.submit();
     frames_[frame_slot_].fence = fence;
     if (pointer_depth_in_frame_) {
@@ -827,10 +905,28 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
     }
     if (present_swap_chain && presented_this_frame_) {
         const std::int64_t start = monotonic_ns();
-        host_window::gles_swap_buffers(window_);
+        if (gles::glthread::recording()) {
+            // The swap is the GL thread's (it waits for the vsync there); its time comes back in its stats.
+            host_window::NativeWindow window = window_;
+            gles::glthread::enqueue([window] {
+                const std::int64_t swap_start = monotonic_ns();
+                host_window::gles_swap_buffers(window);
+                gles::glthread::add_swap_ns(static_cast<std::uint64_t>(monotonic_ns() - swap_start));
+            });
+            gles::glthread::kick();
+            const std::uint64_t swap = gles::glthread::stats().swap_ns;
+            const std::int64_t waited = static_cast<std::int64_t>(swap - gl_swap_prev_);
+            gl_swap_prev_ = swap;
+            window_stats_.present_wait_ns += waited;
+            ultra_swap_ns_ += waited;
+        } else {
+            host_window::gles_swap_buffers(window_);
+        }
         const std::int64_t end = monotonic_ns();
-        window_stats_.present_wait_ns += end - start;
-        ultra_swap_ns_ += end - start;
+        if (!gles::glthread::recording()) {
+            window_stats_.present_wait_ns += end - start;
+            ultra_swap_ns_ += end - start;
+        }
         if (!window_shown_) {
             host_window::show_window(window_);
             window_shown_ = true;
@@ -868,7 +964,10 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
 // ULTRA-GLES: this present's frame, from the stats since the previous one (ultra_gles.h).
 void RendererGles::ultra_frame() {
     const std::int64_t cpu = gles::thread_cpu_ns();
-    if ((frame_index_ & 63u) == 0u) {
+    if (gles::glthread::recording()) {
+        (void)glGetError();  // the GL thread polls and counts them
+        ultra_gl_errors_ += gles::glthread::take_errors();
+    } else if ((frame_index_ & 63u) == 0u) {
         for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {
             ++ultra_gl_errors_;
         }
@@ -897,6 +996,16 @@ void RendererGles::ultra_frame() {
     sample.efb_width = efb_width();
     sample.efb_height = efb_height();
     sample.gl_errors = std::exchange(ultra_gl_errors_, 0u);
+    if (gles::glthread::active()) {
+        const gles::glthread::Stats gl = gles::glthread::stats();
+        sample.gl_thread = true;
+        sample.gl_cpu_ns = static_cast<std::int64_t>(gl.gl_cpu_ns - ultra_gl_prev_.gl_cpu_ns);
+        sample.gl_sync_wait_ns = static_cast<std::int64_t>(gl.sync_wait_ns - ultra_gl_prev_.sync_wait_ns +
+                                                           gl.full_wait_ns - ultra_gl_prev_.full_wait_ns);
+        sample.gl_syncs = static_cast<std::uint32_t>(gl.syncs - ultra_gl_prev_.syncs);
+        sample.gl_commands = static_cast<std::uint32_t>(gl.commands - ultra_gl_prev_.commands);
+        ultra_gl_prev_ = gl;
+    }
     ultra::frame(sample);
     ultra_prev_ = window_stats_;
     ultra_cpu_prev_ = cpu;
@@ -1819,6 +1928,39 @@ void RendererGles::record_peek_field(gles::Texture& target, EfbPeekKind kind,
     gpu_part(kGpuScene);
 }
 
+// On the GL thread: `bytes` of a pixel-pack buffer into `out`, the binding it found left as it was (the commands
+// around this one may have their own buffer bound).
+void RendererGles::copy_pack_buffer(GLuint buffer, std::size_t bytes, std::vector<std::uint8_t>& out) {
+    GLint previous = 0;
+    glGetIntegerv(GL_PIXEL_PACK_BUFFER_BINDING, &previous);
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, buffer);
+    const void* mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(bytes), GL_MAP_READ_BIT);
+    out.resize(bytes);
+    if (mapped != nullptr) {
+        std::memcpy(out.data(), mapped, bytes);
+        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+    } else {
+        out.clear();
+    }
+    glBindBuffer(GL_PIXEL_PACK_BUFFER, static_cast<GLuint>(previous));
+}
+
+void RendererGles::arm_readback(Readback& readback, std::uint64_t fence) {
+    if (!gles::glthread::recording() || readback.buffer == 0u) {
+        return;
+    }
+    const std::size_t bytes = static_cast<std::size_t>(readback.width) * readback.height * 4u;
+    readback.gl_ready.store(false, std::memory_order_relaxed);
+    readback.gl_armed = true;
+    readback.gl_bytes.resize(bytes);
+    const GLuint buffer = readback.buffer;
+    Readback* target = &readback;
+    gles::glthread::after_fence(fence, [buffer, bytes, target] {
+        copy_pack_buffer(buffer, bytes, target->gl_bytes);
+        target->gl_ready.store(true, std::memory_order_release);
+    });
+}
+
 bool RendererGles::complete_readback(Readback& readback) {
     if (readback.buffer == 0u || readback.bytes == 0u) {
         return false;
@@ -1826,9 +1968,27 @@ bool RendererGles::complete_readback(Readback& readback) {
     const std::int64_t start = monotonic_ns();
     const std::size_t read_bytes = static_cast<std::size_t>(readback.width) * readback.height * 4u;
     const bool expand = readback.expand;
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, readback.buffer);
-    const void* mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(read_bytes),
-                                          GL_MAP_READ_BIT);
+    const bool threaded = gles::glthread::recording();
+    const void* mapped = nullptr;
+    if (threaded) {
+        // The GL thread copied the buffer out when its fence passed (arm_readback); a peek read at once (no fence)
+        // has it copied now, after the commands before it.
+        if (!readback.gl_armed) {
+            const GLuint buffer = readback.buffer;
+            std::vector<std::uint8_t>& out = readback.gl_bytes;
+            out.resize(read_bytes);
+            gles::glthread::run_sync([buffer, read_bytes, &out] { copy_pack_buffer(buffer, read_bytes, out); });
+        } else {
+            while (!readback.gl_ready.load(std::memory_order_acquire)) {
+                std::this_thread::yield();
+            }
+        }
+        readback.gl_armed = false;
+        mapped = readback.gl_bytes.size() >= read_bytes ? readback.gl_bytes.data() : nullptr;
+    } else {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, readback.buffer);
+        mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(read_bytes), GL_MAP_READ_BIT);
+    }
     if (mapped != nullptr) {
         if (expand && readback.compact) {
             // The texels as read; the lookups map logical pixels to them.
@@ -1839,9 +1999,13 @@ bool RendererGles::complete_readback(Readback& readback) {
         } else {
             std::memcpy(readback.data.data(), mapped, std::min(read_bytes, readback.data.size()));
         }
-        glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        if (!threaded) {
+            glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
+        }
     }
-    glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    if (!threaded) {
+        glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
+    }
     if (mapped != nullptr && expand && !readback.compact) {
         // Logical pixel x reads texel x * num / den (to_physical's peek texel); a row repeating the row above
         // (same texel row) is a copy of it.
@@ -1932,6 +2096,7 @@ std::uint64_t RendererGles::submit_pointer_depth_capture() {
     constants.values[15] = -1.0f;  // the whole field
     record_peek_field(*field_target_, EfbPeekKind::Depth, constants, kEfbWidth, kEfbHeight, readback);
     pointer_depth_readback_ = &readback;
+    arm_readback(readback, gles::Context::get().submitted_value() + 1u);
     pointer_depth_fence_ = gles::Context::get().submit();
     readback.fence = pointer_depth_fence_;
     return pointer_depth_fence_;
@@ -1990,6 +2155,7 @@ std::uint64_t RendererGles::submit_async_peek_field(std::size_t channel, EfbPeek
         make_efb_peek_conversion_constants(compute_efb_peek_sampling_geometry(0u, 0u, efb_scale_), kind);
     constants.values[15] = -1.0f;
     record_peek_field(*field.target, kind, constants, kEfbWidth, kEfbHeight, field.readbacks[slot], true);
+    arm_readback(field.readbacks[slot], gles::Context::get().submitted_value() + 1u);
     field.readbacks[slot].fence = gles::Context::get().submit();
     field.fence = field.readbacks[slot].fence;
     field.pending_slot = slot;

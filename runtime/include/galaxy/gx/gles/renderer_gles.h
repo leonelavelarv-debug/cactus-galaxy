@@ -18,6 +18,7 @@
 
 #include "galaxy/gx/efb_copy.h"
 #include "galaxy/gx/gles/gles_context.h"
+#include "galaxy/gx/gles/gl_thread.h"
 #include "galaxy/gx/gpu_types.h"
 #include "galaxy/gx/host_window.h"
 #include "galaxy/gx/interp_gpu.h"
@@ -39,6 +40,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <span>
 #include <string>
 #include <unordered_map>
@@ -331,6 +333,11 @@ private:
         // (the expansion wrote 1.35 MB a field, ~7 % of the render thread on the RG35XX H); GxBackend's lookups map
         // logical x to texel x*num/den themselves (async_peek_field_layout).
         bool compact = false;
+        // GALAXY_GLES_THREAD: the GL thread copies the buffer here when the fence passes (arm_readback), then sets
+        // gl_ready; complete_readback reads from it instead of mapping.
+        std::vector<std::uint8_t> gl_bytes;
+        std::atomic<bool> gl_ready{false};
+        bool gl_armed = false;
     };
     struct AsyncField {
         gpu::TextureRef target;
@@ -380,6 +387,8 @@ private:
     void record_peek_field(gles::Texture& target, EfbPeekKind kind, const EfbConversionShaderConstants& constants,
                            unsigned width, unsigned height, Readback& readback, bool reduced = false);
     bool complete_readback(Readback& readback);
+    void arm_readback(Readback& readback, std::uint64_t fence);
+    static void copy_pack_buffer(GLuint buffer, std::size_t bytes, std::vector<std::uint8_t>& out);
     void ensure_readback(Readback& readback, std::size_t bytes, std::size_t data_bytes);
     void report_stats();
 
@@ -554,6 +563,18 @@ private:
     };
     void gpu_part(int part);
     void read_gpu_parts(GpuSegments& segments);
+    void apply_gpu_parts(std::uint64_t frame, const std::array<double, 5>& parts, double total);
+    // GALAXY_GLES_THREAD: the timer results the GL thread posts back, and its stats at the previous present.
+    struct GpuResult {
+        std::uint64_t frame = 0;
+        std::array<double, 5> parts{};
+        double total = 0.0;
+    };
+    std::mutex gpu_results_mutex_;
+    std::vector<GpuResult> gpu_results_;
+    gles::glthread::Stats ultra_gl_prev_{};
+    std::uint64_t gl_swap_prev_ = 0;
+    bool gl_thread_done_ = false;  // stopped for shutdown: not started again
     std::array<GpuSegments, kFramesInFlight> gpu_segments_{};
     int gpu_part_ = kGpuNone;
     bool gpu_in_frame_ = false;

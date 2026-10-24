@@ -2,6 +2,7 @@
 // The shared OpenGL ES context (gles_context.h) and the GL entry points (gl_api.h).
 
 #include "galaxy/gx/gles/gles_context.h"
+#include "galaxy/gx/gles/gl_thread.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -123,6 +124,9 @@ bool Context::initialize(Loader loader) {
         std::fprintf(stderr, "[gles] %s\n", failure_.c_str());
         return false;
     }
+    if (const char* threaded = std::getenv("GALAXY_GLES_THREAD"); threaded != nullptr && threaded[0] == '1') {
+        glthread::install();  // the wrappers pass through until the render thread starts the GL thread
+    }
     caps_.vendor = string_of(GL_VENDOR);
     caps_.renderer = string_of(GL_RENDERER);
     caps_.version = string_of(GL_VERSION);
@@ -214,6 +218,12 @@ void Context::shutdown() noexcept {
 std::uint64_t Context::submit() {
     std::lock_guard<std::mutex> lock(submit_mutex_);
     const std::uint64_t value = submitted_.load(std::memory_order_relaxed) + 1u;
+    if (glthread::recording()) {
+        // The GL thread inserts it after the commands queued so far.
+        glthread::submit_fence(value);
+        submitted_.store(value, std::memory_order_release);
+        return value;
+    }
     GLsync sync = glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
     glFlush();
     pending_.push_back({value, sync});
@@ -222,6 +232,11 @@ std::uint64_t Context::submit() {
 }
 
 std::uint64_t Context::completed_value() {
+    if (glthread::active()) {
+        const std::uint64_t done = glthread::completed();
+        completed_.store(done, std::memory_order_release);
+        return done;
+    }
     if (!ready_ || !on_owner_thread()) {
         return completed_.load(std::memory_order_acquire);
     }
@@ -242,6 +257,11 @@ std::uint64_t Context::completed_value() {
 bool Context::wait(std::uint64_t value, std::uint64_t timeout_ns) {
     if (completed_value() >= value) {
         return true;
+    }
+    if (glthread::active()) {
+        const bool ok = glthread::wait_fence(value, timeout_ns);
+        completed_.store(glthread::completed(), std::memory_order_release);
+        return ok;
     }
     if (!on_owner_thread()) {
         // Another thread waits for the owner's polls.
@@ -267,6 +287,22 @@ bool Context::wait(std::uint64_t value, std::uint64_t timeout_ns) {
         pending_.erase(pending_.begin());
     }
     return completed_.load(std::memory_order_acquire) >= value;
+}
+
+std::vector<glthread::PendingFence> Context::take_pending_fences() {
+    std::lock_guard<std::mutex> lock(submit_mutex_);
+    std::vector<glthread::PendingFence> out;
+    out.reserve(pending_.size());
+    for (const Pending& pending : pending_) {
+        out.push_back({pending.value, pending.sync});
+    }
+    pending_.clear();
+    return out;
+}
+
+void Context::adopt_completed(std::uint64_t value) noexcept {
+    std::lock_guard<std::mutex> lock(submit_mutex_);
+    completed_.store(std::max(completed_.load(std::memory_order_relaxed), value), std::memory_order_release);
 }
 
 void Context::defer(std::function<void()> destroy) {

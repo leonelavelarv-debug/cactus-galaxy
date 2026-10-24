@@ -7,6 +7,7 @@
 // inserts a fence sync with the next fence value. Buffers get GX addresses (gpu::Address) as on Vulkan.
 
 #include "galaxy/gx/gles/gl_api.h"
+#include "galaxy/gx/gles/gl_thread.h"
 #include "galaxy/gx/gpu_types.h"
 
 #include <array>
@@ -105,6 +106,9 @@ public:
     }
     // Waits on the owner thread until the GPU has passed `value`; false on a timeout.
     bool wait(std::uint64_t value, std::uint64_t timeout_ns = UINT64_MAX);
+    // The GL thread's start and end (gl_thread.h): the fences inserted so far go to it, and back its last value.
+    [[nodiscard]] std::vector<glthread::PendingFence> take_pending_fences();
+    void adopt_completed(std::uint64_t value) noexcept;
     // Runs `destroy` (on the owner thread) once the GPU has passed the next submission.
     void defer(std::function<void()> destroy);
     void collect();
