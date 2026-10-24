@@ -11684,6 +11684,7 @@ void GxBackend::prepare_worker_memory_snapshot(FrameChunk& chunk) {
         invalidate_immutable_range_cache(chunk.dirty_ranges);
         {
             std::lock_guard<std::mutex> parser_lock(parser_cache_mutex_);
+            parser_.advance_memory_generation();  // see the render thread's call below
             invalidate_dirty_display_list_ranges(parser_, chunk.dirty_ranges);
         }
         // The decoded-packet-run vertex cache is keyed on the display-list token. The display lists were
@@ -12642,6 +12643,10 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
         {
             const cadence::ScopedPhaseTimer timer{
                 cadence_diagnostics_, cadence::TimingPhase::RenderDisplayListInvalidation};
+            // A new batch of guest writes, before this chunk's first parse: each cached display list compares
+            // its bytes with guest memory again on its first call in the chunk, and only then (the rule the
+            // decoded vertex cache's generation follows), whether or not the dirty ranges invalidate lists.
+            parser_.advance_memory_generation();
             dirty_display_list_invalidations =
                 invalidate_dirty_display_list_ranges(parser_, chunk.dirty_ranges);
         }

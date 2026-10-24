@@ -78,10 +78,23 @@ int main() {
     for (int i = 0; i < 20; ++i) {
         ultra::add(ultra::kTextureUploads, 1u);
         ultra::add(ultra::kTextureUploadBytes, 64u * 1024u);
+        ultra::add(ultra::kDisplayListCompares, 10u);
+        ultra::add(ultra::kDisplayListCompareBytes, 10u * 1024u);
+        ultra::add(ultra::kDisplayListCompareSkips, 30u);
         present(16.667, 14.0, 400u, false);
     }
     ultra::finish();
     ultra::finish();  // idempotent
+    if (const char* dir = std::getenv("GALAXY_ULTRA_DIR")) {
+        std::string text;
+        if (FILE* f = std::fopen((std::string(dir) + "/resumen.json").c_str(), "r")) {
+            char buffer[4096];
+            std::size_t n = 0;
+            while ((n = std::fread(buffer, 1, sizeof(buffer), f)) != 0) text.append(buffer, n);
+            std::fclose(f);
+        }
+        check(text.find("\"dl_saltadas\": ") != std::string::npos, "resumen.json has the display-list counters");
+    }
     check(!captured.empty() && captured.find("TestBGalaxy") != std::string::npos, "scene B's capture path");
     std::printf("ultra gles tests: %d failed\n", failures);
     return failures == 0 ? 0 : 1;
