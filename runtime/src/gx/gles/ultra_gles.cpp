@@ -215,7 +215,7 @@ public:
         if (writer_.joinable()) {
             writer_.join();
         }
-        write_reports();
+        write_reports(true);
     }
 
 private:
@@ -348,6 +348,7 @@ private:
 
     void write_loop() {
         std::int64_t next_memory = now_ns();
+        std::int64_t next_report = next_memory + 20'000'000'000;
         for (;;) {
             std::vector<Record> batch;
             bool stop = false;
@@ -373,6 +374,11 @@ private:
             }
             if (stop) {
                 return;
+            }
+            // The reports so far, every 20 s: a run that is stopped (or killed) still leaves them.
+            if (now >= next_report) {
+                write_reports(false);
+                next_report = now + 20'000'000'000;
             }
         }
     }
@@ -577,14 +583,18 @@ private:
         return out;
     }
 
-    void write_reports() {
+    // final: the run's end (closes the CSVs); otherwise the figures so far, marked partial. Each file is written to a
+    // temporary name and renamed, so a run killed halfway never leaves half a report.
+    void write_reports(bool final) {
         char started[32];
         std::strftime(started, sizeof(started), "%Y-%m-%dT%H:%M:%S", std::localtime(&start_time_));
         const double run_s = static_cast<double>(now_ns() - start_ns_) / 1e9;
         const auto config = settings();
-        if (FILE* json = std::fopen((dir_ + "/resumen.json").c_str(), "w")) {
-            std::fprintf(json, "{\n  \"ultra\": 1,\n  \"inicio\": \"%s\",\n  \"duracion_s\": %.1f,\n  \"modo\": \"%s\",\n",
-                         started, run_s, bench_ ? "bench" : "juego");
+        const std::string json_path = dir_ + "/resumen.json";
+        if (FILE* json = std::fopen((json_path + ".tmp").c_str(), "w")) {
+            std::fprintf(json, "{\n  \"ultra\": 1,\n  \"inicio\": \"%s\",\n  \"duracion_s\": %.1f,\n  \"modo\": \"%s\",\n"
+                               "  \"parcial\": %s,\n",
+                         started, run_s, bench_ ? "bench" : "juego", final ? "false" : "true");
             std::fprintf(json, "  \"periodo_ms\": %.3f,\n  \"ajustes\": {", period_ms_);
             for (std::size_t i = 0; i < config.size(); ++i) {
                 std::fprintf(json, "%s%s: %s", i != 0u ? ", " : "", json_string(config[i].first).c_str(),
@@ -610,8 +620,13 @@ private:
             }
             std::fprintf(json, "\n  ]\n}\n");
             std::fclose(json);
+            std::error_code error;
+            std::filesystem::rename(json_path + ".tmp", json_path, error);
         }
-        write_text_report(started, run_s, config);
+        write_text_report(started, run_s, config, final);
+        if (!final) {
+            return;
+        }
         if (frames_csv_ != nullptr) {
             std::fclose(frames_csv_);
             frames_csv_ = nullptr;
@@ -629,14 +644,16 @@ private:
     }
 
     void write_text_report(const char* started, double run_s,
-                           const std::vector<std::pair<std::string, std::string>>& config) {
-        FILE* out = std::fopen((dir_ + "/informe.txt").c_str(), "w");
+                           const std::vector<std::pair<std::string, std::string>>& config, bool final) {
+        const std::string path = dir_ + "/informe.txt";
+        FILE* out = std::fopen((path + ".tmp").c_str(), "w");
         if (out == nullptr) {
             return;
         }
         const Figures t = figures(total_);
-        std::fprintf(out, "ULTRA-GLES -- informe de rendimiento (%s, %s, %.0f s)\n\n", started,
-                     bench_ ? "benchmark" : "partida", run_s);
+        std::fprintf(out, "ULTRA-GLES -- informe de rendimiento (%s, %s, %.0f s%s)\n\n", started,
+                     bench_ ? "benchmark" : "partida", run_s,
+                     final ? "" : "; PARCIAL: la ejecucion seguia, se actualiza cada 20 s");
         std::fprintf(out, "Juego estable (sin los primeros %.0f s de cada escena):\n", static_cast<double>(warmup_ns_) / 1e9);
         std::fprintf(out, "  FPS promedio ............ %.1f mostrados, %.1f dibujados (el resto los repite el salto de frames)\n",
                      t.fps, t.drawn_fps);
@@ -701,6 +718,8 @@ private:
         std::fprintf(out, "\nDatos por frame: frames.csv; memoria por segundo: memoria.csv; para comparar dos "
                           "ejecuciones: python3 smg/ultra/compare.py <carpeta A> <carpeta B>\n");
         std::fclose(out);
+        std::error_code error;
+        std::filesystem::rename(path + ".tmp", path, error);
     }
 };
 
