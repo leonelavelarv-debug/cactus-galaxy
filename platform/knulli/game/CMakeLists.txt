@@ -100,6 +100,7 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/gx/gles/texture_backend_gles.cpp
     ${rt}/gx/gles/pipeline_cache_gles.cpp
     ${rt}/gx/gles/renderer_gles.cpp
+    ${rt}/gx/gles/ultra_gles.cpp
     ${rt}/frame_cadence_diagnostics.cpp
     ${rt}/runtime_settings.cpp
     ${rt}/input_bindings.cpp
@@ -133,6 +134,12 @@ endif()
 # linked (EGL, no window; GALAXY_GLES_TEST_DUMP=<dir> writes the GLSL).
 add_executable(nebula_gles_shader_tests "${CMAKE_CURRENT_SOURCE_DIR}/gles_shader_tests.cpp")
 target_link_libraries(nebula_gles_shader_tests PRIVATE galaxy_gx_gles)
+
+# ULTRA-GLES's profiler on made-up frames (no GL): GALAXY_ULTRA=bench GALAXY_ULTRA_DIR=<dir> nebula_ultra_gles_tests
+add_executable(nebula_ultra_gles_tests "${CMAKE_CURRENT_SOURCE_DIR}/ultra_gles_tests.cpp"
+    "${nebula_root}/runtime/src/gx/gles/ultra_gles.cpp")
+target_include_directories(nebula_ultra_gles_tests PRIVATE "${nebula_root}/runtime/include")
+target_link_libraries(nebula_ultra_gles_tests PRIVATE Threads::Threads)
 
 if(NEBULA_SDL2_PREFIX)
     add_library(nebula_sdl2 INTERFACE)

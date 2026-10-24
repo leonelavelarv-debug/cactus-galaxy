@@ -14,6 +14,9 @@
 #endif
 #endif
 #include <nebula_game_api.h>
+#if defined(NEBULA_GPU_GLES)
+#include "galaxy/gx/gles/ultra_gles.h"
+#endif
 
 #include "galaxy/atomic_file.h"
 #include "galaxy/crash_report.h"
@@ -1519,6 +1522,9 @@ std::string gSceneStage;
 void svc_game_stage(void*, const char* name) {
     if (name != nullptr && gSceneStage != name) {
         gSceneStage = name;
+#if defined(NEBULA_GPU_GLES)
+        galaxy::gx::ultra::set_scene(name);  // ULTRA-GLES: the frames from here on are this scene's
+#endif
     }
 }
 
@@ -2363,6 +2369,11 @@ int svc_test_scene_frame(void*, NebulaTestAction* action) {
             // the disc's own file table, so no list has to ship with the port.
             if (std::strcmp(tour, "auto") == 0) {
                 for (const std::string& stage : auto_tour_stages()) stops.push_back({stage, 1});
+                // GALAXY_TEST_GALAXY_TOUR_LIMIT=n: only the first n (a short ULTRA-GLES benchmark).
+                if (const char* limit = std::getenv("GALAXY_TEST_GALAXY_TOUR_LIMIT")) {
+                    const size_t n = std::strtoull(limit, nullptr, 10);
+                    if (n != 0 && n < stops.size()) stops.resize(n);
+                }
             } else if (FILE* file = std::fopen(tour, "r")) {
                 char stage[64];
                 int scenario = 0;

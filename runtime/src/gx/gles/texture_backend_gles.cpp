@@ -2,6 +2,7 @@
 // TextureCache's OpenGL ES side (texture_backend.h).
 
 #include "galaxy/gx/texture_backend.h"
+#include "galaxy/gx/gles/ultra_gles.h"
 
 #include <algorithm>
 #include <stdexcept>
@@ -92,6 +93,7 @@ void TextureBackend::record_upload(gles::Texture* texture, bool, const UploadChu
     glBindTexture(GL_TEXTURE_2D, texture->name);
     glPixelStorei(GL_UNPACK_ALIGNMENT, 4);
     const unsigned count = std::min(levels, texture->levels);
+    const std::uint64_t before = uploaded_bytes_;
     for (unsigned l = 0; l < count; ++l) {
         const std::uint32_t lw = std::max<std::uint32_t>(1u, width >> l);
         const std::uint32_t lh = std::max<std::uint32_t>(1u, height >> l);
@@ -102,6 +104,10 @@ void TextureBackend::record_upload(gles::Texture* texture, bool, const UploadChu
     }
     glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
     glBindTexture(GL_TEXTURE_2D, 0);
+    if (ultra::enabled()) {
+        ultra::add(ultra::kTextureUploads, 1u);
+        ultra::add(ultra::kTextureUploadBytes, uploaded_bytes_ - before);
+    }
 }
 
 }  // namespace galaxy::gx

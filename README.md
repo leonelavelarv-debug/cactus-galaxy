@@ -57,6 +57,9 @@ necesita `GL_EXT_buffer_storage`, y no está comprobado que Panfrost lo dé.
 * **Ficha y portada en cada menú:** descripción, género y desarrollador en el idioma del juego, con la portada de
   libretro-thumbnails. Va a la API de EmulationStation (KNULLI, ROCKNIX), a `gamelist.xml` (ArkOS, dArkOS) o al
   catálogo de muOS.
+* **ULTRA-GLES:** medición del rendimiento gráfico en la consola. `NEBULA_ULTRA=bench` recorre las galaxias solo y
+  deja un informe por galaxia (FPS, tiempo por fotograma p95/p99, tirones y su causa, CPU, GPU, memoria) y
+  `smg/ultra/compare.py` compara dos ajustes (ver `smg/ultra/LEEME.txt`).
 * **Instalador autoextraíble:** detecta el firmware y pone cada parte en su sitio. Al reinstalar conserva tu
   `game.pak`, el idioma y las partidas.
 
