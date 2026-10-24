@@ -164,7 +164,9 @@ echo "perfil: $NEBULA_PERFIL (frameskip $GALAXY_FRAMESKIP, peeks ${GALAXY_PEEK_M
 export NEBULA_DATA_DIR="$GAMEDIR/data"
 export GALAXY_CRASH_DUMP_DIR="$GAMEDIR/crashes"
 export GALAXY_RUNTIME_SETTINGS_PATH="$GAMEDIR/settings.ini"
-export GALAXY_GLES_PENDING="${GALAXY_GLES_PENDING:-wait}"
+# uber por defecto (ULTRA-GLES): la primera vez con wait, 166 shaders compilados de golpe pararon el juego 62 s en
+# 10 galaxias; con uber se dibuja con el shader generico mientras el suyo compila en otro hilo.
+export GALAXY_GLES_PENDING="${GALAXY_GLES_PENDING:-uber}"
 #   GALAXY_GLES_RESOLUTION=100           resolucion interna: 100 = 640x528 (alta definicion, la del Wii); 75 = 480x396;
 #                                        50 = 320x264; auto = dinamica (baja cuando la GPU no llega, sube cuando le sobra)
 #   GALAXY_GLES_RESOLUTION_MIN/MAX/START  los limites de la dinamica (50/100) y donde empieza (75)
@@ -234,6 +236,7 @@ if [ "$NEBULA_ULTRA" != 0 ]; then
     unset GALAXY_PRESENT_SNAPSHOT_DIR GALAXY_PRESENT_SNAPSHOT_EVERY
     if [ "${NEBULA_ULTRA_HILOS:-0}" = 1 ]; then
       export NEBULA_PROFILE=20 NEBULA_PROFILE_EVERY=20 NEBULA_PROFILE_ROUNDS=200
+      export NEBULA_PROFILE_DUMP="$ultra_dir/muestras.txt" GALAXY_GX_FRAME_TIMING_SAMPLE=30
     else
       export NEBULA_PROFILE=0
     fi
@@ -330,6 +333,8 @@ if [ "$NEBULA_ULTRA" = serie ]; then
         { sub(/\r$/, "") }
         /^[[:space:]]*\[/ { section = $0; gsub(/[][[:space:]]/, "", section); next }
         section == want && $0 ~ /=/ && $0 !~ /^[[:space:]]*#/ { print }' "$serie_cfg")
+      # Muestreo de hilos en esta seccion: las pilas completas a muestras.txt de su carpeta.
+      case "${NEBULA_PROFILE:-0}" in 0|'') ;; *) export NEBULA_PROFILE_DUMP="${NEBULA_PROFILE_DUMP:-$run_dir/muestras.txt}" ;; esac
       ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
     )
     status=$?
