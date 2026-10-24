@@ -157,7 +157,7 @@ El detalle (renderer GLES, perfil bajo, pruebas) está en
 
 ```bash
 # Clona el repositorio
-git clone https://github.com/leonelavelarv-debug/cactus-galaxy.git
+git clone <la dirección de este repositorio> cactus-galaxy
 cd cactus-galaxy
 
 # nebula-pak (el convertidor) y sus pruebas en el PC: ISO, GCZ, RVZ y el parche xdelta
@@ -226,7 +226,7 @@ El workflow [`nebula-pak (consola ARM64)`](.github/workflows/nebula-pak-consola.
   Se distribuye en [João13 Traduções](https://joao13traducoes.com/2018/01/wii-super-mario-galaxy-brazilian-warriors-e-nintendo-br/). El paquete trae el parche en formato xdelta, pero no está en el
   repositorio; todo el mérito de la traducción es de sus autores.
 * Port, wrapper e instalador hechos con agentes de IA (Claude, de Anthropic), dirigidos y probados por
-  [leonelavelarv-debug](https://github.com/leonelavelarv-debug), igual que Nebula. La lógica del juego es la original:
+  🌵 **Sr. Cactus**, igual que Nebula. La lógica del juego es la original:
   la de la descompilación.
 
 *Super Mario Galaxy es una marca de Nintendo. Este proyecto no está afiliado a Nintendo.*

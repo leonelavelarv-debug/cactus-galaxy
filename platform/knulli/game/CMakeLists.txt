@@ -151,7 +151,8 @@ if(NEBULA_SDL2_PREFIX)
     target_compile_definitions(nebula_knulli PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1 NEBULA_HOST_SDL2=1)
     target_link_libraries(nebula_knulli PRIVATE galaxy_gx_gles nebula_sdl2)
     # The game module and SDL beside the executable.
-    set_target_properties(nebula_knulli PROPERTIES BUILD_RPATH "\$ORIGIN" INSTALL_RPATH "\$ORIGIN")
+    # Only $ORIGIN, also in the build tree: no build machine paths (the SDL2 the build linked against) in the binary.
+    set_target_properties(nebula_knulli PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "\$ORIGIN")
 
     # RendererGles through the window layer: clears, peeks, copies and the present, checked for orientation.
     add_executable(nebula_gles_renderer_tests

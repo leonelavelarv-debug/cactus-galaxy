@@ -57,4 +57,6 @@ if(CACTUS_SDL2_PREFIX)
     target_link_libraries(cactus-galaxy-wrapper PRIVATE "${CACTUS_SDL2_PREFIX}/lib/libSDL2-2.0.so" pthread m)
     target_compile_options(cactus-galaxy-wrapper PRIVATE -O2 -Wall -Wextra)
     target_link_options(cactus-galaxy-wrapper PRIVATE -static-libstdc++ -static-libgcc -Wl,--gc-sections)
+    # No RPATH: the console's libSDL2-2.0.so.0, and no build machine paths in the binary.
+    set_target_properties(cactus-galaxy-wrapper PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "")
 endif()
