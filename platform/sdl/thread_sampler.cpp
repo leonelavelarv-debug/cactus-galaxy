@@ -184,12 +184,17 @@ void start_thread_sampler() noexcept {
     }
     const int rounds = 1;
 #else
+    // NEBULA_PROFILE=<s>: the first round that many seconds in (0 or empty: off); NEBULA_PROFILE_ROUNDS (3) rounds,
+    // NEBULA_PROFILE_EVERY (30) seconds apart (ULTRA-GLES's NEBULA_ULTRA_HILOS samples the whole benchmark).
     const char* value = std::getenv("NEBULA_PROFILE");
-    if (value == nullptr || value[0] == '\0') {
+    if (value == nullptr || value[0] == '\0' || std::atoi(value) <= 0) {
         return;
     }
-    const int rounds = 3;
+    const char* rounds_text = std::getenv("NEBULA_PROFILE_ROUNDS");
+    const int rounds = rounds_text != nullptr && std::atoi(rounds_text) > 0 ? std::atoi(rounds_text) : 3;
 #endif
+    const char* every_text = std::getenv("NEBULA_PROFILE_EVERY");
+    const int every = every_text != nullptr && std::atoi(every_text) > 0 ? std::atoi(every_text) : 30;
     const int delay = std::max(1, std::atoi(value));
     // libc's loaded extent, so the walk can step over it (memcpy and friends).
     dl_iterate_phdr(
@@ -210,7 +215,7 @@ void start_thread_sampler() noexcept {
             return 1;
         },
         nullptr);
-    std::thread([delay, rounds] {
+    std::thread([delay, rounds, every] {
         prctl(PR_SET_NAME, "Nebula Sampler");
         struct sigaction action {};
         action.sa_sigaction = on_sample;
@@ -219,7 +224,7 @@ void start_thread_sampler() noexcept {
         std::this_thread::sleep_for(std::chrono::seconds(delay));
         for (int round = 0; round < rounds; ++round) {
             if (round != 0) {
-                std::this_thread::sleep_for(std::chrono::seconds(30));
+                std::this_thread::sleep_for(std::chrono::seconds(every));
             }
             std::fprintf(stderr, "[sampler] round %d\n", round + 1);
             for (const char* prefix : {"Nebula GX", "Nebula Host Mai", "Nebula Game"}) {

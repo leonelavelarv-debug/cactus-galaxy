@@ -212,6 +212,9 @@ export NEBULA_PROFILE="${NEBULA_PROFILE:-150}"
 #                                        smg/ultra/<fecha>[-etiqueta]/informe.txt (y frames.csv, resumen.json, capturas/)
 #   NEBULA_ULTRA_ETIQUETA=nombre         nombre para la carpeta (p. ej. el ajuste que pruebas)
 #   NEBULA_ULTRA_GALAXIAS=n              bench: solo las n primeras galaxias (pruebas cortas)
+#   NEBULA_ULTRA=serie                   varios recorridos seguidos, uno por seccion de smg/ultra/serie.cfg ([nombre] y
+#                                        sus NOMBRE=valor), y al final smg/ultra/<fecha>-serie/comparacion.txt
+#   NEBULA_ULTRA_HILOS=1                 ademas, donde gasta el tiempo cada hilo, cada 20 s (lineas [sampler] de log.txt)
 #   Comparar dos: python3 smg/ultra/compare.py smg/ultra/<A> smg/ultra/<B>
 #   (Todos estos ajustes se pueden poner tambien en smg/ultra.cfg: ver "Ajustes" arriba.)
 NEBULA_ULTRA="${NEBULA_ULTRA:-0}"
@@ -219,16 +222,21 @@ nand_dir="$GAMEDIR/nand"
 [ "$NEBULA_ULTRA" = 0 ] && echo "ultra: apagado (para medir: NEBULA_ULTRA=bench en smg/ultra.cfg; ver smg/ultra/LEEME.txt)"
 if [ "$NEBULA_ULTRA" != 0 ]; then
   etiqueta=$(printf "%s" "${NEBULA_ULTRA_ETIQUETA:-}" | tr -c "A-Za-z0-9._-" "_")
+  [ "$NEBULA_ULTRA" = serie ] && etiqueta=serie
   ultra_dir="$GAMEDIR/ultra/$(date +%Y%m%d-%H%M%S)${etiqueta:+-$etiqueta}"
   mkdir -p "$ultra_dir"
   export GALAXY_ULTRA_DIR="$ultra_dir"
-  if [ "$NEBULA_ULTRA" = bench ]; then
+  if [ "$NEBULA_ULTRA" = bench ] || [ "$NEBULA_ULTRA" = serie ]; then
     export GALAXY_ULTRA=bench GALAXY_TEST_GALAXY_TOUR=auto GALAXY_TEST_GALAXY_TOUR_FRAMES="${NEBULA_ULTRA_FRAMES:-900}"
     [ -n "${NEBULA_ULTRA_GALAXIAS:-}" ] && export GALAXY_TEST_GALAXY_TOUR_LIMIT="$NEBULA_ULTRA_GALAXIAS"
     nand_dir="$GAMEDIR/ultra/nand-bench"
     # Nada que lea la imagen por su cuenta: serian tirones que no son del juego.
     unset GALAXY_PRESENT_SNAPSHOT_DIR GALAXY_PRESENT_SNAPSHOT_EVERY
-    export NEBULA_PROFILE=0
+    if [ "${NEBULA_ULTRA_HILOS:-0}" = 1 ]; then
+      export NEBULA_PROFILE=20 NEBULA_PROFILE_EVERY=20 NEBULA_PROFILE_ROUNDS=200
+    else
+      export NEBULA_PROFILE=0
+    fi
   else
     export GALAXY_ULTRA=1
   fi
@@ -299,8 +307,44 @@ pm_platform_helper "$GAMEDIR/nebula"
     echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz"
   done ) &
 MEMLOG_PID=$!
-./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
-status=$?
+if [ "$NEBULA_ULTRA" = serie ]; then
+  # Un recorrido por seccion de smg/ultra/serie.cfg, con sus ajustes encima de los de arriba; luego la comparacion.
+  serie_cfg="$GAMEDIR/ultra/serie.cfg"
+  serie_dir="$GALAXY_ULTRA_DIR"
+  names=$(sed -n 's/^[[:space:]]*\[\([A-Za-z0-9._-]*\)\][[:space:]]*\r*$/\1/p' "$serie_cfg" 2>/dev/null)
+  [ -n "$names" ] || { echo "ultra: serie sin secciones en $serie_cfg"; names=base; }
+  runs=""
+  status=0
+  for name in $names; do
+    run_dir="$serie_dir/$name"
+    mkdir -p "$run_dir"
+    echo "ultra: serie, recorrido $name -> $run_dir"
+    (
+      export GALAXY_ULTRA_DIR="$run_dir" NEBULA_ULTRA_ETIQUETA="$name"
+      while IFS= read -r line || [ -n "$line" ]; do
+        line=${line%$'\r'}
+        key=$(printf '%s' "${line%%=*}" | tr -d ' \t')
+        value=$(printf '%s' "${line#*=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+        case "$key" in NEBULA_*|GALAXY_*) export "$key=$value"; echo "  $name: $key=$value" ;; esac
+      done < <(awk -v want="$name" '
+        { sub(/\r$/, "") }
+        /^[[:space:]]*\[/ { section = $0; gsub(/[][[:space:]]/, "", section); next }
+        section == want && $0 ~ /=/ && $0 !~ /^[[:space:]]*#/ { print }' "$serie_cfg")
+      ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
+    )
+    status=$?
+    runs="$runs $run_dir"
+    [ "$status" = 0 ] || echo "ultra: el recorrido $name termino con $status"
+  done
+  if command -v python3 >/dev/null 2>&1; then
+    # shellcheck disable=SC2086
+    python3 "$GAMEDIR/ultra/compare.py" $runs > "$serie_dir/comparacion.txt" 2>&1
+    echo "ultra: comparacion en $serie_dir/comparacion.txt"
+  fi
+else
+  ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
+  status=$?
+fi
 pkill -P "$MEMLOG_PID" 2>/dev/null; kill "$MEMLOG_PID" 2>/dev/null
 echo "terminado: status $status"
 perf_restore
