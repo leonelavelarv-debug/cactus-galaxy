@@ -289,6 +289,13 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   `nebula_gl_thread_tests` con funciones GL falsas (orden, hilo, copias, pools, la cola dando la vuelta con ~200 MB,
   fences y trabajos tras ellas), limpio con ThreadSanitizer. La serie mide base, hilo, hilo con 4 frames en vuelo,
   hilo con cola 3 y las repeticiones; cada recorrido se corta a los 900 s (`NEBULA_ULTRA_LIMITE`) si se colgara.
+- Serie de update49 (6 galaxias): con el hilo GL la CPU del hilo de render baja de 24,6 a 14,1 ms por frame (−43 %),
+  el hilo GL usa 12,9 ms y el de render no le espera casi nada (0,01 ms, ninguna llamada con respuesta), y los FPS
+  mostrados suben un 3 %; pero los dibujados no (10,2), la GPU pasa de 13,8 a 19,5 ms (las copias del EFB, el triple
+  en BattleShip) y el p99 empeora un 72 %: el hilo GL, cuando esperaba trabajo, esperaba la fence más vieja con
+  GL_SYNC_FLUSH_COMMANDS_BIT, y ese glFlush caía a mitad del frame siguiente, partiendo la pasada de render de la Mali
+  (el EFB guardado y vuelto a cargar). Con cuatro frames en vuelo, aun así, +8,3 % de frames dibujados. update51: las
+  fences se sondean sin flush (ya se vaciaron al insertarlas).
 - ULTRA mide también la batería: con la memoria, cada segundo, el primer `/sys/class/power_supply/*` de tipo Battery
   (o `GALAXY_ULTRA_BATTERY`): `power_now`, o `|current_now|` x `voltage_now`, en mW, la carga en % y si está en el
   cargador. `memoria.csv` lleva las tres columnas, `resumen.json` un apartado `bateria` (media en mW, % al empezar y al
