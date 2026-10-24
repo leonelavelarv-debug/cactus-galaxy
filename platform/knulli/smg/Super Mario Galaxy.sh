@@ -122,11 +122,22 @@ fi
 
 # Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan
 # sobre lo de abajo sin editar este archivo; lo usa ULTRA-GLES para comparar ajustes):
-if [ -f "$GAMEDIR/ultra.cfg" ]; then
-  while IFS='=' read -r key value; do
-    case "$key" in NEBULA_*|GALAXY_*) key=${key%% }; value=${value%$'\r'}; export "$key=$value" ;; esac
-  done < "$GAMEDIR/ultra.cfg"
-fi
+# Se aceptan ultra.cfg y ultra.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del
+# principio, espacios alrededor del =, comentarios con # y una ultima linea sin salto; cada ajuste leido queda en log.txt.
+for cfg in "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
+  [ -f "$cfg" ] || continue
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}
+    line=${line#$'\xef\xbb\xbf'}
+    case "$line" in ''|'#'*) continue ;; *=*) ;; *) continue ;; esac
+    key=$(printf '%s' "${line%%=*}" | tr -d ' \t')
+    value=$(printf '%s' "${line#*=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    case "$key" in
+      NEBULA_*|GALAXY_*) export "$key=$value"; echo "ajuste de ${cfg##*/}: $key=$value" ;;
+    esac
+  done < "$cfg"
+  break
+done
 #   NEBULA_PERFIL=bajo|normal            bajo (por defecto): pocos recursos -- salta frames cuando el render no llega
 #                                        (el juego mantiene su velocidad), menos memoria para caches; normal: sin saltos
 NEBULA_PERFIL="${NEBULA_PERFIL:-bajo}"
@@ -205,6 +216,7 @@ export NEBULA_PROFILE="${NEBULA_PROFILE:-150}"
 #   (Todos estos ajustes se pueden poner tambien en smg/ultra.cfg: ver "Ajustes" arriba.)
 NEBULA_ULTRA="${NEBULA_ULTRA:-0}"
 nand_dir="$GAMEDIR/nand"
+[ "$NEBULA_ULTRA" = 0 ] && echo "ultra: apagado (para medir: NEBULA_ULTRA=bench en smg/ultra.cfg; ver smg/ultra/LEEME.txt)"
 if [ "$NEBULA_ULTRA" != 0 ]; then
   etiqueta=$(printf "%s" "${NEBULA_ULTRA_ETIQUETA:-}" | tr -c "A-Za-z0-9._-" "_")
   ultra_dir="$GAMEDIR/ultra/$(date +%Y%m%d-%H%M%S)${etiqueta:+-$etiqueta}"
