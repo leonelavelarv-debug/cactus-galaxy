@@ -2,6 +2,7 @@
 // The OpenGL ES GX renderer (renderer_gles.h).
 
 #include "galaxy/gx/gles/renderer_gles.h"
+#include "galaxy/gx/gles/ultra_gles.h"
 
 #include "galaxy/content_viewport.h"
 #include "galaxy/experimental_ultrawide_aspect.h"
@@ -281,6 +282,7 @@ bool RendererGles::make_current() {
 }
 
 void RendererGles::shutdown() {
+    ultra::finish();  // the run's report, while everything it reads still exists
     gles::Context& context = gles::Context::get();
     const bool usable = context.ready() && make_current();
     if (usable) {
@@ -746,6 +748,7 @@ void RendererGles::read_gpu_parts(GpuSegments& segments) {
                 window_stats_.gpu_part_ms[i] += parts[i];
             }
             window_stats_.gpu_ms += total;
+            ultra::gpu(segments.frame, total);
             dynamic_gpu_ms_ += total;
             window_stats_.gpu_max_ms = std::max(window_stats_.gpu_max_ms, total);
             ++window_stats_.gpu_frames;
@@ -806,6 +809,7 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
     gpu_part(kGpuNone);
     gpu_in_frame_ = false;
     gpu_segments_[frame_slot_].pending = gpu_segments_[frame_slot_].used != 0u;
+    gpu_segments_[frame_slot_].frame = frame_index_;
     const std::uint64_t fence = context.submit();
     frames_[frame_slot_].fence = fence;
     if (pointer_depth_in_frame_) {
@@ -826,6 +830,7 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
         host_window::gles_swap_buffers(window_);
         const std::int64_t end = monotonic_ns();
         window_stats_.present_wait_ns += end - start;
+        ultra_swap_ns_ += end - start;
         if (!window_shown_) {
             host_window::show_window(window_);
             window_shown_ = true;
@@ -844,15 +849,58 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
             present_window_count_ = 0u;
         }
     }
+    const bool presented = present_swap_chain && presented_this_frame_;
     presented_this_frame_ = false;
+    if (presented && ultra::enabled()) {
+        ultra_frame();
+    }
     ++frame_index_;
     if (frame_index_ % 600u == 0u) {
         report_stats();
+        ultra_prev_ = window_stats_;  // the window starts again from zero
     }
     if (context.checking()) {
         context.check_errors("end_frame");
     }
     return fence;
+}
+
+// ULTRA-GLES: this present's frame, from the stats since the previous one (ultra_gles.h).
+void RendererGles::ultra_frame() {
+    const std::int64_t cpu = gles::thread_cpu_ns();
+    if ((frame_index_ & 63u) == 0u) {
+        for (int i = 0; i < 16 && glGetError() != GL_NO_ERROR; ++i) {
+            ++ultra_gl_errors_;
+        }
+    }
+    const Window& now = window_stats_;
+    const Window& was = ultra_prev_;
+    const auto count = [](std::uint64_t a, std::uint64_t b) { return static_cast<std::uint32_t>(a >= b ? a - b : a); };
+    const auto span = [](std::int64_t a, std::int64_t b) { return a >= b ? a - b : a; };
+    ultra::FrameSample sample{};
+    sample.frame_index = frame_index_;
+    sample.present_ns = monotonic_ns();
+    sample.cpu_ns = ultra_cpu_prev_ != 0 ? cpu - ultra_cpu_prev_ : 0;
+    sample.draw_ns = span(now.draw_ns, was.draw_ns);
+    sample.slot_wait_ns = span(now.frame_wait_ns, was.frame_wait_ns);
+    sample.swap_wait_ns = ultra_swap_ns_;
+    sample.readback_ns = span(now.readback_ns, was.readback_ns);
+    sample.sync_peek_ns = span(now.sync_peek_ns, was.sync_peek_ns);
+    sample.draws = count(now.draws, was.draws);
+    sample.program_changes = count(now.pipeline_changes, was.pipeline_changes);
+    sample.skipped_draws = count(now.skipped_draws, was.skipped_draws);
+    sample.copies = count(now.copies, was.copies);
+    sample.peeks = count(now.peeks, was.peeks);
+    sample.sync_peeks = count(now.sync_peeks, was.sync_peeks);
+    sample.vertices = count(now.vertices, was.vertices);
+    sample.repeats = count(now.xfb_repeats, was.xfb_repeats);
+    sample.efb_width = efb_width();
+    sample.efb_height = efb_height();
+    sample.gl_errors = std::exchange(ultra_gl_errors_, 0u);
+    ultra::frame(sample);
+    ultra_prev_ = window_stats_;
+    ultra_cpu_prev_ = cpu;
+    ultra_swap_ns_ = 0;
 }
 
 void RendererGles::report_stats() {

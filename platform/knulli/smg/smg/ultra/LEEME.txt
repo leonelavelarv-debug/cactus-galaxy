@@ -1,0 +1,28 @@
+ULTRA-GLES: medir el rendimiento grafico del port en tu consola
+
+1. Pon en smg/ultra.cfg (crealo con cualquier editor; tienes un ejemplo en smg/ultra/ultra.cfg.ejemplo):
+
+     NEBULA_ULTRA=bench
+     NEBULA_ULTRA_ETIQUETA=base
+
+   y abre Super Mario Galaxy desde Ports. El juego recorre solo las galaxias (15 s cada una, unos 12 minutos), con una
+   partida aparte (smg/ultra/nand-bench: la tuya no se toca), y vuelve al menu al terminar. No toques nada mientras.
+   NEBULA_ULTRA_GALAXIAS=10 hace solo las 10 primeras (unos 3 minutos), para pruebas rapidas.
+
+2. El resultado queda en smg/ultra/<fecha>-base/:
+     informe.txt   FPS, tiempo por fotograma (p95, p99), tirones y su causa, CPU, GPU, memoria, por galaxia
+     resumen.json  lo mismo, para comparar
+     frames.csv    cada frame (abrelo con una hoja de calculo)
+     memoria.csv   la memoria cada segundo
+     capturas/     una imagen de cada galaxia, para comparar la calidad
+
+3. Para probar un ajuste, cambialo en smg/ultra.cfg (por ejemplo GALAXY_GLES_RESOLUTION=75 y
+   NEBULA_ULTRA_ETIQUETA=res75), repite el recorrido y compara:
+
+     python3 smg/ultra/compare.py smg/ultra/<fecha>-base smg/ultra/<fecha>-res75
+
+   Dice, metrica por metrica y galaxia por galaxia, si mejora, empeora o queda igual (dentro del ruido), y la PSNR de
+   las capturas (40 dB o mas: igual a la vista; menos de 30: revisa la imagen).
+
+NEBULA_ULTRA=1 mide una partida normal (sin recorrido) y deja el informe al salir del juego.
+Quita NEBULA_ULTRA del archivo (o ponlo a 0) para jugar sin medir.

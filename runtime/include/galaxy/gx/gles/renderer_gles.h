@@ -528,6 +528,12 @@ private:
         std::uint64_t depth_discards = 0;
         std::uint64_t xfb_repeats = 0;
     } window_stats_;
+    // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.
+    Window ultra_prev_{};
+    std::int64_t ultra_cpu_prev_ = 0;
+    std::int64_t ultra_swap_ns_ = 0;
+    std::uint32_t ultra_gl_errors_ = 0;
+    void ultra_frame();
     // GPU time by part of the frame: one GL_TIME_ELAPSED query per stretch of commands of one part (a frame's
     // queries sum to its time), read when the frame slot comes round.
     enum GpuPart : int { kGpuScene = 0, kGpuCopies, kGpuXfb, kGpuPeeks, kGpuPresent, kGpuNone = -1 };
@@ -536,6 +542,7 @@ private:
         std::vector<std::uint8_t> parts;
         std::size_t used = 0;
         bool pending = false;
+        std::uint64_t frame = 0;  // frame_index_ of the frame they timed (ULTRA-GLES)
     };
     void gpu_part(int part);
     void read_gpu_parts(GpuSegments& segments);

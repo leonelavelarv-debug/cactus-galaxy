@@ -71,6 +71,10 @@
 #include <unordered_set>
 #include <vector>
 
+#if defined(NEBULA_GPU_GLES)
+#include "galaxy/gx/gles/ultra_gles.h"
+#endif
+
 namespace galaxy::gx {
 
 std::uint32_t pack_sampler_key(
@@ -397,6 +401,12 @@ std::string present_snapshot_path() {
             ? std::string(value) : std::string{};
     }();
     const std::uint64_t presents = ++g_snapshot_presents;
+#if defined(NEBULA_GPU_GLES)
+    // ULTRA-GLES's picture of each scene (GALAXY_ULTRA_CAPTURE), one present after it asked.
+    if (std::string ultra_path = ultra::capture_path(); !ultra_path.empty()) {
+        return ultra_path;
+    }
+#endif
     if (every == 0u || directory.empty() || presents < first || presents > last ||
         presents % every > std::min(after, every - 1u)) {
         return {};

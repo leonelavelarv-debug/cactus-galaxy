@@ -120,7 +120,13 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$GAMEDIR/gamelist.py" ]; then
   GAMELIST_PID=$!
 fi
 
-# Ajustes (se pueden cambiar aqui):
+# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan
+# sobre lo de abajo sin editar este archivo; lo usa ULTRA-GLES para comparar ajustes):
+if [ -f "$GAMEDIR/ultra.cfg" ]; then
+  while IFS='=' read -r key value; do
+    case "$key" in NEBULA_*|GALAXY_*) key=${key%% }; value=${value%$'\r'}; export "$key=$value" ;; esac
+  done < "$GAMEDIR/ultra.cfg"
+fi
 #   NEBULA_PERFIL=bajo|normal            bajo (por defecto): pocos recursos -- salta frames cuando el render no llega
 #                                        (el juego mantiene su velocidad), menos memoria para caches; normal: sin saltos
 NEBULA_PERFIL="${NEBULA_PERFIL:-bajo}"
@@ -188,6 +194,35 @@ if [ "${NEBULA_SHOTS:-1}" = "1" ]; then
 fi
 #   NEBULA_PROFILE=150                   a los 150 s (y 30 y 60 s despues) anota en log.txt donde gastan su tiempo los hilos
 export NEBULA_PROFILE="${NEBULA_PROFILE:-150}"
+
+# ULTRA-GLES (medicion del rendimiento grafico; docs/RG35XXH.md):
+#   NEBULA_ULTRA=0|1|bench               1: mide la partida; bench: recorre solo las galaxias (15 s cada una, ~12 min,
+#                                        con una partida aparte, sin tocar la tuya) y sale. Resultados en
+#                                        smg/ultra/<fecha>[-etiqueta]/informe.txt (y frames.csv, resumen.json, capturas/)
+#   NEBULA_ULTRA_ETIQUETA=nombre         nombre para la carpeta (p. ej. el ajuste que pruebas)
+#   NEBULA_ULTRA_GALAXIAS=n              bench: solo las n primeras galaxias (pruebas cortas)
+#   Comparar dos: python3 smg/ultra/compare.py smg/ultra/<A> smg/ultra/<B>
+#   (Todos estos ajustes se pueden poner tambien en smg/ultra.cfg: ver "Ajustes" arriba.)
+NEBULA_ULTRA="${NEBULA_ULTRA:-0}"
+nand_dir="$GAMEDIR/nand"
+if [ "$NEBULA_ULTRA" != 0 ]; then
+  etiqueta=$(printf "%s" "${NEBULA_ULTRA_ETIQUETA:-}" | tr -c "A-Za-z0-9._-" "_")
+  ultra_dir="$GAMEDIR/ultra/$(date +%Y%m%d-%H%M%S)${etiqueta:+-$etiqueta}"
+  mkdir -p "$ultra_dir"
+  export GALAXY_ULTRA_DIR="$ultra_dir"
+  if [ "$NEBULA_ULTRA" = bench ]; then
+    export GALAXY_ULTRA=bench GALAXY_TEST_GALAXY_TOUR=auto GALAXY_TEST_GALAXY_TOUR_FRAMES="${NEBULA_ULTRA_FRAMES:-900}"
+    [ -n "${NEBULA_ULTRA_GALAXIAS:-}" ] && export GALAXY_TEST_GALAXY_TOUR_LIMIT="$NEBULA_ULTRA_GALAXIAS"
+    nand_dir="$GAMEDIR/ultra/nand-bench"
+    # Nada que lea la imagen por su cuenta: serian tirones que no son del juego.
+    unset GALAXY_PRESENT_SNAPSHOT_DIR GALAXY_PRESENT_SNAPSHOT_EVERY
+    export NEBULA_PROFILE=0
+  else
+    export GALAXY_ULTRA=1
+  fi
+  mkdir -p "$nand_dir"
+  echo "ultra: $NEBULA_ULTRA -> $ultra_dir"
+fi
 export SDL_GAMECONTROLLERCONFIG="$sdl_controllerconfig"
 
 #   NEBULA_PERF=1                        CPU, GPU y memoria a su frecuencia maxima mientras se juega (0: lo que tenga el sistema)
@@ -252,7 +287,7 @@ pm_platform_helper "$GAMEDIR/nebula"
     echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz"
   done ) &
 MEMLOG_PID=$!
-./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$GAMEDIR/nand"
+./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
 status=$?
 pkill -P "$MEMLOG_PID" 2>/dev/null; kill "$MEMLOG_PID" 2>/dev/null
 echo "terminado: status $status"

@@ -2,6 +2,7 @@
 // GX pipelines on OpenGL ES (pipeline_cache_gles.h).
 
 #include "galaxy/gx/gles/pipeline_cache_gles.h"
+#include "galaxy/gx/gles/ultra_gles.h"
 
 #include "galaxy/gx/host_window.h"
 #include "galaxy/gx/vk/shader_compile_vk.h"
@@ -557,12 +558,24 @@ gles::Pipeline* PipelineCacheGles::get(const PsoKey& key, const PixelShaderKey& 
             if (pending_ == Pending::Uber) {
                 if (gles::Pipeline* uber = uber_pipeline(key.render_state, ps_key)) {
                     ++uber_fallbacks_;
+                    ultra::add(ultra::kUberDraws, 1u);
                     last_get_used_uber_ = true;
                     return uber;
                 }
             }
+            ultra::add(ultra::kPendingSkips, 1u);
             return nullptr;  // drawn once its program is linked
         }
+        // ULTRA-GLES: a program made (or waited for) here stalls this draw, and with it the frame.
+        const auto sync_start = std::chrono::steady_clock::now();
+        struct SyncCompile {
+            std::chrono::steady_clock::time_point start;
+            ~SyncCompile() {
+                ultra::add(ultra::kSyncCompiles, 1u);
+                ultra::add(ultra::kSyncCompileNs, static_cast<std::uint64_t>(
+                    std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count()));
+            }
+        } sync_compile{sync_start};
         // Built here, now; a queued prewarm job for it is taken back.
         {
             std::lock_guard<std::mutex> lock(jobs_mutex_);
