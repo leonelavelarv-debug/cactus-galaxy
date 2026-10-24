@@ -271,8 +271,11 @@ void publish_completed(std::uint64_t value) {
 void poll_fences(std::uint64_t wait_ns) {
     while (!g_pending.empty()) {
         const PendingFence& front = g_pending.front();
-        const GLenum status = real::glClientWaitSync(front.sync, wait_ns != 0u ? GL_SYNC_FLUSH_COMMANDS_BIT : 0u,
-                                                     wait_ns);
+        // Never GL_SYNC_FLUSH_COMMANDS_BIT: every fence was flushed when it was inserted, and a flush here would land
+        // in the middle of the next frame's commands (the GL thread waits while the render thread is still
+        // translating). On a tiled GPU that splits the render pass: the EFB is stored and loaded again, and the Mali's
+        // time per frame went up by 40 % (update49's series, the copies part three times over).
+        const GLenum status = real::glClientWaitSync(front.sync, 0u, wait_ns);
         if (status != GL_ALREADY_SIGNALED && status != GL_CONDITION_SATISFIED) {
             if (status == GL_WAIT_FAILED) {
                 // A lost sync must not hold every later frame back.
