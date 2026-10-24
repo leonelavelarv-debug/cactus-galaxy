@@ -21,10 +21,11 @@ namespace galaxy::gx {
 #if defined(NEBULA_GPU_GLES)
 // A tiler GPU (Mali) runs a frame's passes well after they are recorded: a third frame keeps the render thread
 // recording while the GPU still finishes the one before. NEBULA_GLES_FRAMES_IN_FLIGHT (build time) tries more: on
-// the RG35XX H the render thread spent ~21 % of its time waiting for frame-slot fences (ULTRA-GLES). At most 4
-// (TextureCache::kMaxHoldSegments, which kInterpSegments may not exceed).
+// the RG35XX H the render thread spent ~21 % of its time waiting for frame-slot fences (ULTRA-GLES). Four by default
+// since update52: with the GL thread (gl_thread.h) the pipeline has one stage more, and four frames gave +16-19 % of
+// frames drawn over three. At most 4 (TextureCache::kMaxHoldSegments, which kInterpSegments may not exceed).
 #ifndef NEBULA_GLES_FRAMES_IN_FLIGHT
-#define NEBULA_GLES_FRAMES_IN_FLIGHT 3
+#define NEBULA_GLES_FRAMES_IN_FLIGHT 4
 #endif
 inline constexpr unsigned kFramesInFlight = NEBULA_GLES_FRAMES_IN_FLIGHT;
 #else

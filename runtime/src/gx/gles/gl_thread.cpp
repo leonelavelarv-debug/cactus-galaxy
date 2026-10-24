@@ -245,6 +245,21 @@ struct Job {
     std::function<void()> run;
 };
 std::vector<Job> g_jobs;  // GL thread
+// GALAXY_GLES_THREAD_JOBS=frame: a fence with work after it (a readback's copy, which maps a buffer) is reported only
+// between frames (right after a frame's fence was inserted), never while a frame is half recorded: a map there may
+// make the driver flush the commands so far. GALAXY_GLES_THREAD_WAIT=poll: with nothing to do, the GL thread sleeps
+// and looks again instead of blocking in glClientWaitSync. (Measured against the defaults in the series.)
+bool g_jobs_at_boundary = false;
+bool g_wait_poll = false;
+bool g_at_boundary = true;      // GL thread: the last record run was a fence's insertion
+bool g_ran_submit = false;      // GL thread: set by that record
+
+bool has_job_for(std::uint64_t value) {
+    for (const Job& job : g_jobs) {
+        if (job.value <= value) return true;
+    }
+    return false;
+}
 std::atomic<std::uint64_t> g_completed{0};
 std::mutex g_fence_mutex;
 std::condition_variable g_fence_cv;
@@ -286,6 +301,9 @@ void poll_fences(std::uint64_t wait_ns) {
             }
         }
         const std::uint64_t value = front.value;
+        if (g_jobs_at_boundary && !g_at_boundary && has_job_for(value)) {
+            return;  // passed, but its copy waits for the end of the frame being recorded
+        }
         real::glDeleteSync(front.sync);
         g_pending.erase(g_pending.begin());
         publish_completed(value);
@@ -314,8 +332,10 @@ void thread_main() {
         bool any = false;
         while (q.run_one()) {
             any = true;
-            if ((++ran & 31u) == 0u && !g_tests) {
-                poll_fences(0u);
+            g_at_boundary = g_ran_submit;
+            g_ran_submit = false;
+            if (((++ran & 31u) == 0u || g_at_boundary) && !g_tests) {
+                poll_fences(0u);  // and right after each frame's fence, when the copies may run
             }
             if ((ran & 255u) == 0u) {
                 update_cpu();
@@ -337,9 +357,13 @@ void thread_main() {
         }
         if (!g_pending.empty()) {
             // The GPU still has frames: wait on the oldest a little, then look at the queue again.
-            poll_fences(200'000u);
-            if (!g_pending.empty() && q.empty()) {
-                q.sleep(std::chrono::microseconds(300));
+            if (g_wait_poll) {
+                q.sleep(std::chrono::microseconds(250));
+            } else {
+                poll_fences(200'000u);
+                if (!g_pending.empty() && q.empty()) {
+                    q.sleep(std::chrono::microseconds(300));
+                }
             }
         } else {
             q.sleep(std::chrono::microseconds(0));
@@ -780,6 +804,9 @@ bool start_thread(std::function<bool(bool)> make_current, bool tests, std::uint6
         return t_recording;
     }
     g_tests = tests;
+    if (const char* jobs = std::getenv("GALAXY_GLES_THREAD_JOBS")) g_jobs_at_boundary = std::strcmp(jobs, "frame") == 0;
+    if (const char* wait = std::getenv("GALAXY_GLES_THREAD_WAIT")) g_wait_poll = std::strcmp(wait, "poll") == 0;
+    g_at_boundary = true;
     g_make_current = std::move(make_current);
     g_pending = std::move(pending);
     g_jobs.clear();
@@ -825,7 +852,9 @@ bool start_thread(std::function<bool(bool)> make_current, bool tests, std::uint6
         g_shadow.unpack_skip_rows = skip_rows;
         g_shadow.unpack_skip_pixels = skip_pixels;
     }
-    std::fprintf(stderr, "[gl-thread] GL calls on their own thread\n");
+    std::fprintf(stderr, "[gl-thread] GL calls on their own thread (readback copies %s, idle %s)\n",
+                 g_jobs_at_boundary ? "between frames" : "when their fence passes",
+                 g_wait_poll ? "sleeps and polls" : "waits on the oldest fence");
     return true;
 }
 
@@ -889,6 +918,7 @@ void submit_fence(std::uint64_t value) {
     push([value] {
         GLsync sync = real::glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         real::glFlush();
+        g_ran_submit = true;
         if (sync == nullptr) {
             publish_completed(value);  // nothing to wait for: a lost fence must not stall the frames
             return;
