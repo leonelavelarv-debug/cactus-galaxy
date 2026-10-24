@@ -341,7 +341,13 @@ if [ "$NEBULA_ULTRA" = serie ]; then
       [ -x "$GAMEDIR/$bin" ] || { [ -f "$GAMEDIR/$bin" ] && chmod +x "$GAMEDIR/$bin"; }
       [ -x "$GAMEDIR/$bin" ] || { echo "  $name: falta smg/$bin, se usa nebula"; bin=nebula; }
       echo "  $name: $bin ($(md5sum "$GAMEDIR/$bin" | cut -c1-12))"
-      "./$bin" --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
+      # Un recorrido que se cuelga no para la serie: a los NEBULA_ULTRA_LIMITE segundos (900) se corta y sigue la
+      # siguiente seccion (su informe parcial queda, se escribe cada 20 s).
+      if command -v timeout >/dev/null 2>&1 && timeout -k 1 5 true >/dev/null 2>&1; then
+        timeout -k 10 "${NEBULA_ULTRA_LIMITE:-900}" "./$bin" --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
+      else
+        "./$bin" --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
+      fi
     )
     status=$?
     runs="$runs $run_dir"

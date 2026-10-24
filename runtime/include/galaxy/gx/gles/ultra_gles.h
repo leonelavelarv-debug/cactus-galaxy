@@ -56,6 +56,13 @@ struct FrameSample {
     std::uint32_t efb_width = 0;     // the EFB's size this frame (dynamic resolution)
     std::uint32_t efb_height = 0;
     std::uint32_t gl_errors = 0;
+    // GALAXY_GLES_THREAD: the GL thread's CPU time since the previous present, the render thread's waits for it
+    // (calls that needed an answer, a full queue) and the calls queued.
+    bool gl_thread = false;
+    std::int64_t gl_cpu_ns = 0;
+    std::int64_t gl_sync_wait_ns = 0;
+    std::uint32_t gl_syncs = 0;
+    std::uint32_t gl_commands = 0;
 };
 
 // The render thread, after each present.

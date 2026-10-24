@@ -36,6 +36,8 @@ METRICS = [
     ("compilar_ms", "compilar", "ms", False, 0.20, 200.0),
     ("frames_lentos", "frames >25 ms", "", False, 0.10, 10.0),
     ("dl_comparadas_kib", "DL comparadas", "KiB", False, 0.10, 2.0),
+    ("gl_cpu_ms", "hilo GL (CPU)", "ms", False, 0.05, 0.2),
+    ("gl_espera_ms", "espera al hilo GL", "ms", False, 0.10, 0.2),
 ]
 
 # Ajustes que no cambian lo que se mide (las etiquetas, el muestreo de hilos).

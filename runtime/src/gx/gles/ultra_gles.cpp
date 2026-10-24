@@ -81,6 +81,9 @@ struct Stats {
     std::uint64_t uploads = 0, upload_bytes = 0, copies = 0, peeks = 0, sync_peeks = 0, vertices = 0;
     std::uint64_t hitches = 0, stalls = 0, gl_errors = 0;
     std::uint64_t dl_compares = 0, dl_compare_bytes = 0, dl_skips = 0;
+    bool gl_thread = false;
+    double gl_cpu_ms = 0.0, gl_wait_ms = 0.0;
+    std::uint64_t gl_syncs = 0, gl_commands = 0;
     std::array<std::uint64_t, kCauseCount> causes{};
     std::uint32_t efb_min = 0, efb_max = 0;
     double seconds() const { return last_ns > first_ns ? static_cast<double>(last_ns - first_ns) / 1e9 : 0.0; }
@@ -359,6 +362,13 @@ private:
         s.dl_compares += r.counters[kDisplayListCompares];
         s.dl_compare_bytes += r.counters[kDisplayListCompareBytes];
         s.dl_skips += r.counters[kDisplayListCompareSkips];
+        if (f.gl_thread) {
+            s.gl_thread = true;
+            s.gl_cpu_ms += static_cast<double>(f.gl_cpu_ns) / 1e6;
+            s.gl_wait_ms += static_cast<double>(f.gl_sync_wait_ns) / 1e6;
+            s.gl_syncs += f.gl_syncs;
+            s.gl_commands += f.gl_commands;
+        }
         s.efb_min = std::min(s.efb_min, f.efb_width);
         s.efb_max = std::max(s.efb_max, f.efb_width);
         if (slow) {
@@ -605,6 +615,8 @@ private:
                       "\"compilar_ms\": %.1f, \"texturas_kib_s\": %.1f, \"copias\": %.2f, \"peeks\": %.2f, "
                       "\"peeks_sync\": %llu, \"vertices\": %.0f, \"errores_gl\": %llu, \"efb\": [%u, %u], "
                       "\"dl_comparadas\": %.1f, \"dl_comparadas_kib\": %.1f, \"dl_saltadas\": %.1f, "
+                      "\"hilo_gl\": %s, \"gl_cpu_ms\": %.3f, \"gl_espera_ms\": %.3f, \"gl_esperas\": %.2f, "
+                      "\"gl_llamadas\": %.0f, "
                       "\"causas\": {",
                       static_cast<unsigned long long>(s.frames), f.seconds, f.fps, f.drawn_fps, f.mean, f.p50, f.p95,
                       f.p99, f.max, f.low1, static_cast<unsigned long long>(f.hitches), f.hitches_per_min, f.hitch_ms,
@@ -618,7 +630,12 @@ private:
                       static_cast<unsigned long long>(s.gl_errors), s.efb_min, s.efb_max,
                       s.frames != 0u ? static_cast<double>(s.dl_compares) / static_cast<double>(s.frames) : 0.0,
                       s.frames != 0u ? static_cast<double>(s.dl_compare_bytes) / 1024.0 / static_cast<double>(s.frames) : 0.0,
-                      s.frames != 0u ? static_cast<double>(s.dl_skips) / static_cast<double>(s.frames) : 0.0);
+                      s.frames != 0u ? static_cast<double>(s.dl_skips) / static_cast<double>(s.frames) : 0.0,
+                      s.gl_thread ? "true" : "false",
+                      s.gl_thread && s.frames != 0u ? s.gl_cpu_ms / static_cast<double>(s.frames) : -1.0,
+                      s.gl_thread && s.frames != 0u ? s.gl_wait_ms / static_cast<double>(s.frames) : -1.0,
+                      s.frames != 0u ? static_cast<double>(s.gl_syncs) / static_cast<double>(s.frames) : 0.0,
+                      s.frames != 0u ? static_cast<double>(s.gl_commands) / static_cast<double>(s.frames) : 0.0);
         std::string out = text;
         for (unsigned c = 0; c < kCauseCount; ++c) {
             out += (c != 0u ? ", " : "") + json_string(kCauseKeys[c]) + ": " + std::to_string(f.causes[c]);
@@ -815,6 +832,12 @@ private:
                      static_cast<unsigned long long>(total_.compiles + load_.compiles),
                      total_.compile_ms + load_.compile_ms);
         std::fprintf(out, "  Texturas ................ %.0f KiB/s subidas\n", t.upload_kib_s);
+        if (total_.gl_thread) {
+            std::fprintf(out, "  Hilo GL ................. %.2f ms de CPU por frame en el driver (%.0f llamadas de GL); el hilo de render\n"
+                              "                            le espero %.2f ms (%.2f llamadas por frame que necesitaban respuesta)\n",
+                         total_.gl_cpu_ms * per, static_cast<double>(total_.gl_commands) * per, total_.gl_wait_ms * per,
+                         static_cast<double>(total_.gl_syncs) * per);
+        }
         if (total_.dl_compares + total_.dl_skips != 0u) {
             std::fprintf(out, "  Display lists ........... %.1f comparadas con la memoria por frame (%.1f KiB), %.1f sin comparar (ya\n"
                               "                            comparadas en ese frame)\n",

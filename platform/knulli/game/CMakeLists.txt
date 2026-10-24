@@ -96,6 +96,7 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/gx/game_asset_extract.cpp
     ${rt}/gx/vk/shader_compile_vk.cpp
     ${rt}/gx/gles/gles_context.cpp
+    ${rt}/gx/gles/gl_thread.cpp
     ${rt}/gx/gles/shader_translate_gles.cpp
     ${rt}/gx/gles/texture_backend_gles.cpp
     ${rt}/gx/gles/pipeline_cache_gles.cpp
@@ -140,6 +141,10 @@ add_executable(nebula_ultra_gles_tests "${CMAKE_CURRENT_SOURCE_DIR}/ultra_gles_t
     "${nebula_root}/runtime/src/gx/gles/ultra_gles.cpp")
 target_include_directories(nebula_ultra_gles_tests PRIVATE "${nebula_root}/runtime/include")
 target_link_libraries(nebula_ultra_gles_tests PRIVATE Threads::Threads)
+
+# The GL thread's queue and wrappers with fake GL entry points (gl_thread.h).
+add_executable(nebula_gl_thread_tests "${CMAKE_CURRENT_SOURCE_DIR}/gl_thread_tests.cpp")
+target_link_libraries(nebula_gl_thread_tests PRIVATE galaxy_gx_gles)
 
 # The display-list cache's byte check once per batch of guest writes (FifoParser::advance_memory_generation).
 add_executable(nebula_fifo_display_list_tests "${CMAKE_CURRENT_SOURCE_DIR}/fifo_display_list_tests.cpp")

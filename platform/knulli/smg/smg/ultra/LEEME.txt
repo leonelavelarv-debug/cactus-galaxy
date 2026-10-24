@@ -35,5 +35,8 @@ ULTRA-GLES: medir el rendimiento grafico del port en tu consola
    y deja smg/ultra/<fecha>-serie/comparacion.txt con todos frente al primero. Con NEBULA_ULTRA_GALAXIAS=6, unos
    4-5 minutos por seccion.
 
+GALAXY_GLES_THREAD=1 (en serie.cfg o en ultra.cfg) da las llamadas de GL a un hilo propio, en otro nucleo; el
+informe dice cuanta CPU usa ese hilo y cuanto lo espero el de render.
+
 NEBULA_ULTRA=1 mide una partida normal (sin recorrido) y deja el informe al salir del juego.
 Quita NEBULA_ULTRA del archivo (o ponlo a 0) para jugar sin medir.
