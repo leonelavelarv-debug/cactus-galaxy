@@ -24,6 +24,7 @@
 #include <vector>
 
 #if !defined(_WIN32)
+#include <dirent.h>
 #include <pthread.h>
 #include <unistd.h>
 #endif
@@ -94,7 +95,87 @@ struct Memory {
     double rss_sum_kib = 0.0;
     std::uint64_t rss_peak_kib = 0;
     std::uint64_t available_min_kib = ~0ull;
+    // The battery (sysfs power_supply of type Battery), sampled with the memory: the draw in mW (power_now, or
+    // |current_now| x voltage_now) and the charge in %, and how many samples were taken on the charger.
+    std::uint64_t battery_samples = 0;
+    std::uint64_t charging_samples = 0;
+    double battery_mw_sum = 0.0;
+    int battery_pct_first = -1;
+    int battery_pct_last = -1;
+    double battery_first_s = 0.0;
+    double battery_last_s = 0.0;
 };
+
+struct BatteryReading {
+    bool valid = false;     // a draw was read
+    double mw = 0.0;
+    int percent = -1;
+    bool charging = false;
+};
+
+// The battery's sysfs folder: GALAXY_ULTRA_BATTERY, else the first /sys/class/power_supply/* of type Battery.
+const std::string& battery_dir() {
+    static const std::string dir = [] {
+        if (const char* forced = std::getenv("GALAXY_ULTRA_BATTERY"); forced != nullptr && *forced != '\0') {
+            return std::string(forced);
+        }
+#if !defined(_WIN32)
+        if (DIR* list = opendir("/sys/class/power_supply")) {
+            std::string found;
+            while (dirent* entry = readdir(list)) {
+                if (entry->d_name[0] == '.') continue;
+                const std::string candidate = std::string("/sys/class/power_supply/") + entry->d_name;
+                if (FILE* type = std::fopen((candidate + "/type").c_str(), "r")) {
+                    char text[32] = {};
+                    if (std::fgets(text, sizeof(text), type) != nullptr && std::strncmp(text, "Battery", 7) == 0) {
+                        found = candidate;
+                    }
+                    std::fclose(type);
+                }
+                if (!found.empty()) break;
+            }
+            closedir(list);
+            return found;
+        }
+#endif
+        return std::string{};
+    }();
+    return dir;
+}
+
+bool read_sysfs_number(const std::string& path, long long& value) {
+    FILE* file = std::fopen(path.c_str(), "r");
+    if (file == nullptr) return false;
+    const bool ok = std::fscanf(file, "%lld", &value) == 1;
+    std::fclose(file);
+    return ok;
+}
+
+BatteryReading read_battery() {
+    BatteryReading out;
+    const std::string& dir = battery_dir();
+    if (dir.empty()) return out;
+    long long value = 0;
+    if (read_sysfs_number(dir + "/capacity", value)) out.percent = static_cast<int>(value);
+    if (FILE* status = std::fopen((dir + "/status").c_str(), "r")) {
+        char text[32] = {};
+        if (std::fgets(text, sizeof(text), status) != nullptr) {
+            out.charging = std::strncmp(text, "Charging", 8) == 0 || std::strncmp(text, "Full", 4) == 0;
+        }
+        std::fclose(status);
+    }
+    long long power = 0, current = 0, voltage = 0;
+    if (read_sysfs_number(dir + "/power_now", power) && power != 0) {
+        out.mw = static_cast<double>(power < 0 ? -power : power) / 1000.0;  // uW
+        out.valid = true;
+    } else if (read_sysfs_number(dir + "/current_now", current) && read_sysfs_number(dir + "/voltage_now", voltage) &&
+               current != 0 && voltage > 0) {
+        // uA x uV; the sign of the current is the driver's choice (discharging is positive on some, negative on others).
+        out.mw = static_cast<double>(current < 0 ? -current : current) * static_cast<double>(voltage) / 1e9;
+        out.valid = true;
+    }
+    return out;
+}
 
 class Profiler {
 public:
@@ -120,7 +201,7 @@ public:
                        frames_csv_);
         }
         if (memory_csv_ != nullptr) {
-            std::fputs("t_s,escena,rss_kib,disponible_kib\n", memory_csv_);
+            std::fputs("t_s,escena,rss_kib,disponible_kib,bateria_pct,bateria_mw,cargando\n", memory_csv_);
         }
         start_ns_ = now_ns();
         start_time_ = std::time(nullptr);
@@ -487,6 +568,21 @@ private:
         if (rss_kib == 0u) {
             return;
         }
+        const BatteryReading battery = read_battery();
+        const double t_s = static_cast<double>(now - start_ns_) / 1e9;
+        if (battery.valid) {
+            ++memory_.battery_samples;
+            memory_.battery_mw_sum += battery.mw;
+            memory_.charging_samples += battery.charging ? 1u : 0u;
+        }
+        if (battery.percent >= 0) {
+            if (memory_.battery_pct_first < 0) {
+                memory_.battery_pct_first = battery.percent;
+                memory_.battery_first_s = t_s;
+            }
+            memory_.battery_pct_last = battery.percent;
+            memory_.battery_last_s = t_s;
+        }
         ++memory_.samples;
         memory_.rss_sum_kib += static_cast<double>(rss_kib);
         memory_.rss_peak_kib = std::max(memory_.rss_peak_kib, rss_kib);
@@ -499,9 +595,9 @@ private:
                 std::lock_guard<std::mutex> lock(mutex_);
                 scene = current_scene_;
             }
-            std::fprintf(memory_csv_, "%.1f,%s,%llu,%llu\n", static_cast<double>(now - start_ns_) / 1e9,
-                         scene_name(scene).c_str(), static_cast<unsigned long long>(rss_kib),
-                         static_cast<unsigned long long>(available_kib));
+            std::fprintf(memory_csv_, "%.1f,%s,%llu,%llu,%d,%.0f,%d\n", t_s, scene_name(scene).c_str(),
+                         static_cast<unsigned long long>(rss_kib), static_cast<unsigned long long>(available_kib),
+                         battery.percent, battery.valid ? battery.mw : -1.0, battery.charging ? 1 : 0);
         }
     }
 
@@ -683,6 +779,14 @@ private:
                          static_cast<unsigned long long>(memory_.rss_peak_kib),
                          static_cast<unsigned long long>(memory_.available_min_kib == ~0ull ? 0u
                                                                                             : memory_.available_min_kib));
+            std::fprintf(json, "  \"bateria\": {\"mw_media\": %.0f, \"muestras\": %llu, \"cargando_muestras\": %llu, "
+                               "\"pct_inicio\": %d, \"pct_fin\": %d, \"minutos\": %.1f, \"carpeta\": %s},\n",
+                         memory_.battery_samples != 0u ? memory_.battery_mw_sum / static_cast<double>(memory_.battery_samples)
+                                                       : -1.0,
+                         static_cast<unsigned long long>(memory_.battery_samples),
+                         static_cast<unsigned long long>(memory_.charging_samples), memory_.battery_pct_first,
+                         memory_.battery_pct_last, (memory_.battery_last_s - memory_.battery_first_s) / 60.0,
+                         json_string(battery_dir()).c_str());
             const Figures total = total_figures();
             std::fprintf(json, "  \"total\": %s,\n  \"carga\": %s,\n  \"escenas\": [", json_stats(total_, &total).c_str(),
                          json_stats(load_).c_str());
@@ -849,6 +953,15 @@ private:
                      memory_.samples != 0u ? memory_.rss_sum_kib / static_cast<double>(memory_.samples) / 1024.0 : 0.0,
                      static_cast<double>(memory_.rss_peak_kib) / 1024.0,
                      memory_.available_min_kib == ~0ull ? 0.0 : static_cast<double>(memory_.available_min_kib) / 1024.0);
+        if (memory_.battery_samples != 0u) {
+            std::fprintf(out, "  Bateria ................. %.0f mW de media; %d %% -> %d %% en %.1f min%s\n",
+                         memory_.battery_mw_sum / static_cast<double>(memory_.battery_samples), memory_.battery_pct_first,
+                         memory_.battery_pct_last, (memory_.battery_last_s - memory_.battery_first_s) / 60.0,
+                         memory_.charging_samples != 0u ? " (CARGANDO en parte: el consumo no vale para comparar)" : "");
+        } else {
+            std::fprintf(out, "  Bateria ................. sin lectura (%s)\n",
+                         battery_dir().empty() ? "no hay power_supply de tipo Battery" : battery_dir().c_str());
+        }
         std::fprintf(out, "  Calidad ................. EFB %u-%u px de ancho (640 = la Wii)\n", total_.efb_min,
                      total_.efb_max);
         std::fprintf(out, "  Estabilidad ............. %llu errores de GL\n\n",

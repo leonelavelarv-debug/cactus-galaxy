@@ -38,6 +38,7 @@ METRICS = [
     ("dl_comparadas_kib", "DL comparadas", "KiB", False, 0.10, 2.0),
     ("gl_cpu_ms", "hilo GL (CPU)", "ms", False, 0.05, 0.2),
     ("gl_espera_ms", "espera al hilo GL", "ms", False, 0.10, 0.2),
+    ("bateria_mw", "bateria", "mW", False, 0.03, 50.0),
 ]
 
 # Ajustes que no cambian lo que se mide (las etiquetas, el muestreo de hilos).
@@ -54,6 +55,11 @@ def load(folder):
     with open(path, encoding="utf-8") as f:
         data = json.load(f)
     data["_carpeta"] = os.path.dirname(path) if folder.endswith(".json") else folder
+    # El consumo de la bateria con las metricas del total (n/d sin lectura o si se cargo durante la ejecucion).
+    battery = data.get("bateria", {})
+    if isinstance(data.get("total"), dict):
+        mw = battery.get("mw_media", -1)
+        data["total"]["bateria_mw"] = mw if battery.get("cargando_muestras", 0) == 0 else -1
     return data
 
 
@@ -160,9 +166,14 @@ def main(argv):
     print("ULTRA-GLES: comparacion (base: %s)" % names[0])
     for run in runs:
         mem = run.get("memoria", {})
-        print("  %-28s %s, %s, %.0f s, memoria pico %.0f MiB" % (
+        bat = run.get("bateria", {})
+        battery = ""
+        if bat.get("mw_media", -1) >= 0:
+            battery = ", bateria %d%% -> %d%%%s" % (bat.get("pct_inicio", -1), bat.get("pct_fin", -1),
+                                                   " (CARGANDO)" if bat.get("cargando_muestras", 0) else "")
+        print("  %-28s %s, %s, %.0f s, memoria pico %.0f MiB%s" % (
             label(run), run.get("inicio", "?"), run.get("modo", "?"), run.get("duracion_s", 0),
-            mem.get("rss_pico_kib", 0) / 1024.0))
+            mem.get("rss_pico_kib", 0) / 1024.0, battery))
 
     # Los ajustes que cambian entre ejecuciones.
     keys = sorted(set().union(*[set(r.get("ajustes", {})) for r in runs]))
