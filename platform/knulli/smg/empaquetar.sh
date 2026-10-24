@@ -28,6 +28,10 @@ tar -C "$src" -cf - \
 cp "$here/smg/port.json" "$stage/smg/port.json"
 chmod +x "$stage/Super Mario Galaxy.sh" "$stage/smg/nebula" "$stage/smg/nebula-pak" \
   "$stage/smg/cactus-galaxy-wrapper" "$stage/smg/gamelist.py" 2>/dev/null || true
+# Sin metadatos de quien empaqueta: todas las fechas fijas (el lanzamiento del juego, 2007-11-12, a mediodia UTC) y,
+# en zip y tar, sin usuario ni grupo; zip -X quita los campos extra (uid/gid, horas de Unix).
+find "$stage" -exec touch -h -d '2007-11-12 12:00:00 UTC' {} +
+export TZ=UTC
 
 # smg.zip para PortMaster (sin README.md arriba: PortMaster lo moveria a smg/ encima del de los controles).
 rm -f "$out/smg.zip"
