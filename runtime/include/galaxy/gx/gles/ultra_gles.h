@@ -27,6 +27,9 @@ enum Counter : unsigned {
     kPendingSkips,      // draws left out until their program is linked
     kTextureUploads,
     kTextureUploadBytes,
+    kDisplayListCompares,      // cached display lists whose bytes were compared with guest memory
+    kDisplayListCompareBytes,
+    kDisplayListCompareSkips,  // calls that skipped it (already compared since the last guest writes)
     kCounterCount
 };
 

@@ -508,6 +508,20 @@ public:
         std::uint32_t guest_addr,
         std::uint32_t size);
 
+    // A new batch of guest writes may have landed (the backend calls this once per frame, before the frame's
+    // first parse, with the parser lock held). Until the next call, a cached list whose bytes were already
+    // compared equal to guest memory skips the compare on its later calls: the same rule the decoded vertex
+    // cache follows (GxBackend::decoded_packet_run_dependencies_match). A parser never advanced (the event
+    // classifier, the dependency scanner) compares every call.
+    void advance_memory_generation() noexcept {
+        if (++memory_generation_ == 0u) {
+            for (CachedDisplayList& cached : display_list_cache_) {
+                cached.validated_generation = 0u;
+            }
+            memory_generation_ = 1u;
+        }
+    }
+
 private:
     struct FrozenRegionScope;
     const GuestMemoryV1* frozen_sorted_memory_ = nullptr;
@@ -572,6 +586,8 @@ private:
         std::uint64_t first_page = 0;
         std::uint64_t last_page = 0;
         std::uint64_t last_used = 0;
+        // memory_generation_ when `bytes` were last proven equal to guest memory (0: never).
+        std::uint64_t validated_generation = 0;
         std::vector<std::byte> bytes;
         std::vector<CachedDisplayListCommand> commands;
         std::vector<std::pair<std::uint8_t, std::uint32_t>> cp_dependencies;
@@ -636,6 +652,10 @@ private:
         std::uint32_t guest_addr,
         std::uint32_t byte_size,
         DisplayListRecording&& recording);
+    // Whether the cached copy still equals the list's guest bytes (compared at most once per memory generation).
+    [[nodiscard]] bool display_list_bytes_current(
+        CachedDisplayList& cached,
+        std::span<const std::byte> bytes) const noexcept;
     void prepare_cached_display_list_draw_runs(CachedDisplayList& cached) const;
 
     void erase_display_list_cache_index_from_maps(std::size_t index);
@@ -683,6 +703,7 @@ private:
     bool event_classification_only_ = false;
     std::uint64_t display_list_cache_tick_ = 0;
     std::uint64_t display_list_cache_token_ = 0;
+    std::uint64_t memory_generation_ = 0;  // 0: never advanced, every call compares
     std::size_t last_display_list_cache_index_ = static_cast<std::size_t>(-1);
     // Gameplay touches hundreds of small display lists per frame, so a small cache
     // forces most nested lists to be re-parsed every frame.

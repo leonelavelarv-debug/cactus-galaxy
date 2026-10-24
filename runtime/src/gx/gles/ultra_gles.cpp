@@ -80,6 +80,7 @@ struct Stats {
     double compile_ms = 0.0;
     std::uint64_t uploads = 0, upload_bytes = 0, copies = 0, peeks = 0, sync_peeks = 0, vertices = 0;
     std::uint64_t hitches = 0, stalls = 0, gl_errors = 0;
+    std::uint64_t dl_compares = 0, dl_compare_bytes = 0, dl_skips = 0;
     std::array<std::uint64_t, kCauseCount> causes{};
     std::uint32_t efb_min = 0, efb_max = 0;
     double seconds() const { return last_ns > first_ns ? static_cast<double>(last_ns - first_ns) / 1e9 : 0.0; }
@@ -355,6 +356,9 @@ private:
         s.sync_peeks += f.sync_peeks;
         s.vertices += f.vertices;
         s.gl_errors += f.gl_errors;
+        s.dl_compares += r.counters[kDisplayListCompares];
+        s.dl_compare_bytes += r.counters[kDisplayListCompareBytes];
+        s.dl_skips += r.counters[kDisplayListCompareSkips];
         s.efb_min = std::min(s.efb_min, f.efb_width);
         s.efb_max = std::max(s.efb_max, f.efb_width);
         if (slow) {
@@ -600,6 +604,7 @@ private:
                       "\"cambios_programa\": %.1f, \"uber_pct\": %.2f, \"omitidos\": %llu, \"compilados\": %llu, "
                       "\"compilar_ms\": %.1f, \"texturas_kib_s\": %.1f, \"copias\": %.2f, \"peeks\": %.2f, "
                       "\"peeks_sync\": %llu, \"vertices\": %.0f, \"errores_gl\": %llu, \"efb\": [%u, %u], "
+                      "\"dl_comparadas\": %.1f, \"dl_comparadas_kib\": %.1f, \"dl_saltadas\": %.1f, "
                       "\"causas\": {",
                       static_cast<unsigned long long>(s.frames), f.seconds, f.fps, f.drawn_fps, f.mean, f.p50, f.p95,
                       f.p99, f.max, f.low1, static_cast<unsigned long long>(f.hitches), f.hitches_per_min, f.hitch_ms,
@@ -610,7 +615,10 @@ private:
                       s.frames != 0u ? static_cast<double>(s.peeks) / static_cast<double>(s.frames) : 0.0,
                       static_cast<unsigned long long>(s.sync_peeks),
                       s.frames != 0u ? static_cast<double>(s.vertices) / static_cast<double>(s.frames) : 0.0,
-                      static_cast<unsigned long long>(s.gl_errors), s.efb_min, s.efb_max);
+                      static_cast<unsigned long long>(s.gl_errors), s.efb_min, s.efb_max,
+                      s.frames != 0u ? static_cast<double>(s.dl_compares) / static_cast<double>(s.frames) : 0.0,
+                      s.frames != 0u ? static_cast<double>(s.dl_compare_bytes) / 1024.0 / static_cast<double>(s.frames) : 0.0,
+                      s.frames != 0u ? static_cast<double>(s.dl_skips) / static_cast<double>(s.frames) : 0.0);
         std::string out = text;
         for (unsigned c = 0; c < kCauseCount; ++c) {
             out += (c != 0u ? ", " : "") + json_string(kCauseKeys[c]) + ": " + std::to_string(f.causes[c]);
@@ -807,6 +815,13 @@ private:
                      static_cast<unsigned long long>(total_.compiles + load_.compiles),
                      total_.compile_ms + load_.compile_ms);
         std::fprintf(out, "  Texturas ................ %.0f KiB/s subidas\n", t.upload_kib_s);
+        if (total_.dl_compares + total_.dl_skips != 0u) {
+            std::fprintf(out, "  Display lists ........... %.1f comparadas con la memoria por frame (%.1f KiB), %.1f sin comparar (ya\n"
+                              "                            comparadas en ese frame)\n",
+                         static_cast<double>(total_.dl_compares) * per,
+                         static_cast<double>(total_.dl_compare_bytes) / 1024.0 * per,
+                         static_cast<double>(total_.dl_skips) * per);
+        }
         std::fprintf(out, "  Memoria ................. %.0f MiB de media, pico %.0f MiB; minimo libre en el sistema %.0f MiB\n",
                      memory_.samples != 0u ? memory_.rss_sum_kib / static_cast<double>(memory_.samples) / 1024.0 : 0.0,
                      static_cast<double>(memory_.rss_peak_kib) / 1024.0,

@@ -1518,10 +1518,14 @@ void svc_gx_pe_marker(void*, int finish, uint16_t token) {
 
 // The stage the game reports before each 3D scene (game_stage); the scene's begin marker carries it.
 std::string gSceneStage;
+// Bumped when the stage drawn changes: its first 3D frame, after the load (ULTRA-GLES counts its capture frame
+// from here). Both run on the simulation thread.
+uint64_t gSceneStageSerial = 0;
 
 void svc_game_stage(void*, const char* name) {
     if (name != nullptr && gSceneStage != name) {
         gSceneStage = name;
+        ++gSceneStageSerial;
 #if defined(NEBULA_GPU_GLES)
         galaxy::gx::ultra::set_scene(name);  // ULTRA-GLES: the frames from here on are this scene's
 #endif
@@ -2497,13 +2501,21 @@ int svc_test_scene_frame(void*, NebulaTestAction* action) {
         return 1;
     }
 #if defined(NEBULA_GPU_GLES)
-    // ULTRA-GLES's picture of each stop at the same game frame in every run (GALAXY_ULTRA_CAPTURE_FRAME, 600: 10 s
-    // in), so two runs' pictures show the same moment whatever their frame rates.
+    // ULTRA-GLES's picture of each stop at the same game frame in every run (GALAXY_ULTRA_CAPTURE_FRAME, 300: 5 s
+    // in), so two runs' pictures show the same moment whatever their frame rates. Counted from the stage's first 3D
+    // frame, not from the change request: a load's length in frames differs from run to run.
     static const uint64_t ultra_capture_frame = [] {
         const char* value = std::getenv("GALAXY_ULTRA_CAPTURE_FRAME");
-        return value != nullptr ? std::strtoull(value, nullptr, 10) : 600ull;
+        return value != nullptr ? std::strtoull(value, nullptr, 10) : 300ull;
     }();
-    if (touring && ultra_capture_frame != 0 && since_stop == ultra_capture_frame) {
+    static uint64_t capture_serial = 0, since_stage = 0;
+    if (capture_serial != gSceneStageSerial) {
+        capture_serial = gSceneStageSerial;
+        since_stage = 0;
+    } else {
+        ++since_stage;
+    }
+    if (touring && next != 0 && ultra_capture_frame != 0 && since_stage == ultra_capture_frame) {
         galaxy::gx::ultra::request_capture();
     }
 #endif

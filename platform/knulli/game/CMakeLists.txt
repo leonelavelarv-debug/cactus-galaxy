@@ -141,6 +141,10 @@ add_executable(nebula_ultra_gles_tests "${CMAKE_CURRENT_SOURCE_DIR}/ultra_gles_t
 target_include_directories(nebula_ultra_gles_tests PRIVATE "${nebula_root}/runtime/include")
 target_link_libraries(nebula_ultra_gles_tests PRIVATE Threads::Threads)
 
+# The display-list cache's byte check once per batch of guest writes (FifoParser::advance_memory_generation).
+add_executable(nebula_fifo_display_list_tests "${CMAKE_CURRENT_SOURCE_DIR}/fifo_display_list_tests.cpp")
+target_link_libraries(nebula_fifo_display_list_tests PRIVATE galaxy_gx_gles)
+
 if(NEBULA_SDL2_PREFIX)
     add_library(nebula_sdl2 INTERFACE)
     target_include_directories(nebula_sdl2 INTERFACE "${NEBULA_SDL2_PREFIX}/include/SDL2")

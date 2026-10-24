@@ -14,6 +14,9 @@
 #include "galaxy/gx/snapshot_region_lookup.h"
 
 #include "galaxy/simd128.h"
+#if defined(NEBULA_GPU_GLES)
+#include "galaxy/gx/gles/ultra_gles.h"
+#endif
 
 #include <algorithm>
 #include <array>
@@ -807,8 +810,7 @@ FifoParser::CachedDisplayList* FifoParser::find_cached_display_list(
             cached.byte_size != byte_size) {
             return nullptr;
         }
-        if (cached.bytes.size() != bytes.size() ||
-            (!bytes.empty() && std::memcmp(bytes.data(), cached.bytes.data(), bytes.size()) != 0)) {
+        if (!display_list_bytes_current(cached, bytes)) {
             invalidate_display_list_cache_index(index);
             return nullptr;
         }
@@ -846,6 +848,31 @@ FifoParser::CachedDisplayList* FifoParser::find_cached_display_list(
     }
 
     return nullptr;
+}
+
+bool FifoParser::display_list_bytes_current(
+    CachedDisplayList& cached,
+    std::span<const std::byte> bytes) const noexcept {
+    if (cached.bytes.size() != bytes.size()) {
+        return false;
+    }
+    // Already compared since the last batch of guest writes: a list called many times in a frame (every instance
+    // of a model) pays its compare once.
+    if (memory_generation_ != 0u && cached.validated_generation == memory_generation_) {
+#if defined(NEBULA_GPU_GLES)
+        ultra::add(ultra::kDisplayListCompareSkips, 1u);
+#endif
+        return true;
+    }
+#if defined(NEBULA_GPU_GLES)
+    ultra::add(ultra::kDisplayListCompares, 1u);
+    ultra::add(ultra::kDisplayListCompareBytes, bytes.size());
+#endif
+    if (!bytes.empty() && std::memcmp(bytes.data(), cached.bytes.data(), bytes.size()) != 0) {
+        return false;
+    }
+    cached.validated_generation = memory_generation_;
+    return true;
 }
 
 void FifoParser::erase_display_list_cache_index_from_maps(
@@ -1134,6 +1161,8 @@ void FifoParser::store_cached_display_list(
         display_list_cache_last_page(canonical_addr, byte_size);
     target->last_used = ++display_list_cache_tick_;
     target->bytes = std::move(recording.bytes);
+    // Copied from guest memory in this generation: its later calls before the next write batch skip the compare.
+    target->validated_generation = memory_generation_;
     target->commands = std::move(recording.commands);
     target->cp_dependencies = std::move(recording.cp_dependencies);
     target->xf_values = std::move(recording.xf_values);
@@ -2132,10 +2161,7 @@ void FifoParser::run_window(
                         cached.guest_addr == canonical_guest_addr &&
                         cached.byte_size == byte_size) {
                         const bool bytes_match =
-                            cached.bytes.size() == dl_window.size() &&
-                            (dl_window.empty() ||
-                             std::memcmp(dl_window.data(), cached.bytes.data(),
-                                         dl_window.size()) == 0);
+                            display_list_bytes_current(cached, dl_window);
                         if (bytes_match && display_list_dependencies_match(cached, state)) {
                             if (profile != nullptr) {
                                 ++profile->call_dl_cache_hits;

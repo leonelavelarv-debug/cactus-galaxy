@@ -9,6 +9,11 @@
 # repite la prueba si un resultado importa). Compara tambien las capturas de cada galaxia (PSNR: 40 dB o mas, igual a
 # la vista; menos de 30, revisar) y lista los ajustes que difieren. Solo Python 3, sin modulos de fuera: corre en la
 # consola o en un PC.
+#
+# Ruido: las ejecuciones con los mismos ajustes que la base (una repeticion, p. ej. base2 en serie.cfg) dicen cuanto
+# cambia todo sin cambiar nada. Un cambio dentro de esa diferencia se marca "=" aunque pase el umbral, y una captura
+# solo se marca REVISAR si queda claramente por debajo del PSNR entre la base y su repeticion (el juego no esta en el
+# mismo instante exacto en cada pasada: musica, cargas en otro hilo).
 import json
 import math
 import os
@@ -30,7 +35,16 @@ METRICS = [
     ("compilados", "shaders en hilo", "", False, 0.20, 2.0),
     ("compilar_ms", "compilar", "ms", False, 0.20, 200.0),
     ("frames_lentos", "frames >25 ms", "", False, 0.10, 10.0),
+    ("dl_comparadas_kib", "DL comparadas", "KiB", False, 0.10, 2.0),
 ]
+
+# Ajustes que no cambian lo que se mide (las etiquetas, el muestreo de hilos).
+IGNORED = {"NEBULA_ULTRA_ETIQUETA", "NEBULA_PROFILE", "NEBULA_PROFILE_DUMP", "NEBULA_PROFILE_EVERY",
+           "NEBULA_PROFILE_ROUNDS", "GALAXY_GX_FRAME_TIMING_SAMPLE"}
+
+
+def settings(run):
+    return {k: v for k, v in run.get("ajustes", {}).items() if k not in IGNORED}
 
 
 def load(folder):
@@ -50,12 +64,12 @@ def get(stats, key):
     return value if isinstance(value, (int, float)) else None
 
 
-def verdict(base, other, higher_better, rel, absolute):
+def verdict(base, other, higher_better, rel, absolute, noise=0.0):
     if base is None or other is None or base < 0 or other < 0:
         return "", "  n/d"
     delta = other - base
     pct = delta / base * 100.0 if base else (0.0 if not delta else math.inf)
-    if abs(delta) <= max(abs(base) * rel, absolute):
+    if abs(delta) <= max(abs(base) * rel, absolute, noise):
         mark = "="
     elif (delta > 0) == higher_better:
         mark = "MEJOR"
@@ -107,7 +121,17 @@ def label(run):
     return os.path.basename(os.path.normpath(run["_carpeta"]))
 
 
-def table(title, base_stats, others, names):
+def noise_of(base_stats, repeats, key):
+    """La mayor diferencia entre la base y sus repeticiones (mismos ajustes) en esta metrica."""
+    base = get(base_stats, key)
+    values = [get(r, key) for r in repeats]
+    values = [v for v in values if v is not None]
+    if base is None or not values:
+        return 0.0
+    return max(abs(v - base) for v in values)
+
+
+def table(title, base_stats, others, names, repeats=()):
     print("\n" + title)
     header = "  %-16s %10s" % ("", names[0][:10])
     for name in names[1:]:
@@ -115,10 +139,11 @@ def table(title, base_stats, others, names):
     print(header)
     for key, name, unit, higher, rel, absolute in METRICS:
         base = get(base_stats, key)
+        noise = noise_of(base_stats, repeats, key)
         line = "  %-16s %10s" % (name + (" (%s)" % unit if unit else ""), "n/d" if base is None else "%.2f" % base)
         for stats in others:
             value = get(stats, key)
-            mark, change = verdict(base, value, higher, rel, absolute)
+            mark, change = verdict(base, value, higher, rel, absolute, noise)
             line += "  %10s %7s %-5s" % ("n/d" if value is None else "%.2f" % value, change, mark)
         print(line)
 
@@ -139,7 +164,7 @@ def main(argv):
 
     # Los ajustes que cambian entre ejecuciones.
     keys = sorted(set().union(*[set(r.get("ajustes", {})) for r in runs]))
-    differing = [k for k in keys if k != "NEBULA_ULTRA_ETIQUETA" and
+    differing = [k for k in keys if k not in IGNORED and
                  len({r.get("ajustes", {}).get(k, "(sin poner)") for r in runs}) > 1]
     if differing:
         print("\nAjustes que difieren:")
@@ -148,7 +173,12 @@ def main(argv):
     else:
         print("\nMismos ajustes en todas (lo que cambie es ruido o el codigo).")
 
-    table("Total (juego estable)", base.get("total", {}), [r.get("total", {}) for r in runs[1:]], names)
+    repeats = [r for r in runs[1:] if settings(r) == settings(base)]
+    if repeats:
+        print("\nRepeticiones de la base (mismos ajustes): %s. Lo que cambie menos que ellas es ruido (\"=\")."
+              % ", ".join(label(r) for r in repeats))
+    table("Total (juego estable)", base.get("total", {}), [r.get("total", {}) for r in runs[1:]], names,
+          [r.get("total", {}) for r in repeats])
 
     # Por galaxia: las que estan en la base y en cada otra.
     scenes = [s["nombre"] for s in base.get("escenas", []) if s.get("estable", {}).get("frames", 0) >= 30]
@@ -172,24 +202,31 @@ def main(argv):
     # Capturas.
     base_shots = os.path.join(base["_carpeta"], "capturas")
     if os.path.isdir(base_shots):
-        print("\nCapturas (PSNR frente a la base; inf = identicas, >= 40 dB igual a la vista, < 30 revisar):")
+        print("\nCapturas (PSNR frente a la base; inf = identicas, >= 40 dB igual a la vista; REVISAR: < 30 dB y")
+        print("  3 dB o mas por debajo de la repeticion de la base, cuando la hay):")
         for name in sorted(os.listdir(base_shots)):
             if not name.endswith(".ppm"):
                 continue
-            line = "  %-30s" % name[:-4][:30]
-            for run in runs[1:]:
+
+            def shot_psnr(run):
                 other = os.path.join(run["_carpeta"], "capturas", name)
                 if not os.path.isfile(other):
-                    line += "  %12s" % "(falta)"
-                    continue
+                    return None, "(falta)"
                 try:
-                    value, why = psnr(os.path.join(base_shots, name), other)
+                    return psnr(os.path.join(base_shots, name), other)
                 except (OSError, ValueError) as error:
-                    value, why = None, str(error)
+                    return None, str(error)
+
+            floors = [v for v, _ in (shot_psnr(r) for r in repeats) if v is not None]
+            floor = min(floors) if floors else math.inf
+            line = "  %-30s" % name[:-4][:30]
+            for run in runs[1:]:
+                value, why = shot_psnr(run)
                 if value is None:
                     line += "  %12s" % why[:12]
                 else:
-                    flag = "" if value >= 30 else " REVISAR"
+                    flag = "" if value >= 30 or (run not in repeats and value >= floor - 3.0) or run in repeats \
+                        else " REVISAR"
                     line += "  %9s dB%s" % ("inf" if math.isinf(value) else "%.1f" % value, flag)
             print(line)
     return 0
