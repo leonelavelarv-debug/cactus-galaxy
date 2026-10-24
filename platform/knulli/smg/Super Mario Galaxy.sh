@@ -196,8 +196,8 @@ fi
 export NEBULA_PROFILE="${NEBULA_PROFILE:-150}"
 
 # ULTRA-GLES (medicion del rendimiento grafico; docs/RG35XXH.md):
-#   NEBULA_ULTRA=0|1|bench               1: mide la partida; bench: recorre solo las galaxias (15 s cada una, ~12 min,
-#                                        con una partida aparte, sin tocar la tuya) y sale. Resultados en
+#   NEBULA_ULTRA=0|1|bench               1: mide la partida; bench: recorre solo las galaxias (15 s de juego cada una
+#                                        mas su carga: ~15-20 min las 44; con una partida aparte, sin tocar la tuya) y sale. Resultados en
 #                                        smg/ultra/<fecha>[-etiqueta]/informe.txt (y frames.csv, resumen.json, capturas/)
 #   NEBULA_ULTRA_ETIQUETA=nombre         nombre para la carpeta (p. ej. el ajuste que pruebas)
 #   NEBULA_ULTRA_GALAXIAS=n              bench: solo las n primeras galaxias (pruebas cortas)

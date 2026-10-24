@@ -5,9 +5,13 @@ ULTRA-GLES: medir el rendimiento grafico del port en tu consola
      NEBULA_ULTRA=bench
      NEBULA_ULTRA_ETIQUETA=base
 
-   y abre Super Mario Galaxy desde Ports. El juego recorre solo las galaxias (15 s cada una, unos 12 minutos), con una
-   partida aparte (smg/ultra/nand-bench: la tuya no se toca), y vuelve al menu al terminar. No toques nada mientras.
-   NEBULA_ULTRA_GALAXIAS=10 hace solo las 10 primeras (unos 3 minutos), para pruebas rapidas.
+   y abre Super Mario Galaxy desde Ports. El juego espera unos 15 s en la pantalla de partidas y luego recorre solo
+   las galaxias: cada 15 s de juego cambia a la siguiente (mas lo que tarde en cargarla), con una partida aparte
+   (smg/ultra/nand-bench: la tuya no se toca), y vuelve al menu al terminar. No toques nada mientras.
+   Cuanto tarda: unos 20-30 s por galaxia con graficos; las 44, unos 15-20 minutos. NEBULA_ULTRA_GALAXIAS=10 hace
+   solo las 10 primeras (unos 4-6 minutos), para pruebas rapidas.
+   Si quieres pararlo antes, sal del juego como siempre (MENU + START): lo medido hasta ahi se guarda. El informe
+   tambien se actualiza cada 20 s mientras corre (pone PARCIAL arriba), asi que nunca se pierde todo.
 
 2. El resultado queda en smg/ultra/<fecha>-base/:
      informe.txt   FPS, tiempo por fotograma (p95, p99), tirones y su causa, CPU, GPU, memoria, por galaxia
