@@ -15,6 +15,7 @@
 #include <ctime>
 #include <deque>
 #include <filesystem>
+#include <initializer_list>
 #include <map>
 #include <mutex>
 #include <string>
@@ -165,11 +166,17 @@ BatteryReading read_battery() {
         std::fclose(status);
     }
     long long power = 0, current = 0, voltage = 0;
-    if (read_sysfs_number(dir + "/power_now", power) && power != 0) {
+    const auto first = [&](std::initializer_list<const char*> names, long long& value) {
+        for (const char* name : names) {
+            if (read_sysfs_number(dir + "/" + name, value) && value != 0) return true;
+        }
+        return false;
+    };
+    if (first({"power_now", "power_avg"}, power)) {
         out.mw = static_cast<double>(power < 0 ? -power : power) / 1000.0;  // uW
         out.valid = true;
-    } else if (read_sysfs_number(dir + "/current_now", current) && read_sysfs_number(dir + "/voltage_now", voltage) &&
-               current != 0 && voltage > 0) {
+    } else if (first({"current_now", "current_avg"}, current) &&
+               first({"voltage_now", "voltage_avg", "voltage_ocv"}, voltage) && voltage > 0) {
         // uA x uV; the sign of the current is the driver's choice (discharging is positive on some, negative on others).
         out.mw = static_cast<double>(current < 0 ? -current : current) * static_cast<double>(voltage) / 1e9;
         out.valid = true;

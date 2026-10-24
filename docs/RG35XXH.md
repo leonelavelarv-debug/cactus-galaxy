@@ -296,6 +296,16 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   GL_SYNC_FLUSH_COMMANDS_BIT, y ese glFlush caía a mitad del frame siguiente, partiendo la pasada de render de la Mali
   (el EFB guardado y vuelto a cargar). Con cuatro frames en vuelo, aun así, +8,3 % de frames dibujados. update51: las
   fences se sondean sin flush (ya se vaciaron al insertarlas).
+- Serie de update51 (con las repeticiones): el hilo GL solo, +6 % de frames dibujados; con cuatro frames en vuelo,
+  **+16-19 %** (10,3 -> 12,1), FPS mostrados +15 %, p95 -18 %, p99 -30 % (104 -> 73 ms), 1 % más lento +44 %, el
+  recorrido en 221 s en vez de 241; la CPU del hilo de render, -42 % (24,6 -> 14,2 ms); mejora en todas las galaxias.
+  La GPU sigue ~17 % por encima por frame dibujado. update52 lo deja **por defecto**: `GALAXY_GLES_THREAD=1` en el
+  lanzador (0 en `smg/ultra.cfg` lo apaga), `NEBULA_GLES_FRAMES_IN_FLIGHT` 4 por defecto en GLES, y los anillos de
+  índices y matrices a 3 MiB por frame (el pico medido no llega a 1). Para buscar la GPU de más, dos variantes medibles:
+  `GALAXY_GLES_THREAD_JOBS=frame` (las copias de las lecturas del EFB, que mapean un buffer, solo entre frames) y
+  `GALAXY_GLES_THREAD_WAIT=poll` (sin bloquearse en glClientWaitSync). El lanzador anota en log.txt lo que da cada
+  `power_supply` y ULTRA prueba también `power_avg`, `current_avg` y `voltage_avg`/`voltage_ocv` (la serie de update51
+  no tuvo lectura de batería).
 - ULTRA mide también la batería: con la memoria, cada segundo, el primer `/sys/class/power_supply/*` de tipo Battery
   (o `GALAXY_ULTRA_BATTERY`): `power_now`, o `|current_now|` x `voltage_now`, en mW, la carga en % y si está en el
   cargador. `memoria.csv` lleva las tres columnas, `resumen.json` un apartado `bateria` (media en mW, % al empezar y al

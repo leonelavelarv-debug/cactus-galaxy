@@ -167,6 +167,14 @@ export GALAXY_RUNTIME_SETTINGS_PATH="$GAMEDIR/settings.ini"
 # uber por defecto (ULTRA-GLES): la primera vez con wait, 166 shaders compilados de golpe pararon el juego 62 s en
 # 10 galaxias; con uber se dibuja con el shader generico mientras el suyo compila en otro hilo.
 export GALAXY_GLES_PENDING="${GALAXY_GLES_PENDING:-uber}"
+#   GALAXY_GLES_THREAD=1|0               1 (por defecto desde update52): las llamadas de GL van a un hilo propio, en otro
+#                                        nucleo, mientras el de render traduce el frame siguiente; con 4 frames en vuelo
+#                                        dio +16-19 % de frames dibujados y -30 % de p99 (ULTRA-GLES). 0: como antes
+#                                        (ponlo en smg/ultra.cfg si algo se ve mal con el hilo).
+export GALAXY_GLES_THREAD="${GALAXY_GLES_THREAD:-1}"
+#   GALAXY_GLES_RING_INDEX_MB/MATRIX_MB  memoria por frame en vuelo para indices y matrices (el pico medido: <1 MiB)
+export GALAXY_GLES_RING_INDEX_MB="${GALAXY_GLES_RING_INDEX_MB:-3}"
+export GALAXY_GLES_RING_MATRIX_MB="${GALAXY_GLES_RING_MATRIX_MB:-3}"
 #   GALAXY_GLES_RESOLUTION=100           resolucion interna: 100 = 640x528 (alta definicion, la del Wii); 75 = 480x396;
 #                                        50 = 320x264; auto = dinamica (baja cuando la GPU no llega, sube cuando le sobra)
 #   GALAXY_GLES_RESOLUTION_MIN/MAX/START  los limites de la dinamica (50/100) y donde empieza (75)
@@ -272,6 +280,16 @@ for dir in /sys/devices/system/cpu/cpufreq/policy*; do
 done
 for dir in /sys/class/devfreq/*; do
   [ -d "$dir" ] && echo "devfreq $(basename "$dir"): $(cat "$dir/governor" 2>/dev/null) [$(cat "$dir/available_governors" 2>/dev/null)] $(cat "$dir/cur_freq" 2>/dev/null) Hz ($(cat "$dir/min_freq" 2>/dev/null)-$(cat "$dir/max_freq" 2>/dev/null); $(cat "$dir/available_frequencies" 2>/dev/null))"
+done
+# Que da la bateria (diagnostico; ULTRA-GLES mide el consumo con lo que encuentre aqui).
+for dir in /sys/class/power_supply/*; do
+  [ -d "$dir" ] || continue
+  info=""
+  for f in type status capacity power_now power_avg current_now current_avg voltage_now voltage_avg voltage_ocv \
+           energy_now charge_now charge_full; do
+    [ -r "$dir/$f" ] && info="$info $f=$(head -c 40 "$dir/$f" 2>/dev/null | tr -d '\n')"
+  done
+  echo "bateria $(basename "$dir"):${info:- (sin datos legibles)}"
 done
 if [ "${NEBULA_PERF:-1}" = "1" ]; then
   for dir in /sys/devices/system/cpu/cpufreq/policy*; do
