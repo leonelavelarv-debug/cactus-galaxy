@@ -247,8 +247,17 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   juego en memoria, `replay_cached_display_list`). El hilo del juego pasa ~60 % esperando.
 - `GALAXY_GLES_PENDING=uber` no cambia nada con la caché llena y evita las paradas de compilar: pasa a ser el valor por
   defecto del lanzador. `res75` baja la GPU un 29 % y sube los FPS dibujados un 10 %.
-- Siguiente: perfil de pila completa (`NEBULA_PROFILE_DUMP`, pilas agregadas en `muestras.txt`, simbolizadas fuera del
-  aparato) y `GALAXY_GX_FRAME_TIMING_SAMPLE` para repartir esos 16-35 ms del frente GX por fases.
+- Perfil de pila completa (`NEBULA_PROFILE_DUMP`, 21 953 muestras del hilo de render en 4 min, simbolizadas con el
+  binario sin strip): 21 % esperando fences de la Mali (`osup_sync_object_timedwait`), ~25 % dentro del driver (las
+  llamadas GL; la pila no se deshace a través de libmali), 10 % esperando trabajo, **7,6 % en `complete_readback`**
+  (la expansión de cada campo de peek reducido a 640x528, 1,35 MB escritos píxel a píxel), y ~31 % en el frente GX
+  (`FifoParser::run_window`: `replay_cached_display_list` 15 %, `find_cached_display_list` con `memcmp` 5 %,
+  `on_cached_packet_draw_run`/`flush_draw_state` 10 %, invalidaciones por escrituras 3 %). `[gx-frame-timing]`: el
+  `parse-us` es ~70 % de cada trozo de frame. El hilo del juego pasa 54 % ocioso y 19 % en `GXDrawDone`.
+- Hecho a partir de eso: los campos de peek reducidos se guardan tal como se leen (`Readback::compact`,
+  `async_peek_field_layout`; `GxBackend::read_async_peek_field` mapea el píxel lógico al texel), sin la expansión.
+  Probado en x86 con el EFB al 100/75/50 % y el campo al 25 %. Y `NEBULA_GLES_FRAMES_IN_FLIGHT` (compilación, hasta
+  4) para medir si un cuarto frame en vuelo quita las esperas de fences (`smg/nebula-f4`, sección `vuelo4`).
 
 ### Diseño del renderer GLES (H)
 

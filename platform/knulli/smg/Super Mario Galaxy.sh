@@ -335,7 +335,13 @@ if [ "$NEBULA_ULTRA" = serie ]; then
         section == want && $0 ~ /=/ && $0 !~ /^[[:space:]]*#/ { print }' "$serie_cfg")
       # Muestreo de hilos en esta seccion: las pilas completas a muestras.txt de su carpeta.
       case "${NEBULA_PROFILE:-0}" in 0|'') ;; *) export NEBULA_PROFILE_DUMP="${NEBULA_PROFILE_DUMP:-$run_dir/muestras.txt}" ;; esac
-      ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
+      # NEBULA_ULTRA_BIN=nebula-xxx: otra version del juego compilada con otro ajuste (p. ej. smg/nebula-f4, cuatro
+      # frames en vuelo), para medirla contra la normal.
+      bin="${NEBULA_ULTRA_BIN:-nebula}"
+      [ -x "$GAMEDIR/$bin" ] || { [ -f "$GAMEDIR/$bin" ] && chmod +x "$GAMEDIR/$bin"; }
+      [ -x "$GAMEDIR/$bin" ] || { echo "  $name: falta smg/$bin, se usa nebula"; bin=nebula; }
+      echo "  $name: $bin ($(md5sum "$GAMEDIR/$bin" | cut -c1-12))"
+      "./$bin" --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
     )
     status=$?
     runs="$runs $run_dir"

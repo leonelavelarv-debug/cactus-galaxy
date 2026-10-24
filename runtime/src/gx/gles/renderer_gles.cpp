@@ -1800,6 +1800,7 @@ void RendererGles::record_peek_field(gles::Texture& target, EfbPeekKind kind,
     const unsigned read_width = expand ? width * num / den : width;
     const unsigned read_height = expand ? height * num / den : height;
     readback.expand = expand;
+    readback.compact = expand && reduced;
     readback.num = num;
     readback.den = den;
     readback.width = read_width;
@@ -1829,7 +1830,10 @@ bool RendererGles::complete_readback(Readback& readback) {
     const void* mapped = glMapBufferRange(GL_PIXEL_PACK_BUFFER, 0, static_cast<GLsizeiptr>(read_bytes),
                                           GL_MAP_READ_BIT);
     if (mapped != nullptr) {
-        if (expand) {
+        if (expand && readback.compact) {
+            // The texels as read; the lookups map logical pixels to them.
+            std::memcpy(readback.data.data(), mapped, std::min(read_bytes, readback.data.size()));
+        } else if (expand) {
             readback.staging.resize(read_bytes);
             std::memcpy(readback.staging.data(), mapped, read_bytes);
         } else {
@@ -1838,7 +1842,7 @@ bool RendererGles::complete_readback(Readback& readback) {
         glUnmapBuffer(GL_PIXEL_PACK_BUFFER);
     }
     glBindBuffer(GL_PIXEL_PACK_BUFFER, 0);
-    if (mapped != nullptr && expand) {
+    if (mapped != nullptr && expand && !readback.compact) {
         // Logical pixel x reads texel x * num / den (to_physical's peek texel); a row repeating the row above
         // (same texel row) is a copy of it.
         const std::size_t out_width = static_cast<std::size_t>(readback.width) * readback.den / readback.num;
@@ -2022,6 +2026,23 @@ const std::uint8_t* RendererGles::async_peek_field_rgba(std::size_t channel, std
     const AsyncField& field = async_fields_[channel];
     return slot < kAsyncPeekFieldSlots && !field.readbacks[slot].data.empty() ? field.readbacks[slot].data.data()
                                                                                : nullptr;
+}
+
+void RendererGles::async_peek_field_layout(std::size_t channel, std::size_t slot, unsigned& width,
+                                           unsigned& height, unsigned& num, unsigned& den) const noexcept {
+    width = kEfbWidth;
+    height = kEfbHeight;
+    num = den = 1u;
+    if (channel >= async_fields_.size() || slot >= kAsyncPeekFieldSlots) {
+        return;
+    }
+    const Readback& readback = async_fields_[channel].readbacks[slot];
+    if (readback.compact && readback.width != 0u && readback.height != 0u && readback.den != 0u) {
+        width = readback.width;
+        height = readback.height;
+        num = readback.num;
+        den = readback.den;
+    }
 }
 
 void RendererGles::set_debug_capture_paths(std::string efb_ppm_path, std::string backbuffer_ppm_path) {

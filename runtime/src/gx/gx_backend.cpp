@@ -11385,8 +11385,19 @@ bool GxBackend::read_async_peek_field(
     }
     // Same packing the full-field conversion produced: 0x00RRGGBB for depth,
     // 0xAARRGGBB for colour.
+#if defined(NEBULA_GPU_GLES)
+    // GLES keeps a reduced field as read (texel x*num/den of logical pixel x), not expanded to 640x528.
+    unsigned width = kEfbWidth, height = kEfbHeight, num = 1u, den = 1u;
+    renderer_.async_peek_field_layout(static_cast<std::size_t>(&state - async_peek_.data()),
+                                      static_cast<std::size_t>((published & 0xFFFFFFFFu) - 1u), width, height, num,
+                                      den);
+    const std::size_t tx = std::min<std::size_t>(static_cast<std::size_t>(x) * num / den, width - 1u);
+    const std::size_t ty = std::min<std::size_t>(static_cast<std::size_t>(y) * num / den, height - 1u);
+    const std::uint8_t* pixel = field + (ty * width + tx) * 4u;
+#else
     const std::uint8_t* pixel =
         field + (static_cast<std::size_t>(y) * kEfbWidth + x) * 4u;
+#endif
     const std::uint32_t rgb = (std::uint32_t{pixel[0]} << 16u) |
         (std::uint32_t{pixel[1]} << 8u) | pixel[2];
     value = kind == EfbPeekKind::Depth ? rgb : (std::uint32_t{pixel[3]} << 24u) | rgb;
