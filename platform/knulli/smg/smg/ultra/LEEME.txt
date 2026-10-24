@@ -17,7 +17,8 @@ ULTRA-GLES: medir el rendimiento grafico del port en tu consola
      informe.txt   FPS, tiempo por fotograma (p95, p99), tirones y su causa, CPU, GPU, memoria, por galaxia
      resumen.json  lo mismo, para comparar
      frames.csv    cada frame (abrelo con una hoja de calculo)
-     memoria.csv   la memoria cada segundo
+     memoria.csv   la memoria y la bateria (consumo en mW y carga) cada segundo; sin el cargador puesto, el consumo
+                   de cada prueba se puede comparar
      capturas/     una imagen de cada galaxia, para comparar la calidad
 
 3. Para probar un ajuste, cambialo en smg/ultra.cfg (por ejemplo GALAXY_GLES_RESOLUTION=75 y

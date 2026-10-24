@@ -289,6 +289,11 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   `nebula_gl_thread_tests` con funciones GL falsas (orden, hilo, copias, pools, la cola dando la vuelta con ~200 MB,
   fences y trabajos tras ellas), limpio con ThreadSanitizer. La serie mide base, hilo, hilo con 4 frames en vuelo,
   hilo con cola 3 y las repeticiones; cada recorrido se corta a los 900 s (`NEBULA_ULTRA_LIMITE`) si se colgara.
+- ULTRA mide también la batería: con la memoria, cada segundo, el primer `/sys/class/power_supply/*` de tipo Battery
+  (o `GALAXY_ULTRA_BATTERY`): `power_now`, o `|current_now|` x `voltage_now`, en mW, la carga en % y si está en el
+  cargador. `memoria.csv` lleva las tres columnas, `resumen.json` un apartado `bateria` (media en mW, % al empezar y al
+  acabar, muestras en el cargador), `informe.txt` una línea, y `compare.py` compara el consumo (n/d si se cargó durante
+  la ejecución). Probado en x86 con una carpeta de batería falsa.
 
 ### Diseño del renderer GLES (H)
 
