@@ -252,6 +252,10 @@ public:
     [[nodiscard]] bool record_async_peek_field_in_frame(std::size_t channel, EfbPeekKind kind, std::size_t slot);
     [[nodiscard]] bool try_complete_async_peek_field(std::size_t channel);
     [[nodiscard]] const std::uint8_t* async_peek_field_rgba(std::size_t channel, std::size_t slot) const noexcept;
+    // How a slot's bytes are laid out: width x height texels, logical pixel x at texel min(x*num/den, width-1)
+    // (640x528 and 1/1 for a field read at full size).
+    void async_peek_field_layout(std::size_t channel, std::size_t slot, unsigned& width, unsigned& height,
+                                 unsigned& num, unsigned& den) const noexcept;
     [[nodiscard]] bool async_peek_field_pending(std::size_t channel) const noexcept {
         return async_fields_[channel].fence != 0u;
     }
@@ -323,6 +327,10 @@ private:
         unsigned width = 0;
         unsigned height = 0;
         std::vector<std::uint8_t> staging;
+        // An async peek field (ULTRA-GLES): data keeps the width x height texels as read, not expanded to 640x528
+        // (the expansion wrote 1.35 MB a field, ~7 % of the render thread on the RG35XX H); GxBackend's lookups map
+        // logical x to texel x*num/den themselves (async_peek_field_layout).
+        bool compact = false;
     };
     struct AsyncField {
         gpu::TextureRef target;

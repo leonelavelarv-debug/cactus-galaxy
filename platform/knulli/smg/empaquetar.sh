@@ -25,7 +25,7 @@ tar -C "$src" -cf - \
   --exclude='smg/log.txt' --exclude='smg/idioma.txt' --exclude='smg/.primer-arranque' \
   --exclude='smg/.ficha-pendiente' --exclude='smg/cover.png*' --exclude='smg/screenshot.png' \
   --exclude='smg/title.png' --exclude='smg/*.sh' --exclude='smg/ultra.cfg' --exclude='smg/ultra/2*' \
-  --exclude='smg/ultra/nand-bench' --exclude='__pycache__' smg | tar -C "$stage" -xf -
+  --exclude='smg/ultra/nand-bench' --exclude='smg/nebula-f*' --exclude='__pycache__' smg | tar -C "$stage" -xf -
 cp "$here/smg/port.json" "$stage/smg/port.json"
 chmod +x "$stage/Super Mario Galaxy.sh" "$stage/smg/nebula" "$stage/smg/nebula-pak" \
   "$stage/smg/cactus-galaxy-wrapper" "$stage/smg/gamelist.py" 2>/dev/null || true

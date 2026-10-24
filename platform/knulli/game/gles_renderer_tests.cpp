@@ -136,8 +136,14 @@ int main() {
             const bool completed = renderer.try_complete_async_peek_field(0u);
             expect(completed, "async colour field completed", completed ? 1u : 0u, 1u);
             const std::uint8_t* rgba = renderer.async_peek_field_rgba(0u, 1u);
+            // As GxBackend reads it: a reduced field (GALAXY_GLES_PEEK_FIELD) keeps its texels, logical x at x*num/den.
+            unsigned fw = 0, fh = 0, num = 1, den = 1;
+            renderer.async_peek_field_layout(0u, 1u, fw, fh, num, den);
+            std::printf("async field layout %ux%u, %u/%u\n", fw, fh, num, den);
             const auto pixel = [&](unsigned x, unsigned y) {
-                const std::uint8_t* p = rgba + (static_cast<std::size_t>(y) * kEfbWidth + x) * 4u;
+                const std::size_t tx = std::min<std::size_t>(static_cast<std::size_t>(x) * num / den, fw - 1u);
+                const std::size_t ty = std::min<std::size_t>(static_cast<std::size_t>(y) * num / den, fh - 1u);
+                const std::uint8_t* p = rgba + (ty * fw + tx) * 4u;
                 return argb(p[3], p[0], p[1], p[2]);
             };
             if (rgba != nullptr) {

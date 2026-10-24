@@ -20,8 +20,13 @@ namespace galaxy::gx {
 
 #if defined(NEBULA_GPU_GLES)
 // A tiler GPU (Mali) runs a frame's passes well after they are recorded: a third frame keeps the render thread
-// recording while the GPU still finishes the one before.
-inline constexpr unsigned kFramesInFlight = 3;
+// recording while the GPU still finishes the one before. NEBULA_GLES_FRAMES_IN_FLIGHT (build time) tries more: on
+// the RG35XX H the render thread spent ~21 % of its time waiting for frame-slot fences (ULTRA-GLES). At most 4
+// (TextureCache::kMaxHoldSegments, which kInterpSegments may not exceed).
+#ifndef NEBULA_GLES_FRAMES_IN_FLIGHT
+#define NEBULA_GLES_FRAMES_IN_FLIGHT 3
+#endif
+inline constexpr unsigned kFramesInFlight = NEBULA_GLES_FRAMES_IN_FLIGHT;
 #else
 inline constexpr unsigned kFramesInFlight = 2;
 #endif
@@ -32,7 +37,7 @@ inline constexpr unsigned kRingSegments = kFramesInFlight + 2u;
 // sampler heaps per game frame, for the frame being recorded, the completed
 // log waiting for its present and the log whose sub-frames play. A segment
 // is reused only after its fence (the oldest log is then invalidated).
-inline constexpr unsigned kInterpSegments = 3u;
+inline constexpr unsigned kInterpSegments = kFramesInFlight > 3u ? kFramesInFlight : 3u;  // never fewer than the frames in flight
 inline constexpr unsigned kSamplerHeapSlots = 2048;
 
 inline constexpr unsigned kEfbWidth = 640;

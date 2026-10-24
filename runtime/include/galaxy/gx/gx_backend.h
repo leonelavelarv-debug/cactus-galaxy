@@ -1573,7 +1573,7 @@ private:
         return (key & 0x10000u) == 0u ? EfbPeekKind::Depth : EfbPeekKind::Color;
     }
     [[nodiscard]] std::size_t async_peek_channel(EfbPeekKind kind, std::uint16_t token);
-    [[nodiscard]] static bool read_async_peek_field(
+    [[nodiscard]] bool read_async_peek_field(
         AsyncPeekFieldState& state, std::uint16_t x, std::uint16_t y, EfbPeekKind kind, std::uint32_t& value);
     std::array<AsyncPeekFieldState, Renderer::kAsyncPeekFieldChannels> async_peek_{};
     std::uint64_t async_peek_requests_ = 0;  // simulation thread
