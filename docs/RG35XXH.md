@@ -312,6 +312,28 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   acabar, muestras en el cargador), `informe.txt` una línea, y `compare.py` compara el consumo (n/d si se cargó durante
   la ejecución). Probado en x86 con una carpeta de batería falsa.
 
+- update54, el frame saltado no prepara lo que va a tirar (`GALAXY_FRAMESKIP_FAST`, 1 por defecto). Medido en el log del
+  aparato (update46, 281 frames con detalle): un frame **dibujado** gasta 15,8 ms en traducir el GX (grabar los draws
+  5,9, estado 1,9, vértices 1,7, el resto el recorrido de las listas) y un frame **saltado** costaba 19-33 ms frente a
+  22-76 de uno dibujado, con 66 000-120 000 lotes tirados cada 400 saltados (`[frameskip] ... (N draws)`). La causa: en un
+  frame saltado, `on_draw` rechaza el draw antes de empezar, pero las tandas de draws de las display lists en caché
+  (`begin_cached_draw_run` y las rutas simple/prepared/packet, por donde pasa casi todo SMG) preparaban cada una (flush
+  del estado, texturas, validación de vértices decodificados, índices, lote) y `flush_pending_draw_batch` las tiraba al
+  final. Ahora `begin_cached_draw_run` las manda por la misma vía que una tanda rechazada por scissor: se consumen los
+  bytes de vértices y no se hace nada más. Es exacto porque `flush_draw_state` es el único que consume los flags de
+  estado sucio de `GxState` (`consume_dirty`), así que lo que los draws saltados no prepararon sigue marcado, y cada
+  trozo de frame vuelve a armar las direcciones de los anillos (`frame_bindings_dirty_`, paleta, matrices en línea): el
+  siguiente frame dibujado lo construye todo, igual que ya ocurría con los draws sueltos de un frame saltado. No se
+  aplica con el trazador de rayos, la grabación de interpolación, las escenas temporales ni con capturas o trazas de
+  draws. `[gx-frame-timing]` da `frameskip-fast-draws` (draws ahorrados por frame) y `[frameskip]` cuenta ahora los
+  draws saltados. `GALAXY_FRAMESKIP_FAST=0` lo deja como antes. Qué esperar: el frame saltado deja de costar casi lo
+  que uno dibujado (queda aplicar el estado de las listas), así que el ciclo "dibujar 1, saltar 2" cabe antes en 3
+  frames y el juego va más deprisa (la serie lo mide como `duracion del recorrido`); con `GALAXY_FRAMESKIP_MAX=3` puede
+  saltar más cuando dibujar cuesta más de dos frames. La idea de guardar el resultado de cada objeto entre frames se
+  midió antes: el flush por objeto cuesta 1,9 ms por frame y ya reutiliza el pipeline, las tablas de texturas y las
+  constantes (las matrices solas salen por la vía rápida), y la caché de vértices acierta el 100 %; lo que se
+  repetía por frame era el trabajo de los frames que se tiraban.
+
 ### Diseño del renderer GLES (H)
 
 - Misma interfaz que `RendererVk` (GxBackend no cambia salvo `gx_backend.h`, que elige el backend, y la decodificación de

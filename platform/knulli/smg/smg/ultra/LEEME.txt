@@ -41,3 +41,7 @@ informe dice cuanta CPU usa ese hilo y cuanto lo espero el de render.
 
 NEBULA_ULTRA=1 mide una partida normal (sin recorrido) y deja el informe al salir del juego.
 Quita NEBULA_ULTRA del archivo (o ponlo a 0) para jugar sin medir.
+
+GALAXY_FRAMESKIP_FAST=0 devuelve los frames saltados a como eran hasta update53 (preparaban todo y lo tiraban al final).
+compare.py da "duracion del recorrido": el recorrido es el mismo en tiempo de juego, asi que menos segundos de reloj
+quiere decir que el juego fue mas deprisa.

@@ -39,6 +39,8 @@ METRICS = [
     ("gl_cpu_ms", "hilo GL (CPU)", "ms", False, 0.05, 0.2),
     ("gl_espera_ms", "espera al hilo GL", "ms", False, 0.10, 0.2),
     ("bateria_mw", "bateria", "mW", False, 0.03, 50.0),
+    # El recorrido es el mismo en tiempo de juego: cuanto menos dure en reloj, mas deprisa fue el juego.
+    ("duracion_s", "duracion del recorrido", "s", False, 0.03, 3.0),
 ]
 
 # Ajustes que no cambian lo que se mide (las etiquetas, el muestreo de hilos).
@@ -60,6 +62,8 @@ def load(folder):
     if isinstance(data.get("total"), dict):
         mw = battery.get("mw_media", -1)
         data["total"]["bateria_mw"] = mw if battery.get("cargando_muestras", 0) == 0 else -1
+        if isinstance(data.get("duracion_s"), (int, float)) and data["duracion_s"] > 0:
+            data["total"]["duracion_s"] = data["duracion_s"]
     return data
 
 

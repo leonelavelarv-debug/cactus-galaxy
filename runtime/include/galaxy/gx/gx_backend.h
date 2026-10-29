@@ -2267,6 +2267,19 @@ private:
     PendingDrawBatch pending_draw_batch_{};
     bool cached_draw_run_active_ = false;
     bool cached_draw_run_scissor_reject_ = false;
+    // The run belongs to a skipped frame (begin_cached_draw_run): it takes the scissor-reject road, but its draws
+    // count as frame-skip draws.
+    bool cached_draw_run_frameskip_ = false;
+    // Draws of display-list runs that a skipped frame dropped before preparing them (GALAXY_FRAMESKIP_FAST).
+    std::uint64_t frame_frameskip_fast_draws_ = 0;
+    void note_cached_run_rejected(std::uint64_t draws) noexcept {
+        if (cached_draw_run_frameskip_) {
+            frameskip_draws_ += draws;
+            frame_frameskip_fast_draws_ += draws;
+        } else {
+            frame_scissor_skips_ += draws;
+        }
+    }
     bool cached_draw_run_primitive_indexed_ = false;
     bool cached_draw_run_no_pso_ = false;
     bool cached_draw_run_batch_compatible_known_ = false;

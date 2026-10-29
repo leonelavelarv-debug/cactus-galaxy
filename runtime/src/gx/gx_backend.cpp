@@ -12335,6 +12335,7 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
     frame_texture_binding_cache_prunes_ = 0;
     frame_nontri_skips_ = 0;
     frame_scissor_skips_ = 0;
+    frame_frameskip_fast_draws_ = 0;
     frame_flush_us_ = 0;
     frame_flush_pso_us_ = 0;
     frame_flush_pso_cycles_ = 0;
@@ -13630,6 +13631,7 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
                   << frame_texture_binding_cache_prunes_
                   << " nontri-skips=" << frame_nontri_skips_
                   << " scissor-skips=" << frame_scissor_skips_
+                  << " frameskip-fast-draws=" << frame_frameskip_fast_draws_
                   << " pending-fifo=" << pending_fifo_.size()
                   << " flush-us=" << frame_flush_us_
                   << " flush-pso-us=" << frame_flush_pso_us_
@@ -15496,6 +15498,15 @@ std::size_t GxBackend::draw_payload_size(
            static_cast<std::size_t>(vertex_count);
 }
 
+namespace {
+// GALAXY_FRAMESKIP_FAST=0 puts the display-list runs of a skipped frame back through the full preparation (they
+// are thrown away at the end); on by default.
+bool frameskip_fast_enabled() {
+    static const bool enabled = read_env_u64("GALAXY_FRAMESKIP_FAST", 1u) != 0u;
+    return enabled;
+}
+}  // namespace
+
 bool GxBackend::begin_cached_draw_run(
     PrimitiveClass primitive,
     std::uint8_t vtxfmt,
@@ -15525,6 +15536,21 @@ bool GxBackend::begin_cached_draw_run(
         sc.x1 < 0 || sc.y1 < 0 ||
         sc.x0 >= static_cast<std::int32_t>(kEfbWidth) ||
         sc.y0 >= static_cast<std::int32_t>(kEfbHeight);
+    // A skipped frame (GALAXY_FRAMESKIP) draws nothing: flush_pending_draw_batch throws its draws away. Before this,
+    // a run still prepared every one of them first (pipeline, textures, constants, decoded vertices, indices), the
+    // whole cost of a drawn frame less the driver calls, so a skipped frame cost nearly as much as a drawn one.
+    // on_draw already refused a draw outside a list at its first line; the runs of a list now take the same road
+    // as a rejected one: the vertex bytes are consumed and nothing else happens. flush_draw_state is the only
+    // consumer of the GX state's dirty flags, so what the skipped draws left unprepared stays marked, and the next
+    // drawn frame (whose begin also re-arms every per-frame binding) builds it. GALAXY_FRAMESKIP_FAST=0 restores
+    // the old behaviour. The ray tracer, the interpolation recording and the temporal scenes look at every draw.
+    cached_draw_run_frameskip_ = false;
+    if (frameskip_skipping_ && frameskip_fast_enabled() && !interp_recording_ && !history_scene_ && !motion_scene_ &&
+        !renderer_.rt_active()) {
+        flush_pending_draw_batch();
+        cached_draw_run_scissor_reject_ = true;
+        cached_draw_run_frameskip_ = true;
+    }
     cached_draw_run_primitive_ = primitive;
     cached_draw_run_vtxfmt_ = vtxfmt;
     cached_draw_run_primitive_indexed_ =
@@ -15584,6 +15610,7 @@ bool GxBackend::begin_cached_draw_run(
 void GxBackend::end_cached_draw_run() {
     cached_draw_run_active_ = false;
     cached_draw_run_scissor_reject_ = false;
+    cached_draw_run_frameskip_ = false;
     cached_draw_run_primitive_indexed_ = false;
     cached_draw_run_no_pso_ = false;
     cached_draw_run_batch_compatible_known_ = false;
@@ -15668,7 +15695,7 @@ bool GxBackend::on_cached_simple_draw_run(
     CachedRunScope scope{this, true};
 
     if (cached_draw_run_scissor_reject_) {
-        frame_scissor_skips_ += packets.size();
+        note_cached_run_rejected(packets.size());
         return true;
     }
     if (cached_draw_run_no_pso_) {
@@ -15737,7 +15764,7 @@ bool GxBackend::on_cached_prepared_draw_run(
     CachedRunScope scope{this, true};
 
     if (cached_draw_run_scissor_reject_) {
-        frame_scissor_skips_ += source_draw_count;
+        note_cached_run_rejected(source_draw_count);
         return true;
     }
     if (cached_draw_run_no_pso_) {
@@ -15801,7 +15828,7 @@ bool GxBackend::on_cached_packet_draw_run(
     CachedRunScope scope{this, true};
 
     if (cached_draw_run_scissor_reject_) {
-        frame_scissor_skips_ += packets.size();
+        note_cached_run_rejected(packets.size());
         return true;
     }
     if (cached_draw_run_no_pso_) {
@@ -16273,7 +16300,7 @@ void GxBackend::on_cached_draw_run_draw(
         const std::uint16_t vertex_count = cursor.read_u16();
         cursor.take(
             layout.source_size * static_cast<std::size_t>(vertex_count));
-        ++frame_scissor_skips_;
+        note_cached_run_rejected(1u);
         return;
     }
 

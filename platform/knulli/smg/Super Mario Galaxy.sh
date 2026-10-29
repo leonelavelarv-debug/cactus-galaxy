@@ -146,6 +146,9 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   #                                      cueste dibujar (GALAXY_FRAMESKIP_MAX=2: 20 como minimo); 1: siempre 30
   export GALAXY_FRAMESKIP="${GALAXY_FRAMESKIP:-auto}"
   export GALAXY_FRAMESKIP_MAX="${GALAXY_FRAMESKIP_MAX:-2}"
+  #   GALAXY_FRAMESKIP_FAST=1|0          un frame saltado no prepara los draws de las display lists que va a tirar
+  #                                      (estado, texturas, vertices, indices): cuesta una fraccion de uno dibujado; 0: como antes
+  export GALAXY_FRAMESKIP_FAST="${GALAXY_FRAMESKIP_FAST:-1}"
   #   GALAXY_PEEK_MODE=async|sync|off    lo que el juego lee de la imagen (destellos del sol, puntero): async usa el
   #                                      frame anterior sin esperar a la GPU; sync espera (exacto, lento); off no lee
   export GALAXY_PEEK_MODE="${GALAXY_PEEK_MODE:-async}"
