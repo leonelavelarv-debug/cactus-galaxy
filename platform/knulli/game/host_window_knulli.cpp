@@ -14,6 +14,7 @@
 #include "galaxy/native_host.h"
 #include "galaxy/platform_paths.h"
 #include "galaxy/platform_time.h"
+#include "galaxy/test_progress.h"
 #include "galaxy/virtual_keys.h"
 
 #include <SDL.h>
@@ -128,6 +129,31 @@ float axis(SDL_GameController* pad, SDL_GameControllerAxis which) noexcept {
     return std::clamp(static_cast<float>(SDL_GameControllerGetAxis(pad, which)) / 32767.0f, -1.0f, 1.0f);
 }
 
+// NEBULA_AUTO_RECONNECT=1 (the ULTRA tours): when the game draws no scene for 4 s (the pause screen "the connection
+// with the Nunchuk was interrupted, press A", a long load) A is tapped for a quarter of a second every two seconds, so
+// an unattended run gets past it. Off in normal play.
+bool auto_reconnect_tap() noexcept {
+    static const bool enabled = [] {
+        const char* v = std::getenv("NEBULA_AUTO_RECONNECT");
+        return v != nullptr && v[0] == '1';
+    }();
+    if (!enabled) {
+        return false;
+    }
+    using Clock = std::chrono::steady_clock;
+    static std::uint64_t last_count = ~0ull;
+    static Clock::time_point last_change = Clock::now();
+    const std::uint64_t count = galaxy::test_scene_frame_count.load(std::memory_order_relaxed);
+    const Clock::time_point now = Clock::now();
+    if (count != last_count) {
+        last_count = count;
+        last_change = now;
+        return false;
+    }
+    const auto stalled = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_change).count();
+    return stalled >= 4000 && (stalled - 4000) % 2000 < 250;
+}
+
 void sample_gamepads() {
     namespace pad = galaxy::input::pad;
     for (std::size_t i = 0; i < kMaxPads; ++i) {
@@ -171,6 +197,7 @@ void sample_gamepads() {
             if (face & pad::bit(pad::kWestBit)) bits |= pad::bit(pad::kNorthBit);
             if (face & pad::bit(pad::kNorthBit)) bits |= pad::bit(pad::kWestBit);
         }
+        if (i == 0u && auto_reconnect_tap()) bits |= pad::bit(pad::kSouthBit);
         sample.buttons = bits;
         // The firmware's quit combination: MENU/Function (SDL's guide; KNULLI, muOS) or SELECT (ArkOS, dArkOS) +
         // Start ends the game cleanly (the launcher's gptokeyb kills on the same buttons if this does not answer).

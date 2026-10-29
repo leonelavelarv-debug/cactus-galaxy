@@ -243,6 +243,9 @@ if [ "$NEBULA_ULTRA" != 0 ]; then
     export GALAXY_ULTRA=bench GALAXY_TEST_GALAXY_TOUR=auto GALAXY_TEST_GALAXY_TOUR_FRAMES="${NEBULA_ULTRA_FRAMES:-900}"
     [ -n "${NEBULA_ULTRA_GALAXIAS:-}" ] && export GALAXY_TEST_GALAXY_TOUR_LIMIT="$NEBULA_ULTRA_GALAXIAS"
     nand_dir="$GAMEDIR/ultra/nand-bench"
+    # Un recorrido sin nadie delante: si el juego se queda en una pantalla fuera de escena (el aviso de Nunchuk
+    # desconectado) pulsa A solo; si no, el recorrido no avanza y la serie no termina.
+    export NEBULA_AUTO_RECONNECT="${NEBULA_AUTO_RECONNECT:-1}"
     # Nada que lea la imagen por su cuenta: serian tirones que no son del juego.
     unset GALAXY_PRESENT_SNAPSHOT_DIR GALAXY_PRESENT_SNAPSHOT_EVERY
     if [ "${NEBULA_ULTRA_HILOS:-0}" = 1 ]; then

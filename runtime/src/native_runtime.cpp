@@ -10,6 +10,7 @@
 #include "galaxy/coop_scheduler.h"
 #include "galaxy/native_call_admission.h"
 #include "galaxy/experimental_ultrawide_aspect.h"
+#include "galaxy/test_progress.h"
 #include "galaxy/layout_aspect.h"
 #include "galaxy/flat_dispatch.h"
 #include "galaxy/frame_cadence_diagnostics.h"
@@ -24813,6 +24814,7 @@ void apply_test_teleport(RuntimeState& state, galaxy::PpcContext* context, galax
             ? std::string(value) : std::string{};
     }();
     ++test_scene_frames;
+    galaxy::test_scene_frame_count.store(test_scene_frames, std::memory_order_relaxed);
     if (teleports.empty() || (touring && test_tour_stop_frame == 0u)) {
         return;
     }
