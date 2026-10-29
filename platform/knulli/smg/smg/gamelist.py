@@ -45,8 +45,8 @@ INFO_BY_LANGUAGE = {
                  "centro del universo. Con la ayuda de Estela y los Destellos, salta entre planetoides con su propia "
                  "gravedad, recoge Superestrellas para devolver la energía al Observatorio y explora decenas de "
                  "galaxias. Port nativo: el código de Petari compilado para ARM64 con Nebula y gráficos OpenGL ES en "
-                 "la Mali-G31; el juego sale de tu propio disco. Mantén SELECT al abrirlo para cambiar el idioma."),
-        "developer": "Nintendo EAD Tokio",
+                 "la Mali-G31; el juego sale de tu propio disco. Mantén SELECT al abrirlo para cambiar el idioma. Port por Sr. Cactus."),
+        "developer": "Nintendo EAD Tokio · Port: Sr. Cactus",
         "genre": "Plataformas",
         "lang": "es",
     },
@@ -55,8 +55,8 @@ INFO_BY_LANGUAGE = {
                  "the universe. With the help of Rosalina and the Lumas, he leaps between planetoids with their own "
                  "gravity, collects Power Stars to bring energy back to the Comet Observatory and explores dozens of "
                  "galaxies. Native port: Petari's code compiled for ARM64 with Nebula and OpenGL ES graphics on the "
-                 "Mali-G31; the game comes from your own disc. Hold SELECT as it opens to change the language."),
-        "developer": "Nintendo EAD Tokyo",
+                 "Mali-G31; the game comes from your own disc. Hold SELECT as it opens to change the language. Ported by Sr. Cactus."),
+        "developer": "Nintendo EAD Tokyo · Port: Sr. Cactus",
         "genre": "Platform",
         "lang": "en",
     },
@@ -66,8 +66,8 @@ INFO_BY_LANGUAGE = {
                  "propre gravité, récupère des Grandes Étoiles pour rendre son énergie à l'Observatoire et explore des "
                  "dizaines de galaxies. Port natif : le code de Petari compilé pour ARM64 avec Nebula et des graphismes "
                  "OpenGL ES sur la Mali-G31 ; le jeu vient de ton propre disque. Maintiens SELECT au lancement pour "
-                 "changer de langue."),
-        "developer": "Nintendo EAD Tokyo",
+                 "changer de langue. Port réalisé par Sr. Cactus."),
+        "developer": "Nintendo EAD Tokyo · Port: Sr. Cactus",
         "genre": "Plates-formes",
         "lang": "fr",
     },
@@ -77,8 +77,8 @@ INFO_BY_LANGUAGE = {
                  "coleta Superestrelas para devolver a energia ao Observatório e explora dezenas de galáxias. Port "
                  "nativo: o código de Petari compilado para ARM64 com Nebula e gráficos OpenGL ES na Mali-G31; o jogo "
                  "vem do seu próprio disco, aqui com a tradução para o português do Brasil. Segure SELECT ao abrir "
-                 "para mudar o idioma."),
-        "developer": "Nintendo EAD Tóquio",
+                 "para mudar o idioma. Port feito por Sr. Cactus."),
+        "developer": "Nintendo EAD Tóquio · Port: Sr. Cactus",
         "genre": "Plataforma",
         "lang": "pt",
     },
