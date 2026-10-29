@@ -337,7 +337,8 @@ MEMLOG_PID=$!
 # comparacion.txt de la serie: se rehace tras cada recorrido (si se cierra el juego a medias queda lo medido hasta
 # entonces). Sin Python no se puede comparar: el archivo lo dice y los resumen.json de cada carpeta siguen ahi.
 serie_compare() {
-  [ -n "$runs" ] || return 0
+  # compare.py pide dos carpetas como minimo: con el primer recorrido solo no hay nada que comparar todavia.
+  [ "$(printf "%s\n" $runs | wc -l)" -ge 2 ] || return 0
   py=""
   for c in python3 python /usr/bin/python3 /usr/local/bin/python3 /opt/python/bin/python3; do
     command -v "$c" >/dev/null 2>&1 && { py="$c"; break; }

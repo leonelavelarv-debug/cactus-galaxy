@@ -164,7 +164,14 @@ def main(argv):
     if len(argv) < 3:
         print("uso: python3 compare.py <carpeta A> <carpeta B> [<carpeta C> ...]")
         return 2
-    runs = [load(folder) for folder in argv[1:]]
+    folders = [f for f in argv[1:] if os.path.isfile(f if f.endswith(".json") else os.path.join(f, "resumen.json"))]
+    for f in argv[1:]:
+        if f not in folders:
+            print("(sin resumen.json, no se compara: %s)" % f)
+    if len(folders) < 2:
+        print("faltan recorridos medidos para comparar")
+        return 2
+    runs = [load(folder) for folder in folders]
     names = [label(r) for r in runs]
     base = runs[0]
     print("ULTRA-GLES: comparacion (base: %s)" % names[0])
