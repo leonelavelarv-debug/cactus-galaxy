@@ -331,6 +331,26 @@ pm_platform_helper "$GAMEDIR/nebula"
     echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz"
   done ) &
 MEMLOG_PID=$!
+# comparacion.txt de la serie: se rehace tras cada recorrido (si se cierra el juego a medias queda lo medido hasta
+# entonces). Sin Python no se puede comparar: el archivo lo dice y los resumen.json de cada carpeta siguen ahi.
+serie_compare() {
+  [ -n "$runs" ] || return 0
+  py=""
+  for c in python3 python /usr/bin/python3 /usr/local/bin/python3 /opt/python/bin/python3; do
+    command -v "$c" >/dev/null 2>&1 && { py="$c"; break; }
+  done
+  if [ -z "$py" ]; then
+    printf 'No hay Python en esta consola: no se pudo comparar. Los resultados estan en cada carpeta (resumen.json).\nEn un PC: python3 compare.py%s\n' "$runs" > "$serie_dir/comparacion.txt"
+    echo "ultra: sin python, no se puede comparar (ver $serie_dir/comparacion.txt)"
+    return 0
+  fi
+  # shellcheck disable=SC2086
+  if "$py" "$GAMEDIR/ultra/compare.py" $runs > "$serie_dir/comparacion.txt" 2>&1; then
+    echo "ultra: comparacion en $serie_dir/comparacion.txt"
+  else
+    echo "ultra: compare.py fallo (ver $serie_dir/comparacion.txt)"
+  fi
+}
 if [ "$NEBULA_ULTRA" = serie ]; then
   # Un recorrido por seccion de smg/ultra/serie.cfg, con sus ajustes encima de los de arriba; luego la comparacion.
   serie_cfg="$GAMEDIR/ultra/serie.cfg"
@@ -373,12 +393,8 @@ if [ "$NEBULA_ULTRA" = serie ]; then
     status=$?
     runs="$runs $run_dir"
     [ "$status" = 0 ] || echo "ultra: el recorrido $name termino con $status"
+    serie_compare
   done
-  if command -v python3 >/dev/null 2>&1; then
-    # shellcheck disable=SC2086
-    python3 "$GAMEDIR/ultra/compare.py" $runs > "$serie_dir/comparacion.txt" 2>&1
-    echo "ultra: comparacion en $serie_dir/comparacion.txt"
-  fi
 else
   ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
   status=$?
