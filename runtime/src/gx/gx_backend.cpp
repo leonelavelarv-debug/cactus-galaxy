@@ -76,6 +76,17 @@
 #endif
 
 namespace galaxy::gx {
+// Why consecutive draws did not merge into one driver call: the first differing field of each failed comparison
+// (render thread only; reset with the frame's counters and printed as batch-break-* in [gx-frame-timing]).
+namespace {
+enum BatchBreak : unsigned { kBreakPipeline, kBreakVsConstants, kBreakPsConstants, kBreakTextures, kBreakSamplers,
+                             kBreakPalette, kBreakOther, kBreakScissor, kBreakViewport, kBreakCount };
+std::uint32_t g_batch_break[kBreakCount] = {};
+}  // namespace
+
+}  // namespace galaxy::gx
+
+namespace galaxy::gx {
 
 std::uint32_t pack_sampler_key(
     const TexMode& mode,
@@ -12325,6 +12336,7 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
         : std::chrono::steady_clock::time_point{};
     frame_draws_issued_ = 0;
     frame_draw_batches_ = 0;
+    std::memset(g_batch_break, 0, sizeof(g_batch_break));
     frame_draws_no_pso_ = 0;
     frame_xfb_copies_ = 0;
     frame_tex_copies_ = 0;
@@ -13618,6 +13630,15 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
                   << dirty_decoded_vertex_invalidations
                   << " draws=" << frame_draws_issued_
                   << " draw-batches=" << frame_draw_batches_
+                  << " batch-break-pipeline=" << g_batch_break[kBreakPipeline]
+                  << " batch-break-vs-constants=" << g_batch_break[kBreakVsConstants]
+                  << " batch-break-ps-constants=" << g_batch_break[kBreakPsConstants]
+                  << " batch-break-textures=" << g_batch_break[kBreakTextures]
+                  << " batch-break-samplers=" << g_batch_break[kBreakSamplers]
+                  << " batch-break-palette=" << g_batch_break[kBreakPalette]
+                  << " batch-break-scissor=" << g_batch_break[kBreakScissor]
+                  << " batch-break-viewport=" << g_batch_break[kBreakViewport]
+                  << " batch-break-other=" << g_batch_break[kBreakOther]
                   << " no-pso=" << frame_draws_no_pso_
                   << " xfb-copies=" << frame_xfb_copies_
                   << " tex-copies=" << frame_tex_copies_
@@ -15396,30 +15417,49 @@ bool GxBackend::draw_calls_batch_compatible(
     const DrawCall& rhs,
     bool lhs_indexed,
     bool rhs_indexed) noexcept {
-    if (lhs_indexed != rhs_indexed ||
-        lhs.pipeline != rhs.pipeline ||
-        lhs.vs_constants != rhs.vs_constants ||
-        lhs.ps_constants != rhs.ps_constants ||
-        lhs.texture_table.ptr != rhs.texture_table.ptr ||
-        lhs.sampler_table.ptr != rhs.sampler_table.ptr ||
-        lhs.matrix_palette != rhs.matrix_palette ||
-        lhs.topology != rhs.topology ||
-        lhs.has_viewport != rhs.has_viewport) {
+    if (lhs_indexed != rhs_indexed || lhs.topology != rhs.topology || lhs.has_viewport != rhs.has_viewport) {
+        ++g_batch_break[kBreakOther];
+        return false;
+    }
+    if (lhs.pipeline != rhs.pipeline) {
+        ++g_batch_break[kBreakPipeline];
+        return false;
+    }
+    if (lhs.vs_constants != rhs.vs_constants) {
+        ++g_batch_break[kBreakVsConstants];
+        return false;
+    }
+    if (lhs.ps_constants != rhs.ps_constants) {
+        ++g_batch_break[kBreakPsConstants];
+        return false;
+    }
+    if (lhs.texture_table.ptr != rhs.texture_table.ptr) {
+        ++g_batch_break[kBreakTextures];
+        return false;
+    }
+    if (lhs.sampler_table.ptr != rhs.sampler_table.ptr) {
+        ++g_batch_break[kBreakSamplers];
+        return false;
+    }
+    if (lhs.matrix_palette != rhs.matrix_palette) {
+        ++g_batch_break[kBreakPalette];
         return false;
     }
     if (lhs.scissor.left != rhs.scissor.left ||
         lhs.scissor.top != rhs.scissor.top ||
         lhs.scissor.right != rhs.scissor.right ||
         lhs.scissor.bottom != rhs.scissor.bottom) {
+        ++g_batch_break[kBreakScissor];
         return false;
     }
     if (!lhs.has_viewport) {
         return true;
     }
-    return std::memcmp(
-               lhs.xf_viewport,
-               rhs.xf_viewport,
-               sizeof(lhs.xf_viewport)) == 0;
+    if (std::memcmp(lhs.xf_viewport, rhs.xf_viewport, sizeof(lhs.xf_viewport)) != 0) {
+        ++g_batch_break[kBreakViewport];
+        return false;
+    }
+    return true;
 }
 
 void GxBackend::flush_pending_draw_batch() {
