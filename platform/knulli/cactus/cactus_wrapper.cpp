@@ -773,28 +773,24 @@ const char* const kViva[4][3] = {
 };
 
 // Cool sunglasses and a grin on the full-grown saguaro (draw_cactus at growth 1).
-// Senor Cactus's logo (the port's author) on the send-off screen, above "Jugar ya": a round badge with a soft shadow
-// under it and a hairline of warm light on its edge, so it sits on the dark panel like a sticker.
+// Senor Cactus's logo (the port's author) on the send-off screen, above "Jugar ya": a square tile with a soft shadow
+// under it and a thin warm frame, so it sits on the dark panel like a sticker.
 void draw_seal(Canvas& cv, int x0, int y0) {
-  const float r = kLogoSize * 0.5f;
-  for (int y = -6; y < kLogoSize + 8; ++y) {
-    for (int x = -6; x < kLogoSize + 8; ++x) {
-      const float d = std::hypot(x + 0.5f - r - 2.0f, y + 0.5f - r - 3.0f);
-      cv.blend(x0 + x, y0 + y, 0x0b0612, std::clamp((r + 5.0f - d) / 7.0f, 0.0f, 1.0f) * 0.5f);
+  const int n = kLogoSize;
+  for (int y = -5; y < n + 8; ++y) {  // shadow, a little down and to the right, soft at its edges
+    for (int x = -5; x < n + 8; ++x) {
+      const float dx = std::max({0.0f, float(2 - x), float(x - (n + 2))});
+      const float dy = std::max({0.0f, float(3 - y), float(y - (n + 3))});
+      cv.blend(x0 + x, y0 + y, 0x0b0612, std::clamp(1.0f - std::hypot(dx, dy) / 5.0f, 0.0f, 1.0f) * 0.5f);
     }
   }
-  for (int y = 0; y < kLogoSize; ++y) {
-    for (int x = 0; x < kLogoSize; ++x) {
-      const unsigned char* p = kLogoRgba + (y * kLogoSize + x) * 4;
-      if (p[3] != 0) cv.blend(x0 + x, y0 + y, u32(p[0]) << 16 | u32(p[1]) << 8 | u32(p[2]), p[3] / 255.0f);
+  for (int y = 0; y < n; ++y) {
+    for (int x = 0; x < n; ++x) {
+      const unsigned char* p = kLogoRgba + (y * n + x) * 4;
+      cv.blend(x0 + x, y0 + y, u32(p[0]) << 16 | u32(p[1]) << 8 | u32(p[2]), p[3] / 255.0f);
     }
   }
-  for (int y = -2; y < kLogoSize + 2; ++y) {
-    for (int x = -2; x < kLogoSize + 2; ++x) {
-      const float d = std::hypot(x + 0.5f - r, y + 0.5f - r);
-      cv.blend(x0 + x, y0 + y, 0xffd9a0, std::clamp(1.0f - std::fabs(d - (r - 0.5f)), 0.0f, 1.0f) * 0.35f);
-    }
-  }
+  cv.rrect_outline(x0 - 2, y0 - 2, n + 4, n + 4, 0, 1, 0xffd9a0, 0.55f);  // the frame
 }
 
 void draw_shades(Canvas& cv, float base_x, float time) {

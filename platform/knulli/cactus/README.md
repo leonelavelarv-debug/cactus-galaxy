@@ -40,6 +40,6 @@ Fuente: font8x8 de Daniel Hepper (<https://github.com/dhepper/font8x8>, revisió
 `font8x8/README`), basada en las fuentes VGA de IBM, también de dominio público.
 
 En la pantalla final (la despedida antes del primer arranque) va el logo de Señor Cactus, el autor del port, encima de
-"Jugar ya", igual en los cuatro idiomas (`logo_senor_cactus.h`: 104×104 RGBA generado desde su logo, recortado en
-círculo; solo píxeles, sin metadatos de la imagen original). La frase dice "¡Viva México, Viva Sonora, Cabrones!" en
+"Jugar ya", igual en los cuatro idiomas (`logo_senor_cactus.h`: 104×104 RGBA cuadrado, generado desde su logo;
+solo píxeles, sin metadatos de la imagen original). La frase dice "¡Viva México, Viva Sonora, Cabrones!" en
 español y solo los dos vivas en inglés, francés y portugués.
