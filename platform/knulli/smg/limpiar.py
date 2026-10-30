@@ -19,6 +19,14 @@ def cut(text, start, end, replacement=""):
 
 
 def clean_launcher(s):
+    # Los ajustes de smg/ajustes.cfg se leen nada mas entrar en la carpeta del juego, antes de abrir Cactus Galaxy Wrapper
+    # (que tambien usa NEBULA_FACE_LAYOUT, NEBULA_QUIT_COMBO...) y antes de la primera linea del log, que los muestra.
+    a = s.index("# Ajustes (se pueden cambiar aqui")
+    b = s.index("done\n", s.index('for cfg in "$GAMEDIR/ultra.cfg"', a)) + len("done\n")
+    block = s[a:b]
+    s = s[:a] + s[b:]
+    anchor = 'exec > >(tee "$GAMEDIR/log.txt") 2>&1\n'
+    s = s.replace(anchor, anchor + block, 1)
     # Los ajustes del usuario: smg/ajustes.cfg.
     s = s.replace(
         "# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan\n"
