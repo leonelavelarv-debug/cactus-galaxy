@@ -15,6 +15,7 @@
 #            NEBULA_DEPS     la carpeta de --deps (glslang con External/spirv-tools, SPIRV-Cross, sdl2-a64)
 #            NEBULA_SDL2     SDL2 para aarch64 (por defecto $NEBULA_DEPS/sdl2-a64; solo se enlaza: en la consola se
 #                            usa la del firmware)
+#            NEBULA_PARCHES  opcional: una carpeta con parches .xdelta de traduccion (van a smg/patches/)
 # Sin datos de la PC en los binarios (sin RPATH ni rutas) ni en los paquetes (fechas fijas, sin usuario).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -102,8 +103,14 @@ full="$out/completo"
 rm -rf "$full" "$out/port"
 mkdir -p "$full/smg/licenses" "$full/smg/gamedata"
 cp "$here/Super Mario Galaxy.sh" "$full/"
-(cd "$here/smg" && tar --exclude=__pycache__ -cf - .) | (cd "$full/smg" && tar -xf -)
+(cd "$here/smg" && tar --exclude=__pycache__ --exclude=.gitignore -cf - .) | (cd "$full/smg" && tar -xf -)
+# Parches de traduccion de terceros (no van en el repositorio): NEBULA_PARCHES=<carpeta con los .xdelta>.
+if [ -n "${NEBULA_PARCHES:-}" ]; then
+  cp "$NEBULA_PARCHES"/*.xdelta "$full/smg/patches/" 2>/dev/null || fail "no hay .xdelta en $NEBULA_PARCHES"
+fi
 cp "$here/README.md" "$full/smg/README.md"
+printf '%s\n' "Pon aqui tu disco de Super Mario Galaxy (USA, RMGE01) en ISO, RVZ, WIA, WBFS, GCZ o CISO, y abre el juego:" \
+  "Cactus Galaxy Wrapper lo convierte en game.pak (o pon directamente el game.pak)." > "$full/smg/gamedata/LEEME.txt"
 strip=$(command -v llvm-strip || command -v llvm-strip-18 || true)
 [ -n "$strip" ] || fail "falta llvm-strip (sudo apt install llvm)"
 for b in "$build/nebula/nebula" "$lib" "$build/pak/nebula-pak" "$build/pak/cactus-galaxy-wrapper"; do

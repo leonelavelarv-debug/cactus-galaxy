@@ -413,7 +413,7 @@ AARCH64_XTOOLS=/ruta/x-tools/aarch64-rpi3-linux-gnu platform/knulli/smg/armar.sh
 AARCH64_XTOOLS=/ruta/x-tools/aarch64-rpi3-linux-gnu NEBULA_DEPS=~/nebula-deps platform/knulli/smg/armar.sh salida/
 ```
 
-`--deps` descarga glslang, SPIRV-Tools, SPIRV-Headers, SPIRV-Cross y SDL2 en los commits probados (solo esos commits,
+`NEBULA_PARCHES=<carpeta>` copia parches de traducción (.xdelta) a `smg/patches/`. `--deps` descarga glslang, SPIRV-Tools, SPIRV-Headers, SPIRV-Cross y SDL2 en los commits probados (solo esos commits,
 sin la historia) y compila SDL2 para aarch64 (solo para enlazar; en la consola va la del firmware). Después compila el
 módulo del juego, Nebula, nebula-pak y Cactus Galaxy Wrapper, quita los símbolos, rechaza un binario que lleve rutas de
 la PC, junta las licencias, pasa `limpiar.py` y `empaquetar.sh`: `salida/port` (para la SD) y `salida/paquete`
