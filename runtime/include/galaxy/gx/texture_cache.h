@@ -256,7 +256,7 @@ public:
     // Their SRV slots are reclaimed as usual: replayed draws read descriptor
     // tables already copied into the renderer's shader-visible ring.
     static constexpr unsigned kNoHoldSegment = ~0u;
-    static constexpr unsigned kMaxHoldSegments = 4u;
+    static constexpr unsigned kMaxHoldSegments = 8u;  // >= kInterpSegments (frames in flight, 4 by default; 5-6 are tried by ULTRA-GLES)
     void set_retirement_hold_segment(unsigned segment);
     [[nodiscard]] std::uint64_t take_held_texture_count() noexcept {
         const std::uint64_t count = held_texture_count_;

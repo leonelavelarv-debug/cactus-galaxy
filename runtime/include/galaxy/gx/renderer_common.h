@@ -23,7 +23,7 @@ namespace galaxy::gx {
 // recording while the GPU still finishes the one before. NEBULA_GLES_FRAMES_IN_FLIGHT (build time) tries more: on
 // the RG35XX H the render thread spent ~21 % of its time waiting for frame-slot fences (ULTRA-GLES). Four by default
 // since update52: with the GL thread (gl_thread.h) the pipeline has one stage more, and four frames gave +16-19 % of
-// frames drawn over three. At most 4 (TextureCache::kMaxHoldSegments, which kInterpSegments may not exceed).
+// frames drawn over three. At most 8 (TextureCache::kMaxHoldSegments, which kInterpSegments may not exceed). ULTRA-GLES (update66): 2 frames = +22 % run time, 3 = +11 % against 4.
 #ifndef NEBULA_GLES_FRAMES_IN_FLIGHT
 #define NEBULA_GLES_FRAMES_IN_FLIGHT 4
 #endif
