@@ -337,6 +337,29 @@ pm_platform_helper "$GAMEDIR/nebula"
     echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz"
   done ) &
 MEMLOG_PID=$!
+# NEBULA_CPU_MAX=1: el tope de frecuencia de la CPU al maximo del chip (cpuinfo_max_freq; en la RG35XX H 1,7 GHz frente a
+# los 1,5 del sistema), solo mientras corre el recorrido de una seccion de la serie; al terminar se devuelve lo que habia.
+# Mas calor y consumo: para medir si la CPU del juego es el limite.
+cpu_max_on() {
+  CPU_MAX_SAVED=""
+  for dir in /sys/devices/system/cpu/cpufreq/policy*; do
+    [ -d "$dir" ] || continue
+    top=$(cat "$dir/cpuinfo_max_freq" 2>/dev/null)
+    [ -n "$top" ] || continue
+    CPU_MAX_SAVED="$CPU_MAX_SAVED $dir:$(cat "$dir/scaling_max_freq" 2>/dev/null):$(cat "$dir/scaling_min_freq" 2>/dev/null)"
+    echo "$top" > "$dir/scaling_max_freq" 2>/dev/null || { [ -n "${ESUDO:-}" ] && echo "$top" | $ESUDO tee "$dir/scaling_max_freq" >/dev/null 2>&1; }
+    echo "$top" > "$dir/scaling_min_freq" 2>/dev/null || { [ -n "${ESUDO:-}" ] && echo "$top" | $ESUDO tee "$dir/scaling_min_freq" >/dev/null 2>&1; }
+    echo "  cpu max: $(basename "$dir") tope $top kHz, ahora $(cat "$dir/scaling_cur_freq" 2>/dev/null) kHz"
+  done
+}
+cpu_max_off() {
+  for item in $CPU_MAX_SAVED; do
+    dir=${item%%:*}; rest=${item#*:}; max=${rest%%:*}; min=${rest#*:}
+    [ -n "$min" ] && { echo "$min" > "$dir/scaling_min_freq" 2>/dev/null || { [ -n "${ESUDO:-}" ] && echo "$min" | $ESUDO tee "$dir/scaling_min_freq" >/dev/null 2>&1; }; }
+    [ -n "$max" ] && { echo "$max" > "$dir/scaling_max_freq" 2>/dev/null || { [ -n "${ESUDO:-}" ] && echo "$max" | $ESUDO tee "$dir/scaling_max_freq" >/dev/null 2>&1; }; }
+  done
+  CPU_MAX_SAVED=""
+}
 # comparacion.txt de la serie: se rehace tras cada recorrido (si se cierra el juego a medias queda lo medido hasta
 # entonces). Sin Python no se puede comparar: el archivo lo dice y los resumen.json de cada carpeta siguen ahi.
 serie_compare() {
@@ -391,11 +414,15 @@ if [ "$NEBULA_ULTRA" = serie ]; then
       echo "  $name: $bin ($(md5sum "$GAMEDIR/$bin" | cut -c1-12))"
       # Un recorrido que se cuelga no para la serie: a los NEBULA_ULTRA_LIMITE segundos (900) se corta y sigue la
       # siguiente seccion (su informe parcial queda, se escribe cada 20 s).
+      [ "${NEBULA_CPU_MAX:-0}" = "1" ] && cpu_max_on
       if command -v timeout >/dev/null 2>&1 && timeout -k 1 5 true >/dev/null 2>&1; then
         timeout -k 10 "${NEBULA_ULTRA_LIMITE:-900}" "./$bin" --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
       else
         "./$bin" --pak "$GAMEDIR/gamedata/game.pak" --nand "$nand_dir"
       fi
+      run_status=$?
+      [ "${NEBULA_CPU_MAX:-0}" = "1" ] && cpu_max_off
+      exit "$run_status"
     )
     status=$?
     runs="$runs $run_dir"
