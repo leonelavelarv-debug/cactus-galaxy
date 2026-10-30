@@ -152,6 +152,9 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   #   GALAXY_PEEK_MODE=async|sync|off    lo que el juego lee de la imagen (destellos del sol, puntero): async usa el
   #                                      frame anterior sin esperar a la GPU; sync espera (exacto, lento); off no lee
   export GALAXY_PEEK_MODE="${GALAXY_PEEK_MODE:-async}"
+  #   GALAXY_GLES_RESOLUTION=auto        (perfil bajo) la resolucion interna dinamica: serie del 29-oct, GPU -48 %, p95 -20 %,
+  #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
+  export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   #   GALAXY_GLES_PEEK_FIELD=25          esas lecturas a 160x132 (25 %): se copian de la GPU 20 veces menos bytes
   export GALAXY_GLES_PEEK_FIELD="${GALAXY_GLES_PEEK_FIELD:-25}"
   export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-192}"

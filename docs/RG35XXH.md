@@ -336,6 +336,13 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
 
 ### Diseño del renderer GLES (H)
 
+- update61, resolución dinámica por defecto en el perfil bajo (`GALAXY_GLES_RESOLUTION=auto`). Series ULTRA del 29-oct en la
+  RG35XX H (recorrido de 6 galaxias, ruido medido de 0,1 %): el frame saltado barato (update54) acorta el recorrido 10 %
+  y baja "CPU render" 18 %; el hilo GL es necesario (sin él "CPU render" 23,2 frente a 11,8 ms y el recorrido 241 frente a
+  201 s); y frente a 100 fijo la resolución dinámica baja la GPU 48 % (15,9 → 8,2 ms), el p95 20 %, el p99 18 %, sube los
+  FPS mostrados 13 % y acorta el recorrido 10 % (181 s). 75 sin antialiasing da algo parecido (-22 % GPU, FPS +16 %); 60 fijo
+  queda a medio camino. Los PSNR de las capturas no sirven para juzgar la imagen (23-28 dB entre repeticiones: el juego no
+  está en el mismo instante).
 - Misma interfaz que `RendererVk` (GxBackend no cambia salvo `gx_backend.h`, que elige el backend, y la decodificación de
   texturas en hilos, apagada en GLES porque GL sube los bytes en cuanto TextureCache registra la subida).
 - `gpu::Address` como en Vulkan: los bits altos nombran un buffer GL persistente (`EXT_buffer_storage`, coherente), los
