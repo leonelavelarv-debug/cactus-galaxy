@@ -51,6 +51,7 @@
 #undef char
 
 #include "strings.h"
+#include "logo_senor_cactus.h"
 
 namespace {
 
@@ -292,26 +293,6 @@ struct Star {
   u32 color;
 };
 
-// Senor Cactus, the port's author, as a constellation in the sky right of the saguaro: a cactus with two arms, a
-// cowboy hat and sunglasses, joined by faint lines like a star chart. Points relative to its top left corner.
-struct ConstellationStar { float x, y, size; };
-constexpr float kConstX = 176.0f, kConstY = 146.0f;
-constexpr ConstellationStar kConstStars[] = {
-    {18, 4, 1.3f}, {40, 3, 1.2f},                    // 0-1 hat crown
-    {3, 20, 1.6f}, {55, 19, 1.5f},                   // 2-3 hat brim
-    {22, 29, 1.7f}, {36, 29, 1.7f},                  // 4-5 sunglasses
-    {29, 38, 1.0f}, {29, 138, 1.4f},                 // 6-7 trunk top and foot
-    {29, 90, 0.8f}, {10, 90, 1.1f}, {10, 60, 1.3f},  // 8-10 left arm
-    {29, 74, 0.8f}, {48, 74, 1.1f}, {48, 48, 1.3f},  // 11-13 right arm
-};
-constexpr int kConstLines[][2] = {
-    {2, 0}, {0, 1}, {1, 3}, {2, 3},  // hat
-    {4, 5},                          // sunglasses
-    {6, 11}, {11, 8}, {8, 7},        // trunk
-    {8, 9}, {9, 10},                 // left arm
-    {11, 12}, {12, 13},              // right arm
-};
-
 class Scene {
  public:
   Scene() {
@@ -359,20 +340,6 @@ class Scene {
              mix(0xffffff, rnd() < 0.5f ? 0xffd9a0 : 0xa8c8ff, rnd())};
       if (s.y < dune_back(int(s.x)) - 8.0f && std::hypot(s.x - gx, (s.y - gy) * 2.0f) > 60.0f) stars_.push_back(s);
     }
-    // The constellation's lines (its stars twinkle in draw()); no random stars inside it, so it reads clearly.
-    stars_.erase(std::remove_if(stars_.begin(), stars_.end(), [](const Star& st) {
-      return st.x > kConstX - 8 && st.x < kConstX + 66 && st.y > kConstY - 8 && st.y < kConstY + 148;
-    }), stars_.end());
-    for (const auto& l : kConstLines) {
-      const ConstellationStar& p = kConstStars[l[0]];
-      const ConstellationStar& q = kConstStars[l[1]];
-      const float len = std::hypot(q.x - p.x, q.y - p.y);
-      for (float t = 0.0f; t <= len; t += 0.5f) {  // a soft hairline, faded near the stars
-        const float fx = kConstX + p.x + (q.x - p.x) * t / len, fy = kConstY + p.y + (q.y - p.y) * t / len;
-        const float fade = std::clamp(std::min(t, len - t) / 4.0f, 0.0f, 1.0f);
-        bg_.circle(fx, fy, 0.45f, 0x9fb8ff, 0.22f * fade);
-      }
-    }
     // Dunes, far cacti, near ground.
     for (int x = 0; x < W; ++x) {
       const int yb = int(dune_back(x)), yf = int(dune_front(x));
@@ -399,13 +366,6 @@ class Scene {
         cv.glow(s.x, s.y, 3.0f * s.size, 70.0f * tw, 70.0f * tw, 80.0f * tw);
       }
       cv.circle(s.x, s.y, s.size * 0.6f, s.color, tw);
-    }
-    for (int i = 0; i < int(sizeof(kConstStars) / sizeof(kConstStars[0])); ++i) {
-      const ConstellationStar& c = kConstStars[i];
-      const float tw = 0.75f + 0.25f * std::sin(time * 1.7f + float(i) * 1.3f);
-      const float x = kConstX + c.x, y = kConstY + c.y;
-      cv.glow(x, y, 3.5f * c.size, 60.0f * tw, 64.0f * tw, 80.0f * tw);
-      cv.circle(x, y, c.size * 0.7f, i == 4 || i == 5 ? 0xfff2d0 : 0xe8efff, tw);
     }
     // A shooting star every few seconds.
     const float cycle = std::fmod(time, 7.0f);
@@ -804,15 +764,39 @@ const Language kLanguages[] = {
 constexpr int kPtBr = 3;
 
 // The send-off before the game's very first start, in the game's language (Spanish, English, French, Brazilian
-// Portuguese); "Cabrones" stays as it is.
+// Portuguese); "Cabrones" only in Spanish, the other languages say the two vivas.
 const char* const kViva[4][3] = {
     {"¡Viva México, Viva Sonora, Cabrones!", "En breve iniciará el juego.", "Jugar ya"},
-    {"Long live Mexico, long live Sonora, Cabrones!", "The game will start shortly.", "Play now"},
-    {"Vive le Mexique, vive Sonora, Cabrones !", "Le jeu va bientôt commencer.", "Jouer"},
-    {"Viva o México, viva Sonora, Cabrones!", "O jogo vai começar em breve.", "Jogar já"},
+    {"Long live Mexico, long live Sonora!", "The game will start shortly.", "Play now"},
+    {"Vive le Mexique, vive Sonora !", "Le jeu va bientôt commencer.", "Jouer"},
+    {"Viva o México, viva Sonora!", "O jogo vai começar em breve.", "Jogar já"},
 };
 
 // Cool sunglasses and a grin on the full-grown saguaro (draw_cactus at growth 1).
+// Senor Cactus's logo (the port's author) on the send-off screen, above "Jugar ya": a round badge with a soft shadow
+// under it and a hairline of warm light on its edge, so it sits on the dark panel like a sticker.
+void draw_seal(Canvas& cv, int x0, int y0) {
+  const float r = kLogoSize * 0.5f;
+  for (int y = -6; y < kLogoSize + 8; ++y) {
+    for (int x = -6; x < kLogoSize + 8; ++x) {
+      const float d = std::hypot(x + 0.5f - r - 2.0f, y + 0.5f - r - 3.0f);
+      cv.blend(x0 + x, y0 + y, 0x0b0612, std::clamp((r + 5.0f - d) / 7.0f, 0.0f, 1.0f) * 0.5f);
+    }
+  }
+  for (int y = 0; y < kLogoSize; ++y) {
+    for (int x = 0; x < kLogoSize; ++x) {
+      const unsigned char* p = kLogoRgba + (y * kLogoSize + x) * 4;
+      if (p[3] != 0) cv.blend(x0 + x, y0 + y, u32(p[0]) << 16 | u32(p[1]) << 8 | u32(p[2]), p[3] / 255.0f);
+    }
+  }
+  for (int y = -2; y < kLogoSize + 2; ++y) {
+    for (int x = -2; x < kLogoSize + 2; ++x) {
+      const float d = std::hypot(x + 0.5f - r, y + 0.5f - r);
+      cv.blend(x0 + x, y0 + y, 0xffd9a0, std::clamp(1.0f - std::fabs(d - (r - 0.5f)), 0.0f, 1.0f) * 0.35f);
+    }
+  }
+}
+
 void draw_shades(Canvas& cv, float base_x, float time) {
   const float ground = dune_front(int(base_x)) + 6.0f;
   const float top = ground - (70.0f + 185.0f * 1.0f);
@@ -1383,11 +1367,14 @@ struct App {
     const int g = std::clamp(language, 0, 3);
     const u32 flag[3] = {0x3fd36a, 0xffffff, 0xff5a5a};
     const std::vector<std::string> lines = wrap(kViva[g][0], 14);
-    int y = 132 + (lines.size() <= 3 ? 14 : 0);
-    for (size_t i = 0; i < lines.size() && i < 5; ++i) { text_center(cv, kCenter, y, lines[i], 3, flag[i % 3]); y += 32; }
-    y += 14;
-    for (const std::string& l : wrap(kViva[g][1], 22)) { text_center(cv, kCenter, y, l, 2, kGold); y += 22; }
-    hints(cv, 430, {{"A", kViva[g][2]}});  // in the game's language too; only A starts the game
+    int y = 124;
+    for (size_t i = 0; i < lines.size() && i < 4; ++i) { text_center(cv, kCenter, y, lines[i], 3, flag[i % 3]); y += 30; }
+    y += 8;
+    for (const std::string& l : wrap(kViva[g][1], 22)) { text_center(cv, kCenter, y, l, 2, kGold); y += 20; }
+    // The author's logo, centred in what is left above the button, in every language.
+    const int logo_top = y + std::max(4, (424 - y - kLogoSize) / 2);
+    draw_seal(cv, kCenter - kLogoSize / 2, logo_top);
+    hints(cv, 434, {{"A", kViva[g][2]}});  // in the game's language too; only A starts the game
   }
 
   void draw_failed(Canvas& cv) {
