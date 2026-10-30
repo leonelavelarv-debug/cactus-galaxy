@@ -292,6 +292,26 @@ struct Star {
   u32 color;
 };
 
+// Senor Cactus, the port's author, as a constellation in the sky right of the saguaro: a cactus with two arms, a
+// cowboy hat and sunglasses, joined by faint lines like a star chart. Points relative to its top left corner.
+struct ConstellationStar { float x, y, size; };
+constexpr float kConstX = 176.0f, kConstY = 146.0f;
+constexpr ConstellationStar kConstStars[] = {
+    {18, 4, 1.3f}, {40, 3, 1.2f},                    // 0-1 hat crown
+    {3, 20, 1.6f}, {55, 19, 1.5f},                   // 2-3 hat brim
+    {22, 29, 1.7f}, {36, 29, 1.7f},                  // 4-5 sunglasses
+    {29, 38, 1.0f}, {29, 138, 1.4f},                 // 6-7 trunk top and foot
+    {29, 90, 0.8f}, {10, 90, 1.1f}, {10, 60, 1.3f},  // 8-10 left arm
+    {29, 74, 0.8f}, {48, 74, 1.1f}, {48, 48, 1.3f},  // 11-13 right arm
+};
+constexpr int kConstLines[][2] = {
+    {2, 0}, {0, 1}, {1, 3}, {2, 3},  // hat
+    {4, 5},                          // sunglasses
+    {6, 11}, {11, 8}, {8, 7},        // trunk
+    {8, 9}, {9, 10},                 // left arm
+    {11, 12}, {12, 13},              // right arm
+};
+
 class Scene {
  public:
   Scene() {
@@ -339,6 +359,20 @@ class Scene {
              mix(0xffffff, rnd() < 0.5f ? 0xffd9a0 : 0xa8c8ff, rnd())};
       if (s.y < dune_back(int(s.x)) - 8.0f && std::hypot(s.x - gx, (s.y - gy) * 2.0f) > 60.0f) stars_.push_back(s);
     }
+    // The constellation's lines (its stars twinkle in draw()); no random stars inside it, so it reads clearly.
+    stars_.erase(std::remove_if(stars_.begin(), stars_.end(), [](const Star& st) {
+      return st.x > kConstX - 8 && st.x < kConstX + 66 && st.y > kConstY - 8 && st.y < kConstY + 148;
+    }), stars_.end());
+    for (const auto& l : kConstLines) {
+      const ConstellationStar& p = kConstStars[l[0]];
+      const ConstellationStar& q = kConstStars[l[1]];
+      const float len = std::hypot(q.x - p.x, q.y - p.y);
+      for (float t = 0.0f; t <= len; t += 0.5f) {  // a soft hairline, faded near the stars
+        const float fx = kConstX + p.x + (q.x - p.x) * t / len, fy = kConstY + p.y + (q.y - p.y) * t / len;
+        const float fade = std::clamp(std::min(t, len - t) / 4.0f, 0.0f, 1.0f);
+        bg_.circle(fx, fy, 0.45f, 0x9fb8ff, 0.22f * fade);
+      }
+    }
     // Dunes, far cacti, near ground.
     for (int x = 0; x < W; ++x) {
       const int yb = int(dune_back(x)), yf = int(dune_front(x));
@@ -365,6 +399,13 @@ class Scene {
         cv.glow(s.x, s.y, 3.0f * s.size, 70.0f * tw, 70.0f * tw, 80.0f * tw);
       }
       cv.circle(s.x, s.y, s.size * 0.6f, s.color, tw);
+    }
+    for (int i = 0; i < int(sizeof(kConstStars) / sizeof(kConstStars[0])); ++i) {
+      const ConstellationStar& c = kConstStars[i];
+      const float tw = 0.75f + 0.25f * std::sin(time * 1.7f + float(i) * 1.3f);
+      const float x = kConstX + c.x, y = kConstY + c.y;
+      cv.glow(x, y, 3.5f * c.size, 60.0f * tw, 64.0f * tw, 80.0f * tw);
+      cv.circle(x, y, c.size * 0.7f, i == 4 || i == 5 ? 0xfff2d0 : 0xe8efff, tw);
     }
     // A shooting star every few seconds.
     const float cycle = std::fmod(time, 7.0f);

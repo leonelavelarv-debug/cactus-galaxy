@@ -38,3 +38,6 @@ Se compila con `platform/knulli/pak/CMakeLists.txt` y `-DCACTUS_SDL2_PREFIX=<SDL
 
 Fuente: font8x8 de Daniel Hepper (<https://github.com/dhepper/font8x8>, revisión `8e279d2d`, dominio público;
 `font8x8/README`), basada en las fuentes VGA de IBM, también de dominio público.
+
+En el cielo, a la derecha del saguaro, brilla la constelación de Señor Cactus, el autor del port: un cactus con
+brazos, sombrero vaquero y lentes de sol, con sus estrellas unidas por líneas tenues como en una carta celeste.

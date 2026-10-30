@@ -229,7 +229,7 @@ El workflow [`nebula-pak (consola ARM64)`](.github/workflows/nebula-pak-consola.
   Se distribuye en [João13 Traduções](https://joao13traducoes.com/2018/01/wii-super-mario-galaxy-brazilian-warriors-e-nintendo-br/). El paquete trae el parche en formato xdelta, pero no está en el
   repositorio; todo el mérito de la traducción es de sus autores.
 * Port, wrapper e instalador hechos con agentes de IA (Claude, de Anthropic), dirigidos y probados por
-  🌵 **Sr. Cactus**, igual que Nebula. La lógica del juego es la original:
+  🌵 **Señor Cactus**, igual que Nebula. La lógica del juego es la original:
   la de la descompilación.
 
 *Super Mario Galaxy es una marca de Nintendo. Este proyecto no está afiliado a Nintendo.*
