@@ -274,7 +274,7 @@ void start_thread_sampler() noexcept {
                 std::this_thread::sleep_for(std::chrono::seconds(every));
             }
             std::fprintf(stderr, "[sampler] round %d\n", round + 1);
-            for (const char* prefix : {"Nebula GX", "Nebula Host Mai", "Nebula Game"}) {
+            for (const char* prefix : {"Nebula GX", "Nebula Host Mai", "Nebula Game", "Nebula GL"}) {
                 for (const auto& [tid, name] : threads_named(prefix)) {
                     sample(tid, name);
                 }
