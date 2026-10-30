@@ -70,6 +70,7 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/gx/texture_cache.cpp
     ${rt}/gx/texture_pack.cpp
     ${rt}/gx/texture_pack_codecs.cpp
+    ${rt}/gx/texture_compact.cpp
     ${rt}/gx/movie_replacement.cpp
     ${rt}/gx/vertex_loader.cpp
     ${rt}/gx/shader_keys.cpp
@@ -102,6 +103,7 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/gx/gles/pipeline_cache_gles.cpp
     ${rt}/gx/gles/renderer_gles.cpp
     ${rt}/gx/gles/ultra_gles.cpp
+    ${rt}/gx/gles/nopal_depurar.cpp
     ${rt}/frame_cadence_diagnostics.cpp
     ${rt}/runtime_settings.cpp
     ${rt}/input_bindings.cpp
@@ -146,6 +148,12 @@ target_link_libraries(nebula_ultra_gles_tests PRIVATE Threads::Threads)
 add_executable(nebula_gl_thread_tests "${CMAKE_CURRENT_SOURCE_DIR}/gl_thread_tests.cpp")
 target_link_libraries(nebula_gl_thread_tests PRIVATE galaxy_gx_gles)
 
+# Nopal's debug channel (nopal_depurar.h) against a client on localhost (no GL).
+add_executable(nebula_nopal_depurar_tests "${CMAKE_CURRENT_SOURCE_DIR}/nopal_depurar_tests.cpp"
+    "${nebula_root}/runtime/src/gx/gles/nopal_depurar.cpp")
+target_include_directories(nebula_nopal_depurar_tests PRIVATE "${nebula_root}/runtime/include")
+target_link_libraries(nebula_nopal_depurar_tests PRIVATE Threads::Threads)
+
 # The display-list cache's byte check once per batch of guest writes (FifoParser::advance_memory_generation).
 add_executable(nebula_fifo_display_list_tests "${CMAKE_CURRENT_SOURCE_DIR}/fifo_display_list_tests.cpp")
 target_link_libraries(nebula_fifo_display_list_tests PRIVATE galaxy_gx_gles)
@@ -178,4 +186,13 @@ if(NEBULA_SDL2_PREFIX)
     target_include_directories(nebula_gles_renderer_tests PRIVATE "${nebula_root}/native/include"
         "${nebula_root}/platform/sdl")
     target_link_libraries(nebula_gles_renderer_tests PRIVATE galaxy_gx_gles nebula_sdl2)
+
+    # Compact textures (texture_compact.h): the choices and conversions, and each format through the backend.
+    add_executable(nebula_texture_compact_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/texture_compact_tests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/host_window_knulli.cpp"
+        "${nebula_root}/platform/sdl/display_clock.cpp")
+    target_include_directories(nebula_texture_compact_tests PRIVATE "${nebula_root}/native/include"
+        "${nebula_root}/platform/sdl")
+    target_link_libraries(nebula_texture_compact_tests PRIVATE galaxy_gx_gles nebula_sdl2)
 endif()

@@ -343,6 +343,13 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // Compact intensity textures (texture_compact.h) sample as the guest's: R8 as (i, i, i, i), RG8 as (i, i, i, a).
+    if (format == GL_R8 || format == GL_RG8) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, format == GL_R8 ? GL_RED : GL_GREEN);
+    }
     glBindTexture(GL_TEXTURE_2D, 0);
     if (glGetError() != GL_NO_ERROR) {
         // The deleter frees the name.
@@ -353,7 +360,10 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
     texture->height = height;
     texture->levels = std::max(1u, levels);
     texture->render_target = render_target;
-    const std::uint64_t texel = format == GL_RGBA16F ? 8u : 4u;
+    const std::uint64_t texel = format == GL_RGBA16F ? 8u
+        : format == GL_R8 ? 1u
+        : (format == GL_RG8 || format == GL_RGB565 || format == GL_RGB5_A1 || format == GL_RGBA4) ? 2u
+        : 4u;
     std::uint64_t bytes = 0;
     for (std::uint32_t l = 0; l < texture->levels; ++l) {
         bytes += static_cast<std::uint64_t>(std::max(1u, width >> l)) * std::max(1u, height >> l) * texel;

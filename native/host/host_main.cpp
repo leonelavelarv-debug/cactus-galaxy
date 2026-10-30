@@ -16,6 +16,7 @@
 #include <nebula_game_api.h>
 #if defined(NEBULA_GPU_GLES)
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/gles/nopal_depurar.h"
 #endif
 
 #include "galaxy/atomic_file.h"
@@ -1528,6 +1529,7 @@ void svc_game_stage(void*, const char* name) {
         ++gSceneStageSerial;
 #if defined(NEBULA_GPU_GLES)
         galaxy::gx::ultra::set_scene(name);  // ULTRA-GLES: the frames from here on are this scene's
+        galaxy::gx::nopal_depurar::scene(name);
 #endif
     }
 }

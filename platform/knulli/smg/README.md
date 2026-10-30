@@ -49,6 +49,12 @@ de Nebula y su renderer GX en OpenGL ES 3.2 (Mali-G31). Primera versión de prue
    arrancar. La primera vez queda una copia en `ports/gamelist.xml.antes-smg`. `smg/gameinfo.xml` es la misma ficha
    para PortMaster.
 
+Texturas: Nebula guarda las del juego en 8 o 16 bits cuando caben sin cambiar nada (`GALAXY_TEXTURE_COMPACT=exacto`
+en `smg/ajustes.cfg`; `16bits` ahorra más, `no` lo apaga). Un pack de texturas va en `smg/data/TexturePacks/`; uno HD
+hay que reducirlo antes en la PC (`nopal texturas reducir` de Nopal), porque no cabe en 1 GB.
+Con `NOPAL_DEPURAR=5555` en `smg/ajustes.cfg`, el Depurador de Nopal Estudio se conecta desde la PC (por WiFi) y
+muestra los FPS, el tiempo de cada frame, la memoria y log.txt en vivo, y pausa el juego.
+
 La primera vez cada efecto nuevo compila su shader y el juego se detiene un momento (tirones); se guardan en
 `smg/data/shadercache` y la siguiente vez cargan rápido.
 

@@ -887,6 +887,7 @@ add_library(galaxy_gx STATIC
     runtime/src/gx/texture_cache.cpp
     runtime/src/gx/texture_pack.cpp
     runtime/src/gx/texture_pack_codecs.cpp
+    runtime/src/gx/texture_compact.cpp
     runtime/src/gx/movie_replacement.cpp
     runtime/src/gx/texture_backend_d3d12.cpp
     runtime/src/gx/placed_texture_allocator.cpp
@@ -1671,6 +1672,7 @@ if(NEBULA_VULKAN)
         runtime/src/gx/texture_cache.cpp
         runtime/src/gx/texture_pack.cpp
         runtime/src/gx/texture_pack_codecs.cpp
+        runtime/src/gx/texture_compact.cpp
         runtime/src/gx/movie_replacement.cpp
         runtime/src/gx/vertex_loader.cpp
         runtime/src/gx/shader_keys.cpp

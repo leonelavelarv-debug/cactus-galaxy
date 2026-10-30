@@ -403,3 +403,55 @@ ninja -C build-aarch64
 - Cachés más pequeñas: display lists 192 MiB, copias EFB 64 MiB, pool de texturas 128 MiB, prefetch de disco 2 MiB.
 - CPU, GPU y memoria en `performance` mientras se juega (`NEBULA_PERF=1`), restaurados al salir.
 - `memoria:` en log.txt cada 60 s (RSS de nebula y memoria libre).
+
+### Armar el port en la PC (`platform/knulli/smg/armar.sh`)
+
+De las fuentes a los paquetes en Linux o WSL (es lo que hace `nopal nebula compilar` de Nopal):
+
+```sh
+AARCH64_XTOOLS=/ruta/x-tools/aarch64-rpi3-linux-gnu platform/knulli/smg/armar.sh --deps ~/nebula-deps
+AARCH64_XTOOLS=/ruta/x-tools/aarch64-rpi3-linux-gnu NEBULA_DEPS=~/nebula-deps platform/knulli/smg/armar.sh salida/
+```
+
+`--deps` descarga glslang, SPIRV-Tools, SPIRV-Headers, SPIRV-Cross y SDL2 en los commits probados (solo esos commits,
+sin la historia) y compila SDL2 para aarch64 (solo para enlazar; en la consola va la del firmware). Después compila el
+módulo del juego, Nebula, nebula-pak y Cactus Galaxy Wrapper, quita los símbolos, rechaza un binario que lleve rutas de
+la PC, junta las licencias, pasa `limpiar.py` y `empaquetar.sh`: `salida/port` (para la SD) y `salida/paquete`
+(`smg.zip` e `Instalar Super Mario Galaxy.sh`).
+
+### Texturas compactas (`GALAXY_TEXTURE_COMPACT`, `texture_compact.h`)
+
+El GLES subía todas las texturas del juego en RGBA8. Ahora cada una va en el formato más chico que la guarda:
+
+| Modo | Formatos | Pierde |
+|---|---|---|
+| `exacto` (1, por defecto en GLES) | I4/I8 → R8 (1 byte, swizzle `rrrr`), IA4/IA8 y paletas IA8 → RG8 (swizzle `rrrg`), RGB565 y paletas RGB565 → RGB565; un reemplazo de un pack, si todos sus texels caben exactos en R8, RG8, RGB565, RGB5A1 o RGBA4 | Nada |
+| `16bits` (2) | Además CMPR, RGB5A3 y sus paletas: RGB565 (opaca), RGB5A1 (alfa 0/255) o RGBA4 | Los bits bajos del color |
+| `no` (0) | RGBA8 | — |
+
+- La elección por formato no lee los texels; la de los modos que dependen del alfa lee el nivel 0 ya decodificado (el
+  GLES decodifica en el hilo de render). Los reemplazos se analizan y se convierten en el hilo que los carga, ya en su
+  formato en el staging; `record_upload` convierte los del juego al subirlos.
+- Las texturas compactas no van al pool (sigue siendo de RGBA8, igual que los alias de las copias del EFB).
+- El hilo de GL copia las subidas de 16 bits en la llamada, como las de 8 bits (`upload_bytes`), sin esperar.
+- `[texture-compact] N textures (R8 a, RG8 b, ...), X MiB less than RGBA8` en log.txt (a la 1, 64, 256 y cada 1024).
+- Pruebas: `nebula_texture_compact_tests` (cada formato creado, subido desde RGBA8 y desde su formato, y leído de
+  vuelta; `--pack <carpeta>` lista el formato de cada textura de un pack) y `nebula_gl_thread_tests`.
+- Para medirlo en la consola: en `smg/ultra/serie.cfg`, una sección con `GALAXY_TEXTURE_COMPACT=no` contra la de
+  defecto.
+
+### Packs de texturas en la consola
+
+El lanzador pasa `smg/data/TexturePacks/` a Nebula (`GALAXY_TEXTURE_PACK_DIR`) si existe, con 256 MiB para los
+reemplazos (`GALAXY_TEXTURE_PACK_BUDGET_MB`). Un pack HD (4x, 8x) no cabe en 1 GB: `nopal texturas reducir` (Nopal)
+lo lleva en la PC a la escala del juego (o x2) y a formatos que Nebula sube compactos. `GALAXY_TEXTURE_DUMP=1` vuelca
+las texturas a `smg/data/TextureDumps/RMGE01/` para editarlas (Nopal Estudio, pestaña Texturas).
+
+### El Depurador de Nopal Estudio (`NOPAL_DEPURAR`, `nopal_depurar.h`)
+
+Con `NOPAL_DEPURAR=<puerto>` (en `smg/ajustes.cfg`, que ahora acepta `NOPAL_*`) Nebula habla el protocolo de
+depuración de Nopal por TCP: una línea `F` por present con el tiempo del frame, la CPU del hilo de render y sus esperas
+(las de ULTRA-GLES), `R` con RAM y CPU cada 30, `L` con cada línea de stderr (que sigue yendo a log.txt) y la escena;
+`pausa` detiene el hilo de render tras su present hasta `sigue` (o una imagen con `paso`; al desconectarse el
+Depurador se suelta), `salir` manda SIGTERM. Un hilo propio atiende el socket: el juego nunca espera al Depurador.
+Pruebas: `nebula_nopal_depurar_tests` (`--servir <s>`: un Nebula de mentira para probar el Estudio).

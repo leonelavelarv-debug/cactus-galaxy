@@ -244,6 +244,7 @@ static void apply_kv(RenderConfig& cfg, const char* key, const char* val) {
     else if (std::strcmp(key, "texture_packs") == 0) cfg.texture_packs = parse_bool(val, cfg.texture_packs);
     else if (std::strcmp(key, "texture_pack_preload") == 0) cfg.texture_pack_preload = parse_bool(val, cfg.texture_pack_preload);
     else if (std::strcmp(key, "texture_dump") == 0) cfg.texture_dump = parse_bool(val, cfg.texture_dump);
+    else if (std::strcmp(key, "texture_compact") == 0) cfg.texture_compact = std::min(parse_uint(val, cfg.texture_compact), 2u);
     else if (std::strcmp(key, "texture_pack_budget_mb") == 0) cfg.texture_pack_budget_mb = std::clamp(parse_uint(val, cfg.texture_pack_budget_mb), 64u, 65536u);
     else if (std::strcmp(key, "window_width")   == 0) cfg.window_width        = parse_window_dimension(val, cfg.window_width);
     else if (std::strcmp(key, "window_height")  == 0) cfg.window_height       = parse_window_dimension(val, cfg.window_height);
@@ -730,6 +731,7 @@ bool save_render_config_to_file() {
              << "texture_pack_preload=" << (cfg.texture_pack_preload ? 1u : 0u) << '\n'
              << "texture_dump=" << (cfg.texture_dump ? 1u : 0u) << '\n'
              << "texture_pack_budget_mb=" << cfg.texture_pack_budget_mb << '\n'
+             << "texture_compact=" << cfg.texture_compact << '\n'
              << "rt_quality=" << (cfg.rt_quality == 1u ? "high" : cfg.rt_quality == 2u ? "low" : "medium") << '\n'
              << "window_width=" << cfg.window_width << '\n'
              << "window_height=" << cfg.window_height << '\n'

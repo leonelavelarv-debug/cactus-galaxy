@@ -3,6 +3,7 @@
 
 #include "galaxy/gx/gles/renderer_gles.h"
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/gles/nopal_depurar.h"
 #include "galaxy/gx/gles/gl_thread.h"
 
 #include "galaxy/content_viewport.h"
@@ -947,7 +948,8 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
     }
     const bool presented = present_swap_chain && presented_this_frame_;
     presented_this_frame_ = false;
-    if (presented && ultra::enabled()) {
+    // ULTRA-GLES and Nopal's debug channel (nopal_depurar.h) take the same frame sample.
+    if (presented && (ultra::enabled() || nopal_depurar::active())) {
         ultra_frame();
     }
     ++frame_index_;
@@ -1010,6 +1012,7 @@ void RendererGles::ultra_frame() {
     ultra_prev_ = window_stats_;
     ultra_cpu_prev_ = cpu;
     ultra_swap_ns_ = 0;
+    nopal_depurar::frame(sample);  // last: a pause from the Estudio holds the render thread here
 }
 
 void RendererGles::report_stats() {

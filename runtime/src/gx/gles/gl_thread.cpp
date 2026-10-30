@@ -567,6 +567,9 @@ std::size_t upload_bytes(GLsizei width, GLsizei height, GLenum format, GLenum ty
         texel = format == GL_RGBA ? 4u : format == GL_RGB ? 3u : (format == GL_RED || format == GL_ALPHA ||
                                                                   format == GL_LUMINANCE) ? 1u
                                                                : format == GL_RG ? 2u : 0u;
+    } else if ((type == GL_UNSIGNED_SHORT_5_6_5 && format == GL_RGB) ||
+               ((type == GL_UNSIGNED_SHORT_5_5_5_1 || type == GL_UNSIGNED_SHORT_4_4_4_4) && format == GL_RGBA)) {
+        texel = 2u;  // compact textures (texture_compact.h)
     } else if (type == GL_FLOAT && format == GL_RGBA) {
         texel = 16u;
     }

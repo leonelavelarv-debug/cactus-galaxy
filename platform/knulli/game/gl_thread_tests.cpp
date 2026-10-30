@@ -42,12 +42,13 @@ void GL_APIENTRY fake_pixel_store(GLenum pname, GLint value) {
     if (pname == GL_UNPACK_ROW_LENGTH) g_row_length = value;
 }
 void GL_APIENTRY fake_bind_buffer(GLenum, GLuint) {}
-void GL_APIENTRY fake_tex_sub_image(GLenum, GLint, GLint, GLint, GLsizei w, GLsizei h, GLenum, GLenum,
+void GL_APIENTRY fake_tex_sub_image(GLenum, GLint, GLint, GLint, GLsizei w, GLsizei h, GLenum, GLenum type,
                                     const void* pixels) {
     note_thread();
-    // RGBA8 with the row length in force: the last row is w texels, the others row_length.
-    const std::size_t row = static_cast<std::size_t>(g_row_length > 0 ? g_row_length : w) * 4u;
-    const std::size_t bytes = row * static_cast<std::size_t>(h - 1) + static_cast<std::size_t>(w) * 4u;
+    // RGBA8 (or a 16-bit compact texel) with the row length in force: the last row is w texels, the others row_length.
+    const std::size_t texel = type == GL_UNSIGNED_BYTE ? 4u : 2u;
+    const std::size_t row = static_cast<std::size_t>(g_row_length > 0 ? g_row_length : w) * texel;
+    const std::size_t bytes = row * static_cast<std::size_t>(h - 1) + static_cast<std::size_t>(w) * texel;
     const auto* p = static_cast<const std::uint8_t*>(pixels);
     g_uploaded.assign(p, p + bytes);
 }
@@ -96,6 +97,15 @@ int main() {
     std::memset(pixels.data(), 0xEE, pixels.size());
     gl::glFinish();
     expect(g_uploaded == original, "la subida copia la memoria del llamador (fila de 8, 5x3)");
+    // A compact texture's (texture_compact.h): 16-bit texels, also copied at the call (no wait for the GL thread).
+    for (std::size_t i = 0; i < pixels.size(); ++i) pixels[i] = static_cast<std::uint8_t>(i * 3u);
+    const std::vector<std::uint8_t> original16(pixels.begin(), pixels.begin() + 8u * 2u * 2u + 5u * 2u);
+    const int syncs_before = g_on_main.load();
+    gl::glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 5, 3, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, pixels.data());
+    std::memset(pixels.data(), 0xEE, pixels.size());
+    gl::glFinish();
+    expect(g_uploaded == original16 && g_on_main.load() == syncs_before,
+           "la subida en RGB565 copia la memoria del llamador (fila de 8, 5x3)");
 
     // Names from the pool (refilled on the GL thread), then deletes with the array copied.
     GLuint names[3] = {};

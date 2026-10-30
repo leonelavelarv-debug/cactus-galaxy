@@ -658,6 +658,14 @@ std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std
             }
         }
     }
+#if defined(NEBULA_GPU_GLES)
+    if (!result->failed && !result->pixels.levels.empty()) {
+        static const unsigned compact_mode = texture_compact_mode();
+        TexturePackPixels& pixels = result->pixels;
+        pixels.compact = compact_for_replacement(compact_mode, pixels.levels[0].data(),
+                                                 static_cast<std::size_t>(pixels.width) * pixels.height);
+    }
+#endif
     if (!result->failed && stager_) {
         // Staged here: the render thread then only records the copies (a 2048x8192 chain is 89 MB to write).
         TexturePackPixels& pixels = result->pixels;
@@ -671,8 +679,9 @@ std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std
                     const std::uint32_t lw = std::max<std::uint32_t>(1u, pixels.width >> l);
                     const std::uint32_t lh = std::max<std::uint32_t>(1u, pixels.height >> l);
                     for (std::uint32_t row = 0; row < lh; ++row) {
-                        std::memcpy(chunk.cpu_base + pixels.offsets[l] + static_cast<std::uint64_t>(row) * pixels.pitches[l],
-                                    pixels.levels[l].data() + static_cast<std::size_t>(row) * lw * 4u, lw * 4u);
+                        // A compact one in its own format (texture_compact.h), at the same pitches.
+                        compact_convert(pixels.compact, pixels.levels[l].data() + static_cast<std::size_t>(row) * lw * 4u,
+                                        lw, chunk.cpu_base + pixels.offsets[l] + static_cast<std::uint64_t>(row) * pixels.pitches[l]);
                     }
                 }
                 pixels.levels.clear();

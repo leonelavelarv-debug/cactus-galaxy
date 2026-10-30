@@ -29,10 +29,10 @@ def clean_launcher(s):
     s = s.replace(anchor, anchor + block, 1)
     # Los ajustes del usuario: smg/ajustes.cfg.
     s = s.replace(
-        "# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan\n"
+        "# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_*, GALAXY_* y NOPAL_*, que mandan\n"
         "# sobre lo de abajo sin editar este archivo; lo usa ULTRA-GLES para comparar ajustes):\n"
         "# Se aceptan ultra.cfg y ultra.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del\n",
-        "# Ajustes (se pueden cambiar aqui, o en smg/ajustes.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan\n"
+        "# Ajustes (se pueden cambiar aqui, o en smg/ajustes.cfg: lineas NOMBRE=valor, solo NEBULA_*, GALAXY_* y NOPAL_*, que mandan\n"
         "# sobre lo de abajo sin editar este archivo).\n"
         "# Se aceptan ajustes.cfg y ajustes.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del\n")
     s = s.replace('for cfg in "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do',

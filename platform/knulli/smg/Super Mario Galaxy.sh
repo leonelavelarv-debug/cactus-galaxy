@@ -120,7 +120,7 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$GAMEDIR/gamelist.py" ]; then
   GAMELIST_PID=$!
 fi
 
-# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan
+# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_*, GALAXY_* y NOPAL_*, que mandan
 # sobre lo de abajo sin editar este archivo; lo usa ULTRA-GLES para comparar ajustes):
 # Se aceptan ultra.cfg y ultra.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del
 # principio, espacios alrededor del =, comentarios con # y una ultima linea sin salto; cada ajuste leido queda en log.txt.
@@ -133,7 +133,7 @@ for cfg in "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
     key=$(printf '%s' "${line%%=*}" | tr -d ' \t')
     value=$(printf '%s' "${line#*=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     case "$key" in
-      NEBULA_*|GALAXY_*) export "$key=$value"; echo "ajuste de ${cfg##*/}: $key=$value" ;;
+      NEBULA_*|GALAXY_*|NOPAL_*) export "$key=$value"; echo "ajuste de ${cfg##*/}: $key=$value" ;;
     esac
   done < "$cfg"
   break
@@ -168,6 +168,22 @@ echo "perfil: $NEBULA_PERFIL (frameskip $GALAXY_FRAMESKIP, peeks ${GALAXY_PEEK_M
 #   GALAXY_GLES_PENDING=wait|skip|uber  shaders nuevos: esperar (tirones la 1a vez), saltar el dibujo, o uber
 #   NEBULA_PAD_SCHEME=nintendo|xbox      A a la derecha (nintendo) o abajo (xbox)
 export NEBULA_DATA_DIR="$GAMEDIR/data"
+#   GALAXY_TEXTURE_COMPACT=exacto|16bits|no  texturas en la memoria de video en 8 o 16 bits cuando caben: exacto (por
+#                                        defecto) no cambia ni un texel (I4/I8 en 1 byte, IA4/IA8 y RGB565 en 2); 16bits
+#                                        tambien CMPR y RGB5A3 (pierden los bits mas bajos del color); no: todo en RGBA8.
+#                                        log.txt dice cuantas y cuanta memoria ahorran ([texture-compact])
+export GALAXY_TEXTURE_COMPACT="${GALAXY_TEXTURE_COMPACT:-exacto}"
+#   Packs de texturas: en smg/data/TexturePacks/ (hechos a la medida de la consola en la PC: `nopal texturas reducir`,
+#   o `nopal nebula armar --texturas`). GALAXY_TEXTURE_DUMP=1 vuelca las texturas del juego a smg/data/TextureDumps/
+#   (para editarlas en la PC y volver a ponerlas como pack).
+#   GALAXY_TEXTURE_PACK_BUDGET_MB=256    memoria de video para los reemplazos (los que no se usan salen primero)
+if [ -d "$GAMEDIR/data/TexturePacks" ]; then
+  export GALAXY_TEXTURE_PACK_DIR="${GALAXY_TEXTURE_PACK_DIR:-$GAMEDIR/data/TexturePacks}"
+fi
+export GALAXY_TEXTURE_PACK_BUDGET_MB="${GALAXY_TEXTURE_PACK_BUDGET_MB:-256}"
+#   NOPAL_DEPURAR=5555                   el Depurador de Nopal Estudio se conecta desde la PC (por WiFi, a la IP de la
+#                                        consola y este puerto): FPS, tiempos del frame, RAM, CPU, log.txt en vivo, pausa
+#                                        y avance de a un frame. Sin fijarlo no se abre nada
 export GALAXY_CRASH_DUMP_DIR="$GAMEDIR/crashes"
 export GALAXY_RUNTIME_SETTINGS_PATH="$GAMEDIR/settings.ini"
 # uber por defecto (ULTRA-GLES): la primera vez con wait, 166 shaders compilados de golpe pararon el juego 62 s en
