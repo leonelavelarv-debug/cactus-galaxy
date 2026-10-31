@@ -152,11 +152,12 @@ int main(int argc, char** argv) {
     expect(c.wait_for("L escena") == "L escena: TestGalaxy", "la escena del juego llega como L");
 
     c.say("pausa");
-    expect(c.wait_for("ESTADO") == "ESTADO pausa", "pausa contestada");
+    expect(c.wait_for("ESTADO pausa") == "ESTADO pausa", "pausa contestada");
     std::thread held;
     std::atomic<bool> done{false};
     expect(!frame_returns(150, held, done), "en pausa el hilo de render se detiene tras su present");
     c.say("paso");
+    c.wait_for("ESTADO pausa");  // the reply to paso (so a later wait sees the next reply, not this one)
     const auto t0 = std::chrono::steady_clock::now();
     while (!done && std::chrono::steady_clock::now() - t0 < std::chrono::seconds(2)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -165,6 +166,7 @@ int main(int argc, char** argv) {
     if (held.joinable()) held.join();
     expect(!frame_returns(150, held, done), "y el siguiente vuelve a detenerse");
     c.say("sigue");
+    c.wait_for("ESTADO sigue");
     const auto t1 = std::chrono::steady_clock::now();
     while (!done && std::chrono::steady_clock::now() - t1 < std::chrono::seconds(2)) {
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
@@ -174,7 +176,7 @@ int main(int argc, char** argv) {
     expect(frame_returns(500, held, done), "sin pausa los frames no esperan");
 
     c.say("pausa");
-    c.wait_for("ESTADO");
+    c.wait_for("ESTADO pausa");  // not a stale "ESTADO sigue" from before
     expect(!frame_returns(150, held, done), "pausa otra vez");
     ::close(c.fd);
     const auto t2 = std::chrono::steady_clock::now();

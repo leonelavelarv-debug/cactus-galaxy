@@ -455,3 +455,29 @@ depuración de Nopal por TCP: una línea `F` por present con el tiempo del frame
 `pausa` detiene el hilo de render tras su present hasta `sigue` (o una imagen con `paso`; al desconectarse el
 Depurador se suelta), `salir` manda SIGTERM. Un hilo propio atiende el socket: el juego nunca espera al Depurador.
 Pruebas: `nebula_nopal_depurar_tests` (`--servir <s>`: un Nebula de mentira para probar el Estudio).
+
+### Sin traductor de shaders: la biblioteca GLSL (`shader_library_gles.h`)
+
+Nebula escribe sus shaders en HLSL (el generador de un programa por combinación del TEV, los uber shaders y los del
+renderer) y el GLES los pasaba en la consola por glslang y SPIRV-Cross a GLSL ES antes de darlos al driver. Ahora esa
+traducción se hace en la PC y la consola le da el GLSL directo al driver:
+
+- `nebula_glsl_aot <biblioteca> <claves>...` (en la PC, con el traductor) traduce todo lo que piden las claves: las de
+  una vuelta entera al juego (`platform/android/vk_seed_keys.bin`, 977 claves: 892 programas GX) y las que anota una
+  consola al jugar (`smg/data/shadercache/RMGE01/gles_keys.bin`), más los uber shaders y los del renderer, en las cuatro
+  formas que puede pedir un driver (GLSL ES 3.20 o 3.10; la paleta de matrices como texture buffer, la del driver de
+  Mali, o como storage block). 3914 shaders, 17.9 MiB de GLSL, **2.1 MiB** en `smg/shaders-gles.bin` (bloques de zlib).
+  `--verificar` vuelve a traducir y compara: 3914 de 3914 iguales.
+- Cada entrada se encuentra por el hash de su HLSL y su forma, y el HLSL sale de las mismas funciones en la consola y en
+  la PC (`shader_sources_gles.h`): un cambio del generador falla la búsqueda en vez de usar GLSL viejo.
+- `NEBULA_GLES_TRANSLATOR=OFF` (lo que usa `armar.sh`; `NEBULA_TRADUCTOR=1` lo deja dentro) saca glslang y
+  SPIRV-Cross del binario: **`nebula` pasa de 10.8 MB a 3.4 MB** sin símbolos. Un programa GX que no esté en la
+  biblioteca se dibuja con el uber shader (que siempre está) y su clave se anota como antes; `nopal nebula shaders`
+  rehace la biblioteca con ellas. Con el traductor dentro, la biblioteca se usa primero y lo demás se traduce.
+- Los filtros de la copia a pantalla (antialiasing, nitidez, sombras, contraste) pasaron de literales en el HLSL a un
+  quinto vector de constantes (`copy_filter`): un solo texto sirve para cualquier ajuste.
+- Lo medido en la PC (x86-64): traducir cuesta ~25 ms por programa, más que la compilación del driver (llvmpipe). En
+  el Cortex-A53 es varias veces más; eso es lo que la consola ya no hace la primera vez que ve cada efecto.
+- Pruebas: `nebula_gles_renderer_tests` del build sin traductor con `GALAXY_GLES_SHADER_LIBRARY` (los del renderer y un
+  programa GX desde la biblioteca, y fuera de ella con el uber; con `GALAXY_GLES_AA=1 GALAXY_GLES_RESOLUTION=auto` la
+  copia filtrada), `nebula_glsl_aot --verificar`.

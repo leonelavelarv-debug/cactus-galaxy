@@ -1,7 +1,8 @@
 #!/bin/bash
 # Arma el port de Super Mario Galaxy en la PC (Linux o WSL de Windows 11), de las fuentes a los paquetes: compila para
 # aarch64 el modulo del juego (native/), Nebula (platform/knulli/game), nebula-pak y Cactus Galaxy Wrapper
-# (platform/knulli/pak); junta la carpeta del port (Super Mario Galaxy.sh + smg/ con sus licencias), la limpia
+# (platform/knulli/pak); traduce en la PC todos los shaders del juego a GLSL (smg/shaders-gles.bin: la consola no
+# lleva traductor y le da el GLSL directo al driver); junta la carpeta del port (Super Mario Galaxy.sh + smg/ con sus licencias), la limpia
 # (limpiar.py) y la empaqueta (empaquetar.sh). Es lo que hace `nopal nebula compilar` (Nopal).
 #
 #   armar.sh --deps <carpeta>                 descarga (git) glslang, SPIRV-Tools, SPIRV-Headers, SPIRV-Cross y SDL2 en
@@ -16,6 +17,8 @@
 #            NEBULA_SDL2     SDL2 para aarch64 (por defecto $NEBULA_DEPS/sdl2-a64; solo se enlaza: en la consola se
 #                            usa la del firmware)
 #            NEBULA_PARCHES  opcional: una carpeta con parches .xdelta de traduccion (van a smg/patches/)
+#            NEBULA_CLAVES   opcional: gles_keys.bin de sesiones en la consola (mas shaders en la biblioteca)
+#            NEBULA_TRADUCTOR=1  opcional: Nebula con el traductor de shaders dentro (como antes)
 # Sin datos de la PC en los binarios (sin RPATH ni rutas) ni en los paquetes (fechas fijas, sin usuario).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -83,20 +86,35 @@ tc="$repo/platform/knulli/aarch64-toolchain.cmake"
 static="-fuse-ld=lld --gcc-toolchain=$AARCH64_XTOOLS -static-libstdc++ -static-libgcc"
 cfg=(-DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$tc" "${generator[@]}")
 
-say "1/5 el modulo del juego (libsmg_game.so; la primera vez tarda: ~1900 unidades)"
+say "1/6 el modulo del juego (libsmg_game.so; la primera vez tarda: ~1900 unidades)"
 cmake -S "$repo/native" -B "$build/juego" "${cfg[@]}" "-DCMAKE_EXE_LINKER_FLAGS=$static" \
   "-DCMAKE_SHARED_LINKER_FLAGS=$static" > "$build/juego.log"
 cmake --build "$build/juego" -j "$jobs" --target smg_game >> "$build/juego.log" || fail "el modulo del juego no compilo: $build/juego.log"
-say "2/5 Nebula (nebula: host, GX en OpenGL ES 3.2)"
-cmake -S "$repo/platform/knulli/game" -B "$build/nebula" "${cfg[@]}" -DNEBULA_DEPS="$NEBULA_DEPS" \
+# Sin el traductor de shaders (glslang + SPIRV-Cross): la consola recibe el GLSL hecho aqui (paso 3) y se lo da
+# directo al driver. NEBULA_TRADUCTOR=1 lo deja dentro (lo que no este en la biblioteca se traduce en la consola).
+traductor=OFF
+[ "${NEBULA_TRADUCTOR:-0}" = 1 ] && traductor=ON
+say "2/6 Nebula (nebula: host, GX en OpenGL ES 3.2; traductor de shaders: $traductor)"
+cmake -S "$repo/platform/knulli/game" -B "$build/nebula" "${cfg[@]}" -DNEBULA_DEPS="$NEBULA_DEPS" -DNEBULA_GLES_TRANSLATOR=$traductor \
   -DNEBULA_SDL2_PREFIX="$sdl2" "-DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld --gcc-toolchain=$AARCH64_XTOOLS -static-libstdc++ -static-libgcc" \
   > "$build/nebula.log"
 cmake --build "$build/nebula" -j "$jobs" --target nebula_knulli >> "$build/nebula.log" || fail "Nebula no compilo: $build/nebula.log"
-say "3/5 nebula-pak y Cactus Galaxy Wrapper"
+say "3/6 la biblioteca GLSL (todos los shaders del juego traducidos en esta PC)"
+# nebula_glsl_aot para esta PC (con el traductor), y los shaders de las claves de una vuelta entera al juego
+# (platform/android/vk_seed_keys.bin) mas las que se le den: NEBULA_CLAVES="<gles_keys.bin> ..." (las que anota la
+# consola al jugar, en smg/data/shadercache/).
+host_cc=(); command -v clang++ >/dev/null && host_cc=(-DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++)
+cmake -S "$repo/platform/knulli/game" -B "$build/aot" -DCMAKE_BUILD_TYPE=Release "${generator[@]}" "${host_cc[@]}" \
+  -DNEBULA_DEPS="$NEBULA_DEPS" -DNEBULA_GLES_TRANSLATOR=ON > "$build/aot.log"
+cmake --build "$build/aot" -j "$jobs" --target nebula_glsl_aot >> "$build/aot.log" || fail "nebula_glsl_aot no compilo: $build/aot.log"
+claves=("$repo/platform/android/vk_seed_keys.bin")
+for c in ${NEBULA_CLAVES:-}; do [ -f "$c" ] || fail "no existe $c (NEBULA_CLAVES)"; claves+=("$c"); done
+"$build/aot/nebula_glsl_aot" "$build/shaders-gles.bin" "${claves[@]}" 2>> "$build/aot.log" || fail "la biblioteca GLSL fallo: $build/aot.log"
+say "4/6 nebula-pak y Cactus Galaxy Wrapper"
 cmake -S "$repo/platform/knulli/pak" -B "$build/pak" "${cfg[@]}" -DCACTUS_SDL2_PREFIX="$sdl2" > "$build/pak.log"
 cmake --build "$build/pak" -j "$jobs" >> "$build/pak.log" || fail "nebula-pak no compilo: $build/pak.log"
 
-say "4/5 la carpeta del port"
+say "5/6 la carpeta del port"
 lib="$(find "$build/juego" -maxdepth 2 -name 'libsmg_game.so' | head -n 1)"
 [ -n "$lib" ] || fail "no aparecio libsmg_game.so en $build/juego"
 full="$out/completo"
@@ -118,6 +136,11 @@ for b in "$build/nebula/nebula" "$lib" "$build/pak/nebula-pak" "$build/pak/cactu
   "$strip" -o "$full/smg/$(basename "$b")" "$b"
 done
 chmod +x "$full/Super Mario Galaxy.sh" "$full/smg/nebula" "$full/smg/nebula-pak" "$full/smg/cactus-galaxy-wrapper"
+cp "$build/shaders-gles.bin" "$full/smg/shaders-gles.bin"
+# Para rehacer la biblioteca despues con las claves de la consola (nopal nebula shaders), sin volver a compilar.
+mkdir -p "$out/herramientas"
+"$strip" -o "$out/herramientas/nebula_glsl_aot" "$build/aot/nebula_glsl_aot"
+cp "$repo/platform/android/vk_seed_keys.bin" "$out/herramientas/claves-semilla.bin"
 L="$full/smg/licenses"
 cp "$repo/LICENSE" "$L/GPL-3.0.txt"
 cp "$repo/native/petari/LICENSE" "$L/LICENSE"
@@ -137,9 +160,10 @@ done
 python3 "$here/limpiar.py" "$full" "$out/port" > /dev/null
 rm -rf "$full"
 
-say "5/5 los paquetes"
+say "6/6 los paquetes"
 "$here/empaquetar.sh" "$out/port" "$out/paquete"
 say ""
 say "Listo:"
 say "  $out/port      copia Super Mario Galaxy.sh y smg/ a la SD (o usa el instalador)"
 say "  $out/paquete   smg.zip para PortMaster e \"Instalar Super Mario Galaxy.sh\""
+say "  $out/herramientas  nebula_glsl_aot y las claves semilla (nopal nebula shaders rehace smg/shaders-gles.bin)"

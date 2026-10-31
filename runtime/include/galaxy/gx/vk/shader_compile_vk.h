@@ -35,7 +35,20 @@ struct RegisterBinding {
 
 // A GX vertex shader (VSOut, `VSOut o = (VSOut)0;`) that also writes a one-pixel point size: Vulkan points drawn
 // without the expanding geometry shader need the vertex stage to write PointSize.
-[[nodiscard]] std::string with_point_size(std::string_view vertex_hlsl);
+[[nodiscard]] inline std::string with_point_size(std::string_view vertex_hlsl) {
+    // Inline: the GLES build without the translator (shader_library_gles.h) keys its GLSL on this same text.
+    std::string text(vertex_hlsl);
+    const std::size_t output = text.find("struct VSOut {");
+    const std::size_t close = output == std::string::npos ? output : text.find("};", output);
+    static constexpr std::string_view kInit = "VSOut o = (VSOut)0;";
+    const std::size_t init = text.find(kInit);
+    if (close == std::string::npos || init == std::string::npos) {
+        return text;
+    }
+    text.insert(init + kInit.size(), "\n    o.psize = 1.0;");
+    text.insert(close, "    [[vk::builtin(\"PointSize\")]] float psize : PSIZE;\n");
+    return text;
+}
 
 struct CompileOptions {
     // Run the SPIR-V validator and fail on any message (the tests; the runtime trusts its sources).

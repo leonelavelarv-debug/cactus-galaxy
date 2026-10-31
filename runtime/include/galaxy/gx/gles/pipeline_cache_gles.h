@@ -81,6 +81,9 @@ public:
         std::string ps_hlsl;
     };
 
+    // GX programs the GLSL library lacked, drawn with the uber shader (a build without the translator).
+    [[nodiscard]] std::uint64_t library_misses() const noexcept { return library_misses_.load(); }
+
 private:
     struct Entry {
         PsoKey key{};
@@ -103,6 +106,7 @@ private:
         GLuint name = 0;
         std::uint32_t attributes = 0;
         bool failed = false;
+        bool library_miss = false;  // not in the GLSL library, and no translator in this build
     };
     struct Job {
         PairKey pair{};
@@ -132,12 +136,15 @@ private:
     std::string driver_key_;
     gles::TranslateOptions translate_options_{};
     ShaderGenOptions generator_options_{};
+    std::atomic<std::uint64_t> library_misses_{0};
+    bool uber_needed_ = false;  // uber programs built at start (pending uber, or no translator)
     Pending pending_ = Pending::Wait;
     std::string shader_dump_dir_;
     bool binaries_ = false;
 
     // Render thread.
     std::unordered_map<PsoKey, std::unique_ptr<gles::Pipeline>, PsoKeyHasher> published_;
+    std::unordered_set<PsoKey, PsoKeyHasher> missed_;  // drawn with the uber shader: not in the GLSL library
     std::unordered_map<PairKey, Program, PairKeyHasher> programs_;
     std::unordered_set<PairKey, PairKeyHasher> in_flight_;
     std::unordered_map<std::uint64_t, std::unique_ptr<gles::Pipeline>> uber_pipelines_;

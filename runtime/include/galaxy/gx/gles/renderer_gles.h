@@ -85,6 +85,7 @@ struct UtilityProgram {
 
 class RendererGles final : public UiCanvas {
 public:
+
     using SubmissionCallback = void (*)(void* context, std::uint64_t fence_value);
     static constexpr std::size_t kAsyncPeekFieldSlots = 3u;
     static constexpr std::size_t kAsyncPeekFieldChannels = 4u;
@@ -430,6 +431,10 @@ private:
     GLuint xfb_program_ = 0;           // the display copy's conversion, filtered (divided EFB), or 0
     GLuint xfb_full_program_ = 0;      // the same at 100 %: anti-aliasing only (GALAXY_GLES_AA), or 0
     GLuint conversion_override_ = 0;   // the program conversion_draw uses instead, while set
+    // The filters' values (strength, shadows, contrast, anti-aliasing 0/1) for xfb_program_ and xfb_full_program_:
+    // uniforms after the conversion's constants, so one GLSL text (the GLSL library's) serves every setting.
+    std::array<float, 4> xfb_filter_{};
+    std::array<float, 4> xfb_full_filter_{};
     // The last display copy, which a skipped frame's copy repeats (same EFB, same parameters).
     struct XfbKey {
         std::uint32_t src_x = 0, src_y = 0, src_width = 0, src_height = 0;

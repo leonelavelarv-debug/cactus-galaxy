@@ -49,6 +49,9 @@ de Nebula y su renderer GX en OpenGL ES 3.2 (Mali-G31). Primera versión de prue
    arrancar. La primera vez queda una copia en `ports/gamelist.xml.antes-smg`. `smg/gameinfo.xml` es la misma ficha
    para PortMaster.
 
+Shaders: `smg/shaders-gles.bin` trae todos los shaders del juego ya en GLSL (hechos en la PC): Nebula se los da directo
+al driver de OpenGL y no traduce nada en la consola. Si a uno le falta, se dibuja con el shader genérico y queda anotado
+en `smg/data/shadercache/`; `nopal nebula shaders` (Nopal, en la PC) los agrega.
 Texturas: Nebula guarda las del juego en 8 o 16 bits cuando caben sin cambiar nada (`GALAXY_TEXTURE_COMPACT=exacto`
 en `smg/ajustes.cfg`; `16bits` ahorra más, `no` lo apaga). Un pack de texturas va en `smg/data/TexturePacks/`; uno HD
 hay que reducirlo antes en la PC (`nopal texturas reducir` de Nopal), porque no cabe en 1 GB.

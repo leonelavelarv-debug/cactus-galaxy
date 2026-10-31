@@ -2,6 +2,8 @@
 // GX pipelines on OpenGL ES (pipeline_cache_gles.h).
 
 #include "galaxy/gx/gles/pipeline_cache_gles.h"
+#include "galaxy/gx/gles/shader_library_gles.h"
+#include "galaxy/gx/gles/shader_sources_gles.h"
 #include "galaxy/gx/gles/ultra_gles.h"
 
 #include "galaxy/gx/host_window.h"
@@ -108,15 +110,6 @@ GLenum to_alpha_blend(GLenum factor) {
     }
 }
 
-std::string uber_ps_hlsl(unsigned variant) {
-    std::string ps;
-    ps += uber_ps_variant_dual_source(variant) ? "#define UBER_DUAL_SRC 1\n" : "#define UBER_DUAL_SRC 0\n";
-    ps += uber_ps_variant_export_depth(variant) ? "#define UBER_EXPORT_DEPTH 1\n" : "#define UBER_EXPORT_DEPTH 0\n";
-    ps += uber_ps_variant_early_depth(variant) ? "#define UBER_EARLY_DEPTH 1\n" : "#define UBER_EARLY_DEPTH 0\n";
-    ps += uber_ps_source();
-    return ps;
-}
-
 std::string shader_log(GLuint object, bool program) {
     GLint length = 0;
     if (program) {
@@ -184,7 +177,7 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
                                    unsigned worker_count) {
     layout_ = layout;
     translate_options_.palette_storage_block = layout->palette_storage_block;
-    generator_options_.scalar_byte_masks = true;  // Mali (device_quirks_vk.cpp)
+    generator_options_ = gles::gles_generator_options();
     const gles::Capabilities& caps = gles::Context::get().caps();
     translate_options_.glsl_version = gles::glsl_version_for(caps.version_major, caps.version_minor);
     driver_key_ = caps.renderer + " | " + caps.version;
@@ -238,12 +231,15 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
             }
         }
     }
-    if (pending_ == Pending::Uber) {
+    // Without the translator a GX program the GLSL library lacks is drawn with the uber shader, whatever the pending
+    // mode: the uber programs are always built then.
+    uber_needed_ = pending_ == Pending::Uber || !gles::translator_available();
+    if (uber_needed_) {
         // The uber programs now: every first use draws with one.
         const std::string vs(uber_vs_source());
         for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
             const std::string vs_glsl = translate(vs, gles::Stage::Vertex, "uber vertex shader");
-            const std::string ps_glsl = translate(uber_ps_hlsl(variant), gles::Stage::Fragment, "uber pixel shader");
+            const std::string ps_glsl = translate(gles::uber_pixel_hlsl(variant), gles::Stage::Fragment, "uber pixel shader");
             if (!vs_glsl.empty() && !ps_glsl.empty()) {
                 const std::uint64_t hash = combine64(fnv1a64(vs_glsl.data(), vs_glsl.size()),
                                                      fnv1a64(ps_glsl.data(), ps_glsl.size()));
@@ -251,10 +247,13 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
             }
         }
     }
-    std::fprintf(stderr, "[pipeline-cache-gles] keys=%zu prewarm=%zu workers=%zu pending=%s binaries=%s dir=%s\n",
+    const gles::LibraryStats library = gles::library_stats();
+    std::fprintf(stderr, "[pipeline-cache-gles] keys=%zu prewarm=%zu workers=%zu pending=%s binaries=%s glsl-library=%llu "
+                 "translator=%s dir=%s\n",
                  entries_.size(), prewarm, workers_.size(),
                  pending_ == Pending::Wait ? "wait" : pending_ == Pending::Skip ? "skip" : "uber",
-                 binaries_ ? "yes" : "no", cache_dir_.string().c_str());
+                 binaries_ ? "yes" : "no", static_cast<unsigned long long>(library.entries),
+                 gles::translator_available() ? "yes" : "no", cache_dir_.string().c_str());
     // The context goes to the render thread now (GxBackend starts it next): release it here.
     host_window::gles_make_current(nullptr, false);
     gles::Context::get().clear_owner_thread();
@@ -291,6 +290,7 @@ void PipelineCacheGles::shutdown() {
     }
     programs_.clear();
     published_.clear();
+    missed_.clear();
     uber_pipelines_.clear();
     memo_pipeline_ = nullptr;
     ready_ = false;
@@ -309,9 +309,13 @@ std::filesystem::path PipelineCacheGles::binary_path(std::uint64_t hash) const {
 std::string PipelineCacheGles::translate(const std::string& hlsl, gles::Stage stage, const char* what) {
     std::string error;
     const auto start = std::chrono::steady_clock::now();
-    std::string glsl = gles::translate(hlsl, stage, gles::ShaderKind::Gx, translate_options_, error);
+    // From the GLSL library when it has it; translated here only by a build that has the translator.
+    std::string glsl = gles::shader_glsl(hlsl, stage, gles::ShaderKind::Gx, translate_options_, error);
     compile_us_.fetch_add(elapsed_us(start), std::memory_order_relaxed);
     translations_.fetch_add(1u, std::memory_order_relaxed);
+    if (glsl.empty() && !gles::translator_available()) {
+        return {};  // drawn with the uber shader (get); counted there
+    }
     if (glsl.empty()) {
         static std::atomic<int> reported{0};
         if (reported.fetch_add(1, std::memory_order_relaxed) < 6) {
@@ -401,13 +405,9 @@ PipelineCacheGles::Program PipelineCacheGles::link(const std::string& vs_glsl, c
 
 PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair, const VertexShaderKey& vs_key,
                                                             const PixelShaderKey& ps_key) {
-    ShaderGenerator generator;
-    generator.set_options(generator_options_);
-    std::string vs_hlsl = generator.generate_vs(vs_key);
-    if (pair.form == 1u) {
-        vs_hlsl = vk::with_point_size(vs_hlsl);
-    }
-    const std::string ps_hlsl = generator.generate_ps(ps_key);
+    const gles::ProgramHlsl source = gles::program_hlsl(vs_key, ps_key, pair.form == 1u);
+    const std::string& vs_hlsl = source.vs;
+    const std::string& ps_hlsl = source.ps;
     const std::uint64_t hash = combine64(combine64(fnv1a64(vs_hlsl.data(), vs_hlsl.size()),
                                                    fnv1a64(ps_hlsl.data(), ps_hlsl.size())),
                                          translate_options_.palette_storage_block ? 1u : 2u);
@@ -437,10 +437,12 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
     if (vs_glsl.empty() || ps_glsl.empty()) {
         Program failed;
         failed.failed = true;
+        failed.library_miss = !gles::translator_available();
         return failed;
     }
     return link(vs_glsl, ps_glsl, hash, "a GX program");
 }
+
 
 std::unique_ptr<gles::Pipeline> PipelineCacheGles::make_pipeline(const RenderStateKey& rs, const Program& program,
                                                                  bool, bool uber) {
@@ -535,6 +537,15 @@ gles::Pipeline* PipelineCacheGles::get(const PsoKey& key, const PixelShaderKey& 
         memo_pipeline_ = it->second.get();
         return memo_pipeline_;
     }
+    if (!missed_.empty() && missed_.contains(key)) {
+        if (gles::Pipeline* uber = uber_pipeline(key.render_state, ps_key)) {
+            ++uber_fallbacks_;
+            ultra::add(ultra::kUberDraws, 1u);
+            last_get_used_uber_ = true;
+            return uber;
+        }
+        return nullptr;
+    }
     {
         std::lock_guard<std::mutex> lock(entries_mutex_);
         const Entry entry{key, vs_key, ps_key};
@@ -604,6 +615,21 @@ gles::Pipeline* PipelineCacheGles::get(const PsoKey& key, const PixelShaderKey& 
         }
     }
     if (program->second.failed || program->second.name == 0u) {
+        if (program->second.library_miss && uber_needed_) {
+            // Not in the GLSL library and no translator here: the uber shader draws it, every time.
+            if (gles::Pipeline* uber = uber_pipeline(key.render_state, ps_key)) {
+                if (library_misses_.fetch_add(1u) % 64u == 0u) {
+                    std::fprintf(stderr, "[glsl-library] %llu GX programs not in the library: drawn with the uber "
+                                 "shader (nopal nebula shaders adds them from gles_keys.bin)\n",
+                                 static_cast<unsigned long long>(library_misses_.load()));
+                }
+                missed_.insert(key);
+                ++uber_fallbacks_;
+                ultra::add(ultra::kUberDraws, 1u);
+                last_get_used_uber_ = true;
+                return uber;
+            }
+        }
         published_.emplace(key, nullptr);
         return nullptr;
     }

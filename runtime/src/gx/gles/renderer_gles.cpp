@@ -9,6 +9,8 @@
 #include "galaxy/content_viewport.h"
 #include "galaxy/experimental_ultrawide_aspect.h"
 #include "galaxy/gx/gles/shader_translate_gles.h"
+#include "galaxy/gx/gles/shader_library_gles.h"
+#include "galaxy/gx/gles/shader_sources_gles.h"
 #include "galaxy/gx/gx_state.h"
 #include "galaxy/gx/post_process_settings.h"
 #include "galaxy/gx/texture_cache.h"
@@ -459,12 +461,13 @@ GLuint RendererGles::build_utility_program(std::string_view vs_hlsl, std::string
     options.glsl_version = gles::glsl_version_for(gles::Context::get().caps().version_major,
                                                   gles::Context::get().caps().version_minor);
     std::string error;
-    const std::string vs = gles::translate(vs_hlsl, gles::Stage::Vertex, gles::ShaderKind::Utility, options, error);
+    // From the GLSL library (shader_library_gles.h); translated here only by a build with the translator.
+    const std::string vs = gles::shader_glsl(vs_hlsl, gles::Stage::Vertex, gles::ShaderKind::Utility, options, error);
     if (vs.empty()) {
         std::cerr << "[Renderer] " << what << " vertex shader: " << error << '\n';
         return 0u;
     }
-    const std::string ps = gles::translate(ps_hlsl, gles::Stage::Fragment, gles::ShaderKind::Utility, options, error);
+    const std::string ps = gles::shader_glsl(ps_hlsl, gles::Stage::Fragment, gles::ShaderKind::Utility, options, error);
     if (ps.empty()) {
         std::cerr << "[Renderer] " << what << " pixel shader: " << error << '\n';
         return 0u;
@@ -535,73 +538,17 @@ bool RendererGles::create_utility_programs() {
     const float shadows = env_float("GALAXY_GLES_SHADOWS", 0.0f, 0.0f, 1.0f);
     const float contrast = env_float("GALAXY_GLES_CONTRAST", 0.0f, -0.5f, 0.5f);
     const bool grade = shadows > 0.0f || contrast != 0.0f;
-    const auto build = [&](float strength, bool antialias, const char* what) -> GLuint {
-        std::string source(efb_conversion_shader_source());
-        const std::string tap = "tex_sample = srctex.SampleLevel(s_lin, sample_pos * inv, 0);";
-        const std::size_t at = source.find(tap);
-        if (at == std::string::npos) {
-            return 0u;
-        }
-        char value[32];
-        std::snprintf(value, sizeof(value), "%.3f", static_cast<double>(strength));
-        std::string filters = tap + R"HLSL(
-        {
-            const float4 nw = srctex.SampleLevel(s_lin, (sample_pos + float2(-0.5, -0.5)) * inv, 0);
-            const float4 ne = srctex.SampleLevel(s_lin, (sample_pos + float2( 0.5, -0.5)) * inv, 0);
-            const float4 sw = srctex.SampleLevel(s_lin, (sample_pos + float2(-0.5,  0.5)) * inv, 0);
-            const float4 se = srctex.SampleLevel(s_lin, (sample_pos + float2( 0.5,  0.5)) * inv, 0);
-            const float3 luma = float3(0.299, 0.587, 0.114);
-            const float l_nw = dot(nw.rgb, luma), l_ne = dot(ne.rgb, luma);
-            const float l_sw = dot(sw.rgb, luma), l_se = dot(se.rgb, luma);
-            const float l_m = dot(tex_sample.rgb, luma);
-            const float l_min = min(l_m, min(min(l_nw, l_ne), min(l_sw, l_se)));
-            const float l_max = max(l_m, max(max(l_nw, l_ne), max(l_sw, l_se)));
-            const bool edge = ANTIALIAS && (l_max - l_min) > max(1.0 / 32.0, l_max * 0.125);
-            [branch] if (edge) {
-                float2 dir = float2(-((l_nw + l_ne) - (l_sw + l_se)), (l_nw + l_sw) - (l_ne + l_se));
-                const float reduce = max((l_nw + l_ne + l_sw + l_se) * (0.25 / 8.0), 1.0 / 128.0);
-                dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), -4.0, 4.0);
-                const float3 a = 0.5 * (srctex.SampleLevel(s_lin, (sample_pos + dir * (1.0 / 3.0 - 0.5)) * inv, 0).rgb +
-                                        srctex.SampleLevel(s_lin, (sample_pos + dir * (2.0 / 3.0 - 0.5)) * inv, 0).rgb);
-                const float3 b = a * 0.5 + 0.25 * (srctex.SampleLevel(s_lin, (sample_pos - dir * 0.5) * inv, 0).rgb +
-                                                   srctex.SampleLevel(s_lin, (sample_pos + dir * 0.5) * inv, 0).rgb);
-                const float l_b = dot(b, luma);
-                tex_sample.rgb = (l_b < l_min || l_b > l_max) ? a : b;
-            } else {
-                const float3 lo = min(min(min(nw.rgb, ne.rgb), min(sw.rgb, se.rgb)), tex_sample.rgb);
-                const float3 hi = max(max(max(nw.rgb, ne.rgb), max(sw.rgb, se.rgb)), tex_sample.rgb);
-                const float3 blur = (nw.rgb + ne.rgb + sw.rgb + se.rgb) * 0.25;
-                tex_sample.rgb = clamp(tex_sample.rgb + STRENGTH * (tex_sample.rgb - blur), lo, hi);
-            }
-            [branch] if (GRADE) {
-                const float l = dot(tex_sample.rgb, luma);
-                float graded = l + SHADOWS * l * (1.0 - l) * (1.0 - l);
-                graded = saturate((graded - 0.5) * (1.0 + CONTRAST) + 0.5);
-                tex_sample.rgb = l > 1.0 / 1024.0 ? saturate(tex_sample.rgb * (graded / l))
-                                                  : saturate(tex_sample.rgb + (graded - l));
-            }
-        })HLSL";
-        const auto replace_all = [](std::string& text, const std::string& from, const std::string& to) {
-            for (std::size_t p = text.find(from); p != std::string::npos; p = text.find(from, p + to.size())) {
-                text.replace(p, from.size(), to);
-            }
-        };
-        replace_all(filters, "ANTIALIAS", antialias ? "true" : "false");
-        replace_all(filters, "STRENGTH", value);
-        char shadows_text[32], contrast_text[32];
-        std::snprintf(shadows_text, sizeof(shadows_text), "%.3f", static_cast<double>(shadows));
-        std::snprintf(contrast_text, sizeof(contrast_text), "%.3f", static_cast<double>(contrast));
-        replace_all(filters, "GRADE", grade ? "true" : "false");
-        replace_all(filters, "SHADOWS", shadows_text);
-        replace_all(filters, "CONTRAST", contrast_text);
-        source.replace(at, tap.size(), filters);
-        return build_utility_program(blit_vertex_shader_source(), source, what);
+    // One text for every setting: the values are uniforms (display_copy_hlsl), so the GLSL library has it.
+    const std::string filtered = gles::display_copy_hlsl();
+    const auto build = [&](float strength, bool antialias, std::array<float, 4>& values, const char* what) -> GLuint {
+        values = {strength, grade ? shadows : 0.0f, grade ? contrast : 0.0f, antialias ? 1.0f : 0.0f};
+        return filtered.empty() ? 0u : build_utility_program(blit_vertex_shader_source(), filtered, what);
     };
     if (conversion_program_ != 0u && (efb_divided() || !dynamic_levels_.empty()) && (sharpen > 0.0f || aa || grade)) {
-        xfb_program_ = build(sharpen, aa, "display copy (filtered)");
+        xfb_program_ = build(sharpen, aa, xfb_filter_, "display copy (filtered)");
     }
     if (conversion_program_ != 0u && (aa || grade) && (!efb_divided() || !dynamic_levels_.empty())) {
-        xfb_full_program_ = build(0.0f, aa, "display copy (filtered, 100 %)");
+        xfb_full_program_ = build(0.0f, aa, xfb_full_filter_, "display copy (filtered, 100 %)");
     }
     if (xfb_program_ != 0u || xfb_full_program_ != 0u) {
         std::fprintf(stderr, "[gles] display copy filtered: sharpen %.2f (reduced resolution), anti-aliasing %s, "
@@ -1503,7 +1450,16 @@ void RendererGles::conversion_draw(GLuint framebuffer, unsigned dest_w, unsigned
     glViewport(0, 0, static_cast<GLsizei>(dest_w), static_cast<GLsizei>(dest_h));
     utility_state();
     glUseProgram(conversion_override_ != 0u ? conversion_override_ : conversion_program_);
-    bind_utility_constants(constants.values.data(), sizeof(constants.values));
+    if (conversion_override_ != 0u && (conversion_override_ == xfb_program_ || conversion_override_ == xfb_full_program_)) {
+        // The display copy's filters: their values after the conversion's constants (display_copy_hlsl).
+        std::array<float, 20> values{};
+        std::copy(constants.values.begin(), constants.values.end(), values.begin());
+        const std::array<float, 4>& filter = conversion_override_ == xfb_program_ ? xfb_filter_ : xfb_full_filter_;
+        std::copy(filter.begin(), filter.end(), values.begin() + 16);
+        bind_utility_constants(values.data(), sizeof(values));
+    } else {
+        bind_utility_constants(constants.values.data(), sizeof(constants.values));
+    }
     const GLuint source = depth ? efb_depth_->name : efb_color_->name;
     // t0 with s0 (linear; point for depth, which OpenGL ES does not filter) at unit 0, with s1 (point) at unit 1.
     glActiveTexture(GL_TEXTURE0);

@@ -127,14 +127,6 @@ constexpr vk::RegisterBinding kUtilityBindings[] = {
 
 }  // namespace
 
-int glsl_version_for(int major, int minor) noexcept {
-    if (const char* force = std::getenv("GALAXY_GLES_GLSL")) {
-        if (std::strcmp(force, "310") == 0) return 310;
-        if (std::strcmp(force, "320") == 0) return 320;
-    }
-    return major > 3 || (major == 3 && minor >= 2) ? 320 : 310;
-}
-
 std::string prepare_hlsl(std::string_view hlsl, ShaderKind kind, const TranslateOptions& options) {
     std::string text(hlsl);
     if (kind != ShaderKind::Gx) {

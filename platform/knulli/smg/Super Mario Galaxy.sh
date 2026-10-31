@@ -168,6 +168,12 @@ echo "perfil: $NEBULA_PERFIL (frameskip $GALAXY_FRAMESKIP, peeks ${GALAXY_PEEK_M
 #   GALAXY_GLES_PENDING=wait|skip|uber  shaders nuevos: esperar (tirones la 1a vez), saltar el dibujo, o uber
 #   NEBULA_PAD_SCHEME=nintendo|xbox      A a la derecha (nintendo) o abajo (xbox)
 export NEBULA_DATA_DIR="$GAMEDIR/data"
+#   smg/shaders-gles.bin                 todos los shaders del juego ya en GLSL (hechos en la PC por armar.sh o
+#                                        `nopal nebula shaders`): Nebula se los da directo al driver de OpenGL, sin
+#                                        traducir nada en la consola. Uno que falte se dibuja con el shader generico (uber)
+if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
+  export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$GAMEDIR/shaders-gles.bin}"
+fi
 #   GALAXY_TEXTURE_COMPACT=exacto|16bits|no  texturas en la memoria de video en 8 o 16 bits cuando caben: exacto (por
 #                                        defecto) no cambia ni un texel (I4/I8 en 1 byte, IA4/IA8 y RGB565 en 2); 16bits
 #                                        tambien CMPR y RGB5A3 (pierden los bits mas bajos del color); no: todo en RGBA8.

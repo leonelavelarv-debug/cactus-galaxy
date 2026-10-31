@@ -14,38 +14,62 @@ set(NEBULA_GLSLANG_SOURCE_DIR "${NEBULA_DEPS}/glslang" CACHE PATH "glslang sourc
 set(NEBULA_SPIRV_CROSS_DIR "${NEBULA_DEPS}/SPIRV-Cross" CACHE PATH "SPIRV-Cross source")
 set(NEBULA_SDL2_PREFIX "" CACHE PATH "An SDL2 install (include/SDL2, lib/libSDL2-2.0.so) to build against")
 
-# glslang with its HLSL front end and the SPIR-V optimizer (the HLSL legalization needs it).
-set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
-set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
-set(ENABLE_OPT ON CACHE BOOL "" FORCE)
-set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
-set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
-set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
-set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
-add_subdirectory("${NEBULA_GLSLANG_SOURCE_DIR}" glslang EXCLUDE_FROM_ALL)
-file(GLOB glslang_spirv_headers "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.h" "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.hpp")
-file(COPY ${glslang_spirv_headers} DESTINATION "${CMAKE_BINARY_DIR}/glslang-include/glslang/SPIRV")
+# The HLSL translator (glslang + SPIRV-Cross, shader_translate_gles.h). OFF (the console's build: armar.sh) leaves it
+# out of the binary: every shader comes from the GLSL library made on the PC (shader_library_gles.h, nebula_glsl_aot).
+option(NEBULA_GLES_TRANSLATOR "Translate HLSL to GLSL at run time (glslang + SPIRV-Cross)" ON)
 
-# SPIRV-Cross, its GLSL back end only.
-add_library(nebula_spirv_cross STATIC
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_cfg.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross_parsed_ir.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_parser.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_glsl.cpp")
-target_include_directories(nebula_spirv_cross PUBLIC "${NEBULA_SPIRV_CROSS_DIR}")
-target_compile_definitions(nebula_spirv_cross PUBLIC SPIRV_CROSS_NAMESPACE_OVERRIDE=spirv_cross)
+# zlib (the GLSL library's blocks): its sources directly, as nebula-pak does.
+set(zlib_dir "${nebula_root}/third_party/archive/zlib")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/zlib")
+configure_file("${zlib_dir}/zconf.h.in" "${CMAKE_BINARY_DIR}/zlib/zconf.h" COPYONLY)
+add_library(nebula_zlib STATIC
+    ${zlib_dir}/adler32.c ${zlib_dir}/compress.c ${zlib_dir}/crc32.c ${zlib_dir}/deflate.c ${zlib_dir}/inffast.c
+    ${zlib_dir}/inflate.c ${zlib_dir}/inftrees.c ${zlib_dir}/trees.c ${zlib_dir}/uncompr.c ${zlib_dir}/zutil.c)
+target_include_directories(nebula_zlib PUBLIC "${CMAKE_BINARY_DIR}/zlib" "${zlib_dir}")
+target_compile_definitions(nebula_zlib PRIVATE HAVE_UNISTD_H PUBLIC Z_PREFIX)
+target_compile_options(nebula_zlib PRIVATE -w)
 
 add_library(nebula_gles_deps INTERFACE)
-target_include_directories(nebula_gles_deps INTERFACE
-    "${nebula_root}/third_party/khronos"
-    "${CMAKE_BINARY_DIR}/glslang-include" "${NEBULA_GLSLANG_SOURCE_DIR}"
-    "${NEBULA_GLSLANG_SOURCE_DIR}/External/spirv-tools/include")
+target_include_directories(nebula_gles_deps INTERFACE "${nebula_root}/third_party/khronos")
 target_compile_definitions(nebula_gles_deps INTERFACE NEBULA_GPU_GLES)
-target_link_libraries(nebula_gles_deps INTERFACE glslang SPIRV glslang-default-resource-limits SPIRV-Tools-opt
-    SPIRV-Tools-static nebula_spirv_cross)
+target_link_libraries(nebula_gles_deps INTERFACE nebula_zlib)
+
+if(NEBULA_GLES_TRANSLATOR)
+    # glslang with its HLSL front end and the SPIR-V optimizer (the HLSL legalization needs it).
+    set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+    set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
+    set(ENABLE_OPT ON CACHE BOOL "" FORCE)
+    set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+    set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+    set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${NEBULA_GLSLANG_SOURCE_DIR}" glslang EXCLUDE_FROM_ALL)
+    file(GLOB glslang_spirv_headers "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.h" "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.hpp")
+    file(COPY ${glslang_spirv_headers} DESTINATION "${CMAKE_BINARY_DIR}/glslang-include/glslang/SPIRV")
+
+    # SPIRV-Cross, its GLSL back end only.
+    add_library(nebula_spirv_cross STATIC
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_cfg.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross_parsed_ir.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_parser.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_glsl.cpp")
+    target_include_directories(nebula_spirv_cross PUBLIC "${NEBULA_SPIRV_CROSS_DIR}")
+    target_compile_definitions(nebula_spirv_cross PUBLIC SPIRV_CROSS_NAMESPACE_OVERRIDE=spirv_cross)
+
+    target_include_directories(nebula_gles_deps INTERFACE
+        "${CMAKE_BINARY_DIR}/glslang-include" "${NEBULA_GLSLANG_SOURCE_DIR}"
+        "${NEBULA_GLSLANG_SOURCE_DIR}/External/spirv-tools/include")
+    target_link_libraries(nebula_gles_deps INTERFACE glslang SPIRV glslang-default-resource-limits SPIRV-Tools-opt
+        SPIRV-Tools-static nebula_spirv_cross)
+    set(gles_translator_sources ${nebula_root}/runtime/src/gx/vk/shader_compile_vk.cpp
+        ${nebula_root}/runtime/src/gx/gles/shader_translate_gles.cpp)
+else()
+    target_compile_definitions(nebula_gles_deps INTERFACE NEBULA_GLES_NO_TRANSLATOR)
+    set(gles_translator_sources)
+endif()
 
 # Uber shader sources as NUL-terminated char arrays, as in the root build.
 set(galaxy_uber_embed_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/uber_shader_embed.cpp")
@@ -95,10 +119,11 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/frame_telemetry.cpp
     ${rt}/perf_hint.cpp
     ${rt}/gx/game_asset_extract.cpp
-    ${rt}/gx/vk/shader_compile_vk.cpp
+    ${gles_translator_sources}
+    ${rt}/gx/gles/shader_library_gles.cpp
+    ${rt}/gx/gles/shader_sources_gles.cpp
     ${rt}/gx/gles/gles_context.cpp
     ${rt}/gx/gles/gl_thread.cpp
-    ${rt}/gx/gles/shader_translate_gles.cpp
     ${rt}/gx/gles/texture_backend_gles.cpp
     ${rt}/gx/gles/pipeline_cache_gles.cpp
     ${rt}/gx/gles/renderer_gles.cpp
@@ -135,8 +160,15 @@ endif()
 
 # The shader translation against the live driver: every uber variant and the renderer's own shaders, translated and
 # linked (EGL, no window; GALAXY_GLES_TEST_DUMP=<dir> writes the GLSL).
-add_executable(nebula_gles_shader_tests "${CMAKE_CURRENT_SOURCE_DIR}/gles_shader_tests.cpp")
-target_link_libraries(nebula_gles_shader_tests PRIVATE galaxy_gx_gles)
+if(NEBULA_GLES_TRANSLATOR)
+    add_executable(nebula_gles_shader_tests "${CMAKE_CURRENT_SOURCE_DIR}/gles_shader_tests.cpp")
+    target_link_libraries(nebula_gles_shader_tests PRIVATE galaxy_gx_gles)
+
+    # The GLSL library (shader_library_gles.h), made on the PC: nebula_glsl_aot <out> <keys...> translates every shader
+    # the keys use, the uber shaders and the renderer's own, in each form a driver may need.
+    add_executable(nebula_glsl_aot "${CMAKE_CURRENT_SOURCE_DIR}/glsl_aot.cpp")
+    target_link_libraries(nebula_glsl_aot PRIVATE galaxy_gx_gles)
+endif()
 
 # ULTRA-GLES's profiler on made-up frames (no GL): GALAXY_ULTRA=bench GALAXY_ULTRA_DIR=<dir> nebula_ultra_gles_tests
 add_executable(nebula_ultra_gles_tests "${CMAKE_CURRENT_SOURCE_DIR}/ultra_gles_tests.cpp"
