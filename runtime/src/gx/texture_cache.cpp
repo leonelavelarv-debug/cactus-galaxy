@@ -48,7 +48,15 @@ namespace galaxy::gx {
 
 namespace {
 
+#if defined(NEBULA_GPU_GLES)
+// OpenGL ES: the upload chunks are heap memory, read by glTexSubImage (or copied into the GL thread's queue) when
+// the frame's textures are flushed. A small first chunk per slot; a frame that needs more (a galaxy's load) gets more
+// chunks, and begin_frame gives them back the next time that slot comes round. The RG35XX H has 1 GiB and no swap:
+// 16 MiB chunks kept for good after the loads were most of the heap that grew galaxy by galaxy.
+static constexpr std::uint64_t kUploadArenaChunkBytes = 4ull << 20;
+#else
 static constexpr std::uint64_t kUploadArenaChunkBytes = 16ull << 20;
+#endif
 static constexpr std::uint64_t kContentCacheBudgetBytes = 64ull << 20;
 static constexpr std::size_t kContentCacheMaxEntries = 4096u;
 
@@ -1379,8 +1387,16 @@ void TextureCache::begin_frame(
         }
     }
     retired.clear();
-    upload_arenas_[frame_slot].active_chunk = 0;
-    upload_arenas_[frame_slot].cursor = 0;
+    {
+        // This slot's last frame is GPU-idle (above): the chunks a big frame added go back, the first one stays.
+        UploadArenaFrame& arena = upload_arenas_[frame_slot];
+        while (arena.chunks.size() > 1u) {
+            TextureBackend::release_upload_chunk(arena.chunks.back());
+            arena.chunks.pop_back();
+        }
+        arena.active_chunk = 0;
+        arena.cursor = 0;
+    }
     current_frame_slot_ = frame_slot;
     if (pack_staging_.size() != frames_in_flight) {
         pack_staging_.resize(frames_in_flight);

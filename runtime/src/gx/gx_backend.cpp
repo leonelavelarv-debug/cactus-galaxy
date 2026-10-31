@@ -5490,14 +5490,15 @@ void GxBackend::log_memory_census() {
         line, sizeof(line),
         "[memoria] VmRSS %ld MiB (anonima %ld, archivos y GPU %ld; malloc %ld), libre %ld MiB, swap libre %ld MiB; "
         "listas %.1f + %.1f + %.1f MiB (dibujo, dependencias, eventos); "
-        "texturas decodificadas %.1f, contenido %.1f, reciclables %.1f MiB; vertices decodificados %.1f MiB, "
+        "texturas decodificadas %.1f, contenido %.1f, reciclables %.1f, subida %.1f MiB; vertices decodificados %.1f MiB, "
         "rangos inmutables %.1f MiB",
         rss_kib >= 0 ? rss_kib / 1024 : -1, anon_kib >= 0 ? anon_kib / 1024 : -1,
         file_kib >= 0 ? file_kib / 1024 : -1, heap_kib >= 0 ? heap_kib / 1024 : -1,
         available_kib >= 0 ? available_kib / 1024 : -1, swap_kib >= 0 ? swap_kib / 1024 : -1,
         mib(parser_.display_list_cache_bytes()), mib(dependency_parser_.display_list_cache_bytes()),
         mib(event_parser_.display_list_cache_bytes()), mib(textures.decoded_bytes), mib(textures.content_bytes),
-        mib(textures.pool_bytes), mib(decoded_packet_run_cache_bytes_), mib(immutable_range_cache_bytes_));
+        mib(textures.pool_bytes), mib(textures.upload_bytes), mib(decoded_packet_run_cache_bytes_),
+        mib(immutable_range_cache_bytes_));
 #if defined(NEBULA_GPU_GLES)
     if (used > 0 && static_cast<std::size_t>(used) < sizeof(line)) {
         std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used),

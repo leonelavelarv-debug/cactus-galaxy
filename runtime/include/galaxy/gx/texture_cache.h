@@ -235,9 +235,14 @@ public:
         std::uint64_t decoded_bytes = 0;
         std::uint64_t content_bytes = 0;
         std::uint64_t pool_bytes = 0;
+        std::uint64_t upload_bytes = 0;  // the upload arenas' chunks, every slot
     };
     [[nodiscard]] MemoryStats memory_stats() const noexcept {
-        return {decoded_resident_bytes_, content_bytes_, texture_pool_bytes_};
+        std::uint64_t upload = 0;
+        for (const UploadArenaFrame& frame : upload_arenas_) {
+            for (const TextureBackend::UploadChunk& chunk : frame.chunks) upload += chunk.size;
+        }
+        return {decoded_resident_bytes_, content_bytes_, texture_pool_bytes_, upload};
     }
 
     // Command list new-texture uploads are recorded on (CopyTextureRegion +

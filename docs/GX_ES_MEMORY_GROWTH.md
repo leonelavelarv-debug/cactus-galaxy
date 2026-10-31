@@ -258,6 +258,36 @@ de 48 MiB.
 - **`malloc_trim(0)` en cada línea `[memoria]`** (cada 60 s jugando, 30 en la serie). Devuelve al sistema las páginas
   libres del montón que glibc retiene después del pico de una carga. La línea dice cuántos MiB devolvió.
 
+### Display lists 24 y vértices 16, con `malloc_trim` (31-oct, sexto recorrido)
+
+**Murió al cargar la 29.ª galaxia** (PeachCastleFinalGalaxy, OOM; `anon-rss` 466 MiB).
+
+- **Igual de lento que con 16 y 16:** AstroGalaxy dio 4.8 FPS dibujados con 57.2 ms de CPU, y CannonFleet, Factory,
+  CosmosGarden y Ocean* siguieron lentos.
+  - El costo de CPU viene de la caché de vértices a 16 MiB, no de las display lists.
+- **`malloc_trim` devolvió poco:** 3-16 MiB cada vez. Lo que ocupa el montón está en uso; no es memoria libre que
+  glibc retiene.
+- **En OceanRingGalaxy, malloc subió de 280 a 379 MiB** en la carga.
+
+**La causa: los bloques de subida de texturas.**
+
+- `TextureCache` decodifica las texturas en bloques de subida por slot (`UploadArenaFrame`): 16 MiB de entrada por slot,
+  4 slots.
+- Un frame que sube más (la carga de una galaxia) agrega bloques de 16 MiB, y **esos bloques no se devolvían nunca**:
+  solo se volvía al primero.
+- En GLES son memoria del montón (`new[]`), así que cada carga grande dejaba ese slot más grande para siempre: hasta 4
+  veces el pico de una carga.
+
+**Corrección (`runtime/src/gx/texture_cache.cpp`):**
+
+- `begin_frame` de un slot devuelve los bloques que agregó su frame anterior y se queda con el primero. El slot ya está
+  libre de la GPU: el renderer esperó su fence.
+- En GLES el bloque de entrada es de 4 MiB, no 16. `glTexSubImage` lee el bloque (o el hilo de GL lo copia a su cola)
+  dentro del mismo frame, así que no hace falta más. Ahorra hasta 48 MiB fijos.
+- En D3D12 el bloque sigue de 16 MiB; solo cambia que los bloques de más vuelven.
+- La línea `[memoria]` trae ahora `subida`: lo que suman esos bloques.
+- Con eso, los vértices decodificados vuelven a 24 MiB (la velocidad de antes). Las display lists siguen en 24.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
