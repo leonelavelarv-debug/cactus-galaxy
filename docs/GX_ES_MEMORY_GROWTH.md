@@ -231,6 +231,33 @@ El ahorro esperado es de unos 40-50 MiB a la altura de la 21.ª galaxia. Las tex
 - **Con 1 GiB y sin swap, el margen es poco** para las cargas más pesadas. Si el kernel tiene zram, un swap comprimido
   en RAM daría margen sin escribir en la SD. Es un cambio del sistema, así que no se hace sin preguntar.
 
+### Con los límites de 16 MiB (31-oct, quinto recorrido)
+
+**Por primera vez, el recorrido terminó las 44 galaxias** (`tour: done`, estado 0, 1642 s). La memoria libre mínima fue
+de 48 MiB.
+
+- **Pero fue más lento:**
+  - en total, 27.5 FPS mostrados y 10.8 dibujados (antes, 33.4 y 12.9);
+  - la CPU del hilo de render, 18.0 ms por frame (antes, 10.8);
+  - las galaxias grandes, mucho peor: AstroGalaxy, 4.8 FPS dibujados con 56.9 ms de CPU (antes, 10.0 y 18.2);
+    CannonFleet, 8.7 (14.4); Factory, 8.8 (12.2).
+  - Con 16 MiB no caben las display lists o los vértices de esas galaxias, y se vuelven a convertir cada frame.
+- **Lo que crece es lo que pide malloc:** de 148 MiB al abrir a 290-355 MiB.
+  - La memoria anónima va de 164 a 430 MiB, y la de archivos y GPU, entre 260 y 330.
+  - No es una fuga: malloc sube en las cargas (FishTunnel +42, OceanRing +82) y baja después (OceanRing 355 →
+    PeachCastle 313).
+  - Las cachés medidas son solo 32 MiB de eso. El resto es memoria de trabajo de cada galaxia: texturas al decodificar,
+    lectura del disco, el driver.
+- **Al abrir, el lanzador anotó:** MemTotal 973 MiB, MemAvailable 693, sin swap, zram disponible en el kernel.
+  - Activar zram fue descartado: no se toca el sistema.
+
+**Siguiente ajuste (sin tocar el sistema):**
+
+- **Punto medio en las cachés:** display lists a 24 MiB (con 24 iba a la velocidad de antes) y vértices decodificados a
+  16 MiB.
+- **`malloc_trim(0)` en cada línea `[memoria]`** (cada 60 s jugando, 30 en la serie). Devuelve al sistema las páginas
+  libres del montón que glibc retiene después del pico de una carga. La línea dice cuántos MiB devolvió.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |

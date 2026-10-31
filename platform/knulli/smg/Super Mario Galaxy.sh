@@ -161,12 +161,12 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   #   GALAXY_GLES_PEEK_FIELD=25          esas lecturas a 160x132 (25 %): se copian de la GPU 20 veces menos bytes
   export GALAXY_GLES_PEEK_FIELD="${GALAXY_GLES_PEEK_FIELD:-25}"
-  #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=16 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=16  las display lists y los vertices ya
+  #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=24 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=16  las display lists y los vertices ya
   #                                      convertidos que se guardan entre frames. Con 192 y 64 la memoria se acababa hacia
-  #                                      la 13.a galaxia; con 32, en la 21.a; con 24, en la 28.a (31-oct,
-  #                                      docs/GX_ES_MEMORY_GROWTH.md).
+  #                                      la 13.a galaxia; con 32, en la 21.a; con 24, en la 28.a; con 16 y 16 llega
+  #                                      al final pero la CPU tarda mas (31-oct, docs/GX_ES_MEMORY_GROWTH.md).
   #                                      Lo que no cabe se vuelve a convertir (algo de CPU)
-  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-16}"
+  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-24}"
   export GALAXY_GX_DECODED_VERTEX_CACHE_MB="${GALAXY_GX_DECODED_VERTEX_CACHE_MB:-16}"
   #   GALAXY_EFB_COPY_DEST_BUDGET_MB=24  copias del EFB que se guardan (el pico medido: 10 MiB)
   export GALAXY_EFB_COPY_DEST_BUDGET_MB="${GALAXY_EFB_COPY_DEST_BUDGET_MB:-24}"

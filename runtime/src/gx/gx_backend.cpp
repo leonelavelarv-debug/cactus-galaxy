@@ -5511,6 +5511,18 @@ void GxBackend::log_memory_census() {
 #else
     (void)used;
 #endif
+#if defined(__GLIBC__)
+    // Return the heap's free pages to the system (glibc keeps them after a galaxy's load peak; with no swap on the
+    // RG35XX H the next load can then run out). A few ms on this thread every census period.
+    const long anon_before = anon_kib;
+    (void)malloc_trim(0);
+    const long anon_after = read_kib("/proc/self/status", "RssAnon:");
+    if (anon_before >= 0 && anon_after >= 0) {
+        const int length = static_cast<int>(std::strlen(line));
+        std::snprintf(line + length, sizeof(line) - static_cast<std::size_t>(length),
+                      "; malloc_trim: %ld MiB devueltos", std::max(0L, anon_before - anon_after) / 1024);
+    }
+#endif
     std::fprintf(stderr, "%s\n", line);
 }
 
