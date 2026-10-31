@@ -180,7 +180,7 @@ Todo el núcleo GX: `fifo_parser.cpp`, `gx_state.cpp`, `vertex_loader.cpp`, `sha
 
 ### 4.3 Qué debemos adaptar
 
-- La doble fuente: 241 de 977 pipelines mezclan con la alfa equivocada en GLES (deducido del código).
+- La doble fuente: 241 de 977 pipelines mezclan con la alfa equivocada en GLES (deducido del código). **Corrección del paso 2** ([GX_ES_BLEND_ANALYSIS.md](GX_ES_BLEND_ANALYSIS.md)): de los 241, solo 35 (`GXSetDstAlpha`) mezclan con la alfa constante; los otros 206 mezclan con la alfa del TEV recortada a 6 bits (error de 1-3 niveles). Resuelto con framebuffer fetch; falta la consola.
 - El LOD bias de los samplers, que hoy se ignora.
 - Las líneas anchas: 3 pipelines; la Mali tiene geometry shaders.
 - El tamaño de los anillos de subida: 160 MiB reservados frente a unos 4 MiB por frame usados en un menú.
@@ -196,7 +196,7 @@ Nada. El backend D3D12 y el Vulkan no se usan en la RG35XX H y se dejan como est
 Detalle en GX_ES_RISK_REGISTER.md.
 
 1. **(ALTO) Blending de doble fuente.** Sin `GL_EXT_blend_func_extended` en la Mali, el 24.7 % de los pipelines mezcla
-   con la alfa constante en vez de la del TEV.
+   con la alfa constante en vez de la del TEV. **Corrección del paso 2** ([GX_ES_BLEND_ANALYSIS.md](GX_ES_BLEND_ANALYSIS.md)): de los 241, solo 35 (`GXSetDstAlpha`) mezclan con la alfa constante; los otros 206 mezclan con la alfa del TEV recortada a 6 bits (error de 1-3 niveles). Resuelto con framebuffer fetch; falta la consola.
 2. **(ALTO, rendimiento) CPU del hilo de render.** 35.5 ms por frame (8.2 frames dibujados por segundo, 21 mostrados):
    lo que separa de 30 FPS.
 3. **(MEDIO) Memoria.** El juego deja 177 MiB libres como mínimo, de 973, y los anillos reservan 160 MiB.

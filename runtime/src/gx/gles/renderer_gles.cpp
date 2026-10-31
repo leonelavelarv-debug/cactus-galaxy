@@ -991,11 +991,18 @@ void RendererGles::report_stats() {
             return window_stats_.gpu_frames != 0u ? window_stats_.gpu_part_ms[part] / window_stats_.gpu_frames : 0.0;
         };
         std::string palette_note;
+        if (window_stats_.dual_draws != 0u) {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %.1f dual-source draws (%.1f blended in the shader)",
+                          static_cast<double>(window_stats_.dual_draws) / frames,
+                          static_cast<double>(window_stats_.fetch_blend_draws) / frames);
+            palette_note = note;
+        }
         if (gles::Context::get().caps().palette_texture_2d) {
             char note[64];
             std::snprintf(note, sizeof(note), "; %.1f palette uploads",
                           static_cast<double>(window_stats_.palette_uploads) / frames);
-            palette_note = note;
+            palette_note += note;
         }
         std::fprintf(stderr,
                      "[gles] %.1f frames/s; render thread %.1f ms/s (swap waits %.1f, frame-slot waits %.1f ms/s, readbacks %.1f ms/s); a frame: %.0f draws, "
@@ -1445,6 +1452,10 @@ void RendererGles::draw(const DrawCall& call) {
     }
     context.flush_writes();  // OpenGL ES 3.0 without EXT_buffer_storage: this draw's uploads reach the GPU
     window_stats_.vertices += call.index_count;
+    if (call.pipeline->dual_source) {
+        ++window_stats_.dual_draws;
+        window_stats_.fetch_blend_draws += call.pipeline->fetch_blend ? 1u : 0u;
+    }
     if (call.index_view.BufferLocation != 0u) {
         const gles::Context::BufferOffset indices = context.resolve(call.index_view.BufferLocation);
         if (indices.buffer != bound_.index_buffer) {

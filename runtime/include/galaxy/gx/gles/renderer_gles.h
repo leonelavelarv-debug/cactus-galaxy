@@ -68,6 +68,8 @@ struct Pipeline {
     bool write_alpha = true;
     GLenum cull = 0;  // 0: none, else GL_FRONT or GL_BACK
     bool uber = false;
+    bool dual_source = false;  // GX blends with the TEV's alpha (RenderStateKey bit 27)
+    bool fetch_blend = false;  // and the program does it with framebuffer fetch (blend is off)
 };
 
 // What PipelineCacheGles builds GX pipelines against (RendererGles::root_signature()).
@@ -217,6 +219,8 @@ public:
     void repeat_next_display_copy() noexcept { xfb_repeat_ = true; }
     // Tests: what the dynamic resolution does at a level change (the EFB rebuilt at `percent`, its picture kept).
     bool resize_efb_for_tests(unsigned percent) { return resize_efb(percent); }
+    // Tests read the EFB back whole (gles_blend_tests.cpp).
+    [[nodiscard]] GLuint efb_framebuffer_for_tests() const noexcept { return efb_framebuffer_; }
     [[nodiscard]] bool scene_temporal_begin(float&, float&) noexcept { return false; }
     [[nodiscard]] bool begin_motion_scene() noexcept { return false; }
     void record_motion_debug_view() noexcept {}
@@ -547,6 +551,8 @@ private:
         std::uint64_t peeks = 0;
         std::uint64_t pipeline_changes = 0;
         std::uint64_t palette_uploads = 0;  // OpenGL ES 3.0's 2D palette (bind_palette_2d)
+        std::uint64_t dual_draws = 0;        // draws whose GX blend reads the TEV's alpha (dual source)
+        std::uint64_t fetch_blend_draws = 0;  // of them, blended in the shader with framebuffer fetch
         std::uint64_t skipped_draws = 0;
         std::uint64_t sync_peeks = 0;
         std::uint64_t sync_fields = 0;

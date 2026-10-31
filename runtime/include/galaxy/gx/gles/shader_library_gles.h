@@ -52,6 +52,19 @@ struct LibraryStats {
 bool write_shader_library(const std::filesystem::path& file, std::vector<std::pair<std::uint64_t, std::string>> entries,
                           std::string& error);
 
+// Blending of GX's dual-source alpha in the fragment shader (docs/GX_ES_FRAMEBUFFER_FETCH.md). A pixel shader
+// of a key with flags bit 7 writes the EFB's colour at location 0 (its alpha: GXSetDstAlpha's constant, or the
+// TEV alpha at the RGBA6 EFB's 6 bits) and the 8-bit TEV alpha the blender reads at location 1. Without
+// GL_EXT_blend_func_extended (the Mali-G31's driver) the second output cannot reach the blender; with framebuffer
+// fetch the shader reads the EFB's colour and blends itself, the GX factors of `blend_bits` (RenderStateKey: source
+// factor bits 4-2, destination 7-5, constant alpha bit 28) baked in, exactly as D3D12 and Vulkan blend with
+// SRC1_ALPHA. The pipeline then draws with blending off (its write masks stay).
+enum class FramebufferFetch : std::uint8_t { None, Arm, Ext };  // GL_ARM_/GL_EXT_shader_framebuffer_fetch
+// The fetch form of such a pixel shader's GLSL (any version the library has), or empty with `error` set when the
+// GLSL does not have the two outputs it expects.
+[[nodiscard]] std::string fetch_blend_glsl(std::string_view ps_glsl, std::uint32_t blend_bits, FramebufferFetch fetch,
+                                           std::string& error);
+
 // Reading one (tests): the GLSL of every entry, by key.
 bool read_shader_library(const std::filesystem::path& file, std::vector<std::pair<std::uint64_t, std::string>>& out,
                          std::string& error);

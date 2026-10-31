@@ -198,6 +198,23 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
         std::filesystem::create_directories(shader_dump_dir_, error);
     }
     {
+        // Dual-source alpha: GL_EXT_blend_func_extended is not on the Mali-G31's driver (Nebula Probe 0.3), so the
+        // pipelines that blend with the TEV's alpha do it in the shader where the driver reads the framebuffer there.
+        // GALAXY_GLES_BLEND_FETCH=0 leaves them to fixed-function blending with location 0's alpha, as before.
+        const char* value = std::getenv("GALAXY_GLES_BLEND_FETCH");
+        const bool off = value != nullptr && value[0] == '0';
+        fetch_blend_ = off ? gles::FramebufferFetch::None
+            : caps.framebuffer_fetch_arm ? gles::FramebufferFetch::Arm
+            : caps.framebuffer_fetch_ext ? gles::FramebufferFetch::Ext
+                                         : gles::FramebufferFetch::None;
+        std::fprintf(stderr, "[gles-blend] dual-source alpha: %s\n",
+                     fetch_blend_ == gles::FramebufferFetch::Arm ? "blended in the shader (GL_ARM_shader_framebuffer_fetch)"
+                     : fetch_blend_ == gles::FramebufferFetch::Ext
+                         ? "blended in the shader (GL_EXT_shader_framebuffer_fetch)"
+                     : off ? "fixed-function blending with location 0's alpha (GALAXY_GLES_BLEND_FETCH=0)"
+                           : "fixed-function blending with location 0's alpha (the driver has no framebuffer fetch)");
+    }
+    {
         const char* value = std::getenv("GALAXY_GLES_PENDING");
         const std::string mode = value != nullptr ? value : "wait";
         pending_ = mode == "skip" ? Pending::Skip : mode == "uber" ? Pending::Uber : Pending::Wait;
@@ -297,7 +314,11 @@ void PipelineCacheGles::shutdown() {
 }
 
 PipelineCacheGles::PairKey PipelineCacheGles::pair_for(const PsoKey& key, bool points) const noexcept {
-    return PairKey{key.vs_hash, key.ps_hash, points ? 1u : 0u};
+    const std::uint32_t bb = key.render_state.blend_bits;
+    // RenderStateKey bit 27 (dual source) comes with blending on, no subtract (shader_keys.cpp needs_dual_src_alpha).
+    const bool fetch = fetch_blend_ != gles::FramebufferFetch::None && (bb & (1u << 27u)) != 0u && (bb & 3u) == 1u;
+    return PairKey{key.vs_hash, key.ps_hash, points ? 1u : 0u,
+                   fetch ? kFetchBlend | (bb & ((0x3Fu << 2u) | (1u << 28u))) : 0u};
 }
 
 std::filesystem::path PipelineCacheGles::binary_path(std::uint64_t hash) const {
@@ -422,6 +443,12 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
     if (translate_options_.glsl_version == 300) {
         hash = combine64(hash, 300u);  // the 2D palette's programs (3.10/3.20 keep the hashes they had)
     }
+    const std::uint64_t plain_hash = hash;
+    if (pair.blend != 0u) {
+        // The fetch form (and which extension it reads with): a binary of its own.
+        hash = combine64(hash, static_cast<std::uint64_t>(pair.blend) |
+                                   (static_cast<std::uint64_t>(fetch_blend_) << 32u));
+    }
     if (binaries_) {
         std::ifstream in(binary_path(hash), std::ios::binary);
         std::uint32_t magic = 0, format = 0, attributes = 0, length = 0;
@@ -434,6 +461,7 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
                 GLint ok = GL_FALSE;
                 glGetProgramiv(program, GL_LINK_STATUS, &ok);
                 if (ok == GL_TRUE) {
+                    const bool fetch = pair.blend != 0u;
                     std::uint32_t bindings_length = 0;
                     if (read_pod(in, bindings_length) && bindings_length != 0u && bindings_length < (1u << 16u)) {
                         std::string bindings(bindings_length, '\0');
@@ -442,7 +470,10 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
                         }
                     }
                     binary_loads_.fetch_add(1u, std::memory_order_relaxed);
-                    return Program{program, attributes, false};
+                    if (fetch) {
+                        fetch_programs_.fetch_add(1u, std::memory_order_relaxed);
+                    }
+                    return Program{program, attributes, false, false, fetch};
                 }
                 glDeleteProgram(program);
                 binary_failures_.fetch_add(1u, std::memory_order_relaxed);
@@ -458,17 +489,44 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
         failed.library_miss = !gles::translator_available();
         return failed;
     }
+    if (pair.blend != 0u) {
+        std::string error;
+        const std::string fetch_glsl = gles::fetch_blend_glsl(ps_glsl, pair.blend, fetch_blend_, error);
+        if (!fetch_glsl.empty()) {
+            if (!shader_dump_dir_.empty()) {
+                char name[48];
+                std::snprintf(name, sizeof(name), "%016llx.fetch.frag",
+                              static_cast<unsigned long long>(fnv1a64(fetch_glsl.data(), fetch_glsl.size())));
+                write_text(std::filesystem::path(shader_dump_dir_) / name, fetch_glsl);
+            }
+            Program program = link(vs_glsl, fetch_glsl, hash, "a fetch-blend GX program");
+            if (program.name != 0u) {
+                program.fetch_blend = true;
+                fetch_programs_.fetch_add(1u, std::memory_order_relaxed);
+                return program;
+            }
+            error = "the driver refused it";
+        }
+        // Not this one: drawn with fixed-function blending, as without framebuffer fetch.
+        if (fetch_failures_.fetch_add(1u, std::memory_order_relaxed) < 6u) {
+            std::fprintf(stderr, "[gles-blend] a dual-source program stays on fixed-function blending: %s\n",
+                         error.c_str());
+        }
+        return link(vs_glsl, ps_glsl, plain_hash, "a GX program");
+    }
     return link(vs_glsl, ps_glsl, hash, "a GX program");
 }
 
 
 std::unique_ptr<gles::Pipeline> PipelineCacheGles::make_pipeline(const RenderStateKey& rs, const Program& program,
-                                                                 bool, bool uber) {
+                                                                 bool dual_source, bool uber) {
     auto pipeline = std::make_unique<gles::Pipeline>();
     gles::Pipeline& p = *pipeline;
     p.program = program.name;
     p.attributes = program.attributes;
     p.uber = uber;
+    p.dual_source = dual_source && (rs.blend_bits & (1u << 27u)) != 0u;
+    p.fetch_blend = program.fetch_blend;
     p.topology = rs.primitive_topology == gpu::kTopologyTypePointValue ? GL_POINTS
         : rs.primitive_topology == gpu::kTopologyTypeLineValue        ? GL_LINES
                                                                        : GL_TRIANGLES;
@@ -522,6 +580,9 @@ std::unique_ptr<gles::Pipeline> PipelineCacheGles::make_pipeline(const RenderSta
             p.blend_op_alpha = GL_FUNC_ADD;
         }
     }
+    if (p.fetch_blend) {
+        p.blend = false;  // the program blends (gles::fetch_blend_glsl); the write masks stay
+    }
     return pipeline;
 }
 
@@ -537,7 +598,8 @@ gles::Pipeline* PipelineCacheGles::uber_pipeline(const RenderStateKey& rs, const
     if (const auto it = uber_pipelines_.find(id); it != uber_pipelines_.end()) {
         return it->second.get();
     }
-    std::unique_ptr<gles::Pipeline> pipeline = make_pipeline(state, program, false, true);
+    // Dual-source uber draws keep fixed-function blending (counted: RendererGles's dual-source draws).
+    std::unique_ptr<gles::Pipeline> pipeline = make_pipeline(state, program, (ps_key.flags & 0x80u) != 0u, true);
     gles::Pipeline* const raw = pipeline.get();
     uber_pipelines_.emplace(id, std::move(pipeline));
     return raw;

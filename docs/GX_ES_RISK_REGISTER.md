@@ -9,6 +9,8 @@ Commit `b73a2d86`. Las clases son las del pedido:
 
 Las fuentes de los datos son las de GX_ES_COMPATIBILITY.md: [código], [sonda], [ULTRA], [claves] y [PC].
 
+**Corrección del paso 2 a R-01** ([GX_ES_BLEND_ANALYSIS.md](GX_ES_BLEND_ANALYSIS.md)): de los 241, solo 35 (`GXSetDstAlpha`) mezclan con la alfa constante; los otros 206 mezclan con la alfa del TEV recortada a 6 bits (error de 1-3 niveles). Resuelto con framebuffer fetch; falta la consola. Prueba: `nebula_gles_blend_tests` (GX_ES_VISUAL_REGRESSION.md).
+
 No hay riesgos CRÍTICOS abiertos en la RG35XX H con KNULLI: el juego arranca y se juega (ULTRA del 23-oct, 0 errores de
 GL). Sí son críticos donde no se ha probado; ver R-09.
 

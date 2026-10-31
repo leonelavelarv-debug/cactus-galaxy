@@ -219,6 +219,18 @@ if(NEBULA_SDL2_PREFIX)
         "${nebula_root}/platform/sdl")
     target_link_libraries(nebula_gles_renderer_tests PRIVATE galaxy_gx_gles nebula_sdl2)
 
+    # GX blending with the TEV's alpha (dual source): plain, framebuffer fetch and the SRC1 reference, image by image
+    # (docs/GX_ES_VISUAL_REGRESSION.md).
+    add_executable(nebula_gles_blend_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/gles_blend_tests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/host_window_knulli.cpp"
+        "${nebula_root}/platform/sdl/display_clock.cpp")
+    target_include_directories(nebula_gles_blend_tests PRIVATE "${nebula_root}/native/include"
+        "${nebula_root}/platform/sdl")
+    target_link_libraries(nebula_gles_blend_tests PRIVATE galaxy_gx_gles nebula_sdl2)
+    # It also runs on the console (the step-2 test pack): only $ORIGIN, no build machine paths.
+    set_target_properties(nebula_gles_blend_tests PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "\$ORIGIN")
+
     # Compact textures (texture_compact.h): the choices and conversions, and each format through the backend.
     add_executable(nebula_texture_compact_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/texture_compact_tests.cpp"

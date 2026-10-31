@@ -174,6 +174,9 @@ export NEBULA_DATA_DIR="$GAMEDIR/data"
 if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
   export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$GAMEDIR/shaders-gles.bin}"
 fi
+#   GALAXY_GLES_BLEND_FETCH=0            (prueba) la mezcla de GX con la alfa del TEV en blending fijo, como antes del
+#                                        paso 2 (docs/GX_ES_FRAMEBUFFER_FETCH.md); por defecto el shader la hace con
+#                                        framebuffer fetch si el driver lo tiene
 #   GALAXY_GLES_FORCE_ES30=1             (prueba) solo lo de OpenGL ES 3.0 con el driver de 3.2: anillos copiados,
 #                                        paleta en textura 2D, GLSL ES 3.00 (docs/GX-ES.md)
 #   GALAXY_TEXTURE_COMPACT=exacto|16bits|no  texturas en la memoria de video en 8 o 16 bits cuando caben: exacto (por

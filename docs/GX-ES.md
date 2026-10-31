@@ -6,7 +6,8 @@ Auditoría del commit `f6676d56` (rama `rg35xxh-arm64`) contra el pedido de GX-E
 medido en la consola se dice.
 
 La auditoría completa del paso 1 (mapa de componentes, compatibilidad, riesgos, plan de migración y pruebas) está en
-[GX_ES_AUDIT.md](GX_ES_AUDIT.md) y los documentos que enlaza.
+[GX_ES_AUDIT.md](GX_ES_AUDIT.md) y los documentos que enlaza. El paso 2 (mezcla de doble fuente con framebuffer fetch):
+[GX_ES_STEP2_RESULTS.md](GX_ES_STEP2_RESULTS.md).
 
 ## Resultado de la auditoría
 

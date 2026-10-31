@@ -224,6 +224,127 @@ std::string bindings_of(std::string_view vs_glsl, std::string_view ps_glsl) {
     return out;
 }
 
+namespace {
+
+// The blend factor `f` (GX BlendFactor) of the colour equation in GLSL. Dual-source: the source alpha is the TEV's
+// (nb_tev), as SRC1_ALPHA. `source` picks the source slot's meaning of factors 2-3 (DSTCLR, INVDSTCLR) over the
+// destination slot's (SRCCLR, INVSRCCLR).
+const char* colour_factor(std::uint32_t f, bool source) {
+    switch (f & 7u) {
+    case 0: return "vec3(0.0)";
+    case 1: return "vec3(1.0)";
+    case 2: return source ? "nb_dst.rgb" : "nb_src.rgb";
+    case 3: return source ? "(vec3(1.0) - nb_dst.rgb)" : "(vec3(1.0) - nb_src.rgb)";
+    case 4: return "vec3(nb_tev)";
+    case 5: return "vec3(1.0 - nb_tev)";
+    case 6: return "vec3(nb_dst.a)";
+    default: return "vec3(1.0 - nb_dst.a)";
+    }
+}
+
+// The same factor in the alpha equation: colour factors take their alpha forms, and the source alpha is location 0's
+// (the pipelines' alpha factors are not swapped for SRC1: pipeline_cache_vk.cpp).
+const char* alpha_factor(std::uint32_t f, bool source) {
+    switch (f & 7u) {
+    case 0: return "0.0";
+    case 1: return "1.0";
+    case 2: return source ? "nb_dst.a" : "nb_src.a";
+    case 3: return source ? "(1.0 - nb_dst.a)" : "(1.0 - nb_src.a)";
+    case 4: return "nb_src.a";
+    case 5: return "(1.0 - nb_src.a)";
+    case 6: return "nb_dst.a";
+    default: return "(1.0 - nb_dst.a)";
+    }
+}
+
+// The fragment output declared at `location` ("layout(location = N) out [precision] vec4 NAME;"): its span and name.
+bool find_output(const std::string& text, unsigned location, std::size_t& begin, std::size_t& end, std::string& name) {
+    const std::string head = "layout(location = " + std::to_string(location) + ") out ";
+    begin = text.find(head);
+    if (begin == std::string::npos || text.find(head, begin + 1u) != std::string::npos) {
+        return false;
+    }
+    end = text.find(';', begin);
+    if (end == std::string::npos) {
+        return false;
+    }
+    const std::string declaration = text.substr(begin + head.size(), end - begin - head.size());
+    const std::size_t space = declaration.rfind(' ');
+    if (space == std::string::npos || declaration.find("vec4") == std::string::npos) {
+        return false;
+    }
+    name = declaration.substr(space + 1u);
+    end += 1u;
+    return !name.empty();
+}
+
+}  // namespace
+
+std::string fetch_blend_glsl(std::string_view ps_glsl, std::uint32_t blend_bits, FramebufferFetch fetch,
+                             std::string& error) {
+    if (fetch == FramebufferFetch::None) {
+        error = "no framebuffer fetch";
+        return {};
+    }
+    std::string text(ps_glsl);
+    std::size_t c0 = 0, c0_end = 0, c1 = 0, c1_end = 0;
+    std::string colour, tev;
+    if (!find_output(text, 0u, c0, c0_end, colour) || !find_output(text, 1u, c1, c1_end, tev)) {
+        error = "not a dual-source pixel shader (outputs at locations 0 and 1)";
+        return {};
+    }
+    // The two outputs become globals the new main reads after the shader's own (renamed) main.
+    if (c1 > c0) {
+        text.replace(c1, c1_end - c1, "highp vec4 " + tev + ";");
+        text.replace(c0, c0_end - c0, "highp vec4 " + colour + ";");
+    } else {
+        text.replace(c0, c0_end - c0, "highp vec4 " + colour + ";");
+        text.replace(c1, c1_end - c1, "highp vec4 " + tev + ";");
+    }
+    static constexpr std::string_view kMain = "void main()";
+    const std::size_t main_at = text.find(kMain);
+    if (main_at == std::string::npos || text.find(kMain, main_at + 1u) != std::string::npos ||
+        text.find("nb_main") != std::string::npos) {
+        error = "no single main()";
+        return {};
+    }
+    text.replace(main_at, kMain.size(), "void nb_main()");
+    const std::size_t version_end = text.find('\n');
+    if (text.compare(0, 9, "#version ") != 0 || version_end == std::string::npos) {
+        error = "no #version line";
+        return {};
+    }
+    const bool arm = fetch == FramebufferFetch::Arm;
+    text.insert(version_end + 1u, arm ? "#extension GL_ARM_shader_framebuffer_fetch : require\n"
+                                      : "#extension GL_EXT_shader_framebuffer_fetch : require\n");
+    const std::uint32_t src = (blend_bits >> 2u) & 7u;
+    const std::uint32_t dst = (blend_bits >> 5u) & 7u;
+    const bool constant_alpha = (blend_bits & (1u << 28u)) != 0u;
+    std::string blend;
+    blend += "\n// GX blending with the TEV's alpha (dual source), in the shader: GL_";
+    blend += arm ? "ARM" : "EXT";
+    blend += "_shader_framebuffer_fetch (nebula fetch-blend ";
+    blend += std::to_string(blend_bits & ((7u << 2u) | (7u << 5u) | (1u << 28u)));
+    blend += ")\n";
+    blend += arm ? "layout(location = 0) out highp vec4 nb_efb;\n" : "layout(location = 0) inout highp vec4 nb_efb;\n";
+    blend += "void main()\n{\n";
+    blend += arm ? "    highp vec4 nb_dst = gl_LastFragColorARM;\n" : "    highp vec4 nb_dst = nb_efb;\n";
+    blend += "    nb_main();\n";
+    blend += "    highp vec4 nb_src = clamp(" + colour + ", 0.0, 1.0);\n";
+    blend += "    highp float nb_tev = clamp(" + tev + ".a, 0.0, 1.0);\n";
+    blend += "    highp vec3 nb_rgb = clamp(nb_src.rgb * " + std::string(colour_factor(src, true)) + " + nb_dst.rgb * " +
+        colour_factor(dst, false) + ", 0.0, 1.0);\n";
+    if (constant_alpha) {
+        blend += "    highp float nb_a = nb_src.a;\n";
+    } else {
+        blend += "    highp float nb_a = clamp(nb_src.a * " + std::string(alpha_factor(src, true)) + " + nb_dst.a * " +
+            alpha_factor(dst, false) + ", 0.0, 1.0);\n";
+    }
+    blend += "    nb_efb = vec4(nb_rgb, nb_a);\n}\n";
+    text += blend;
+    return text;
+}
+
 #if defined(NEBULA_GLES_NO_TRANSLATOR)
 std::string translate(std::string_view, Stage, ShaderKind, const TranslateOptions&, std::string& error) {
     error = "this build has no HLSL translator (NEBULA_GLES_TRANSLATOR=OFF)";

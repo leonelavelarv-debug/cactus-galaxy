@@ -78,6 +78,9 @@ Pendiente en 3.0: nada del núcleo GX. La consola usa 3.2 y no pasa por ahí.
 | Compilación en paralelo | Contextos EGL compartidos en hilos, binarios del driver, biblioteca GLSL hecha en la PC | — | `GL_KHR_parallel_shader_compile` no existe; lo actual ya lo sustituye |
 | Z temprana con alpha test que descarta | `layout(early_fragment_tests)` en GLSL ES 3.10/3.20 | 28 programas con Z temprana y descarte, 2 de ellos con escritura de profundidad | Con 3.2 no hay diferencia; en 3.0, framebuffer fetch (GX-ES.md) |
 
+
+**Corrección del paso 2** ([GX_ES_BLEND_ANALYSIS.md](GX_ES_BLEND_ANALYSIS.md)): de los 241, solo 35 (`GXSetDstAlpha`) mezclan con la alfa constante; los otros 206 mezclan con la alfa del TEV recortada a 6 bits (error de 1-3 niveles). Resuelto con framebuffer fetch; falta la consola.
+
 ## E. Operaciones con riesgo de precisión
 
 | Operación | Cómo está [código] | Riesgo |
@@ -85,7 +88,7 @@ Pendiente en 3.0: nada del núcleo GX. La consola usa 3.2 y no pasa por ahí.
 | Aritmética del TEV | Floats con cada etapa redondeada a la malla de 8 bits antes de comparaciones y alpha test, y registros como `int4` (`shader_gen.cpp`) | Bajo: la Mali da highp en fragment (23 bits de mantisa) [sonda]; los enteros del TEV caben |
 | Profundidad | EFB `GL_DEPTH_COMPONENT32F` con Z invertida; los peeks devuelven el z24 escrito (prueba `nebula_gles_renderer_tests`) [PC] | Medio: `z = 2z - w` (`fixup_clipspace`) cambia la proyección respecto de D3D12, y puede cambiar qué superficie gana en un empate de Z (z-fighting en calcomanías). No medido |
 | Formato del EFB | Siempre RGBA8; RGBA6 (973 de 977 pipelines usan `pixfmt` 1, RGBA6_Z24) y RGB8 se cuantizan en el shader, con dither | Bajo: emulado igual que en D3D12 (mismo HLSL) |
-| Alfa de doble fuente | Ver D | **Alto**: error de mezcla en el 24.7 % de los pipelines |
+| Alfa de doble fuente | Ver D | **Alto** en 35 pipelines (alfa constante en vez de la del TEV: hasta 199 niveles medido); bajo en 206 (alfa de 6 bits: hasta 3 niveles). Paso 2: GX_ES_BLEND_ANALYSIS.md |
 | LOD bias | Se ignora | Medio: puede cambiar qué mip se elige (texturas más borrosas o más nítidas que en el Wii). No medido |
 | Texturas compactas | `exacto` no cambia ningún texel (pruebas `nebula_texture_compact_tests`); `16bits` pierde los bits bajos de CMPR y RGB5A3 | Bajo con `exacto` (por defecto) |
 | Copias EFB a textura | Siempre RGBA8; el formato de destino (R4, RA8, Z24…) se aplica en el shader de conversión | Bajo: mismo shader que D3D12 |
