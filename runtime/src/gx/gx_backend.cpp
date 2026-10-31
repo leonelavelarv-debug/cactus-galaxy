@@ -71,6 +71,9 @@
 #include <unordered_set>
 #include <vector>
 
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #if defined(NEBULA_GPU_GLES)
 #include "galaxy/gx/gles/gles_context.h"
 #include "galaxy/gx/gles/ultra_gles.h"
@@ -5461,15 +5464,37 @@ void GxBackend::log_memory_census() {
     };
     rss_kib = read_kib("/proc/self/status", "VmRSS:");
     available_kib = read_kib("/proc/meminfo", "MemAvailable:");
+    // VmRSS split: anonymous (the heap, guest memory, caches), file (on the Mali also the GPU's mappings), shmem.
+    const long anon_kib = read_kib("/proc/self/status", "RssAnon:");
+    const long file_kib = read_kib("/proc/self/status", "RssFile:");
+    const long swap_kib = read_kib("/proc/meminfo", "SwapFree:");
+    long heap_kib = -1;
+#if defined(__GLIBC__)
+    {
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+        const struct mallinfo heap = mallinfo();  // glibc 2.27 on the console: no mallinfo2
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        heap_kib = (static_cast<long>(static_cast<unsigned>(heap.uordblks)) +
+                    static_cast<long>(static_cast<unsigned>(heap.hblkhd))) / 1024;
+    }
+#endif
     const auto mib = [](std::uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
     const TextureCache::MemoryStats textures = texture_cache_.memory_stats();
-    char line[640];
+    char line[768];
     int used = std::snprintf(
         line, sizeof(line),
-        "[memoria] VmRSS %ld MiB, libre %ld MiB; listas %.1f + %.1f + %.1f MiB (dibujo, dependencias, eventos); "
+        "[memoria] VmRSS %ld MiB (anonima %ld, archivos y GPU %ld; malloc %ld), libre %ld MiB, swap libre %ld MiB; "
+        "listas %.1f + %.1f + %.1f MiB (dibujo, dependencias, eventos); "
         "texturas decodificadas %.1f, contenido %.1f, reciclables %.1f MiB; vertices decodificados %.1f MiB, "
         "rangos inmutables %.1f MiB",
-        rss_kib >= 0 ? rss_kib / 1024 : -1, available_kib >= 0 ? available_kib / 1024 : -1,
+        rss_kib >= 0 ? rss_kib / 1024 : -1, anon_kib >= 0 ? anon_kib / 1024 : -1,
+        file_kib >= 0 ? file_kib / 1024 : -1, heap_kib >= 0 ? heap_kib / 1024 : -1,
+        available_kib >= 0 ? available_kib / 1024 : -1, swap_kib >= 0 ? swap_kib / 1024 : -1,
         mib(parser_.display_list_cache_bytes()), mib(dependency_parser_.display_list_cache_bytes()),
         mib(event_parser_.display_list_cache_bytes()), mib(textures.decoded_bytes), mib(textures.content_bytes),
         mib(textures.pool_bytes), mib(decoded_packet_run_cache_bytes_), mib(immutable_range_cache_bytes_));

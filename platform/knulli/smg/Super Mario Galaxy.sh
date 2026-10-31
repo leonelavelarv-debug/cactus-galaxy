@@ -37,6 +37,9 @@ $ESUDO chmod +x "$GAMEDIR/nebula" 2>/dev/null || chmod +x "$GAMEDIR/nebula"
 echo "firmware: ${CFW_NAME:-?} | consola: ${DEVICE_NAME:-?} (${soc:-soc ?}) | salir: $NEBULA_QUIT_COMBO + START | botones: $NEBULA_FACE_LAYOUT"
 case "${ANALOG_STICKS:-2}" in 0|1) echo "aviso: esta consola tiene ${ANALOG_STICKS} stick(s); el juego necesita dos sticks y cruceta" ;; esac
 echo "nebula: $(md5sum "$GAMEDIR/nebula" | cut -c1-12) del $(date -r "$GAMEDIR/nebula" '+%F %T' 2>/dev/null)"
+# La memoria al abrir: la del sistema, el swap activo y si el kernel tiene zram (docs/GX_ES_MEMORY_GROWTH.md).
+echo "memoria al abrir: $(grep -E 'MemTotal|MemAvailable|SwapTotal' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+echo "swap: $(tail -n +2 /proc/swaps 2>/dev/null | awk '{printf "%s %s KiB; ", $1, $3}')zram: $( { [ -e /sys/class/zram-control ] || [ -e /sys/block/zram0 ] || grep -qw zram /proc/modules 2>/dev/null || modinfo zram >/dev/null 2>&1; } && echo disponible || echo no)"
 # Cactus Galaxy Wrapper (smg/cactus-galaxy-wrapper, dentro del port) se abre la primera vez: sin game.pak pide el
 # disco (ISO, RVZ, WIA, WBFS, GCZ o CISO en smg/gamedata/ o roms/wii/; lo detecta en cuanto se copia), pregunta el
 # idioma y lo convierte con smg/nebula-pak (nativo: sin Termux ni otro equipo); con game.pak, ofrece los idiomas del
@@ -158,13 +161,15 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   #   GALAXY_GLES_PEEK_FIELD=25          esas lecturas a 160x132 (25 %): se copian de la GPU 20 veces menos bytes
   export GALAXY_GLES_PEEK_FIELD="${GALAXY_GLES_PEEK_FIELD:-25}"
-  #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=24 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=24  las display lists y los vertices ya
+  #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=16 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=16  las display lists y los vertices ya
   #                                      convertidos que se guardan entre frames. Con 192 y 64 la memoria se acababa hacia
-  #                                      la 13.a galaxia; con 32 y 32, en la 21.a (31-oct, docs/GX_ES_MEMORY_GROWTH.md).
+  #                                      la 13.a galaxia; con 32, en la 21.a; con 24, en la 28.a (31-oct,
+  #                                      docs/GX_ES_MEMORY_GROWTH.md).
   #                                      Lo que no cabe se vuelve a convertir (algo de CPU)
-  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-24}"
-  export GALAXY_GX_DECODED_VERTEX_CACHE_MB="${GALAXY_GX_DECODED_VERTEX_CACHE_MB:-24}"
-  export GALAXY_EFB_COPY_DEST_BUDGET_MB="${GALAXY_EFB_COPY_DEST_BUDGET_MB:-64}"
+  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-16}"
+  export GALAXY_GX_DECODED_VERTEX_CACHE_MB="${GALAXY_GX_DECODED_VERTEX_CACHE_MB:-16}"
+  #   GALAXY_EFB_COPY_DEST_BUDGET_MB=24  copias del EFB que se guardan (el pico medido: 10 MiB)
+  export GALAXY_EFB_COPY_DEST_BUDGET_MB="${GALAXY_EFB_COPY_DEST_BUDGET_MB:-24}"
   #   GALAXY_TEXTURE_POOL_MB=8           texturas ya liberadas que se guardan para reusar (crecia a 27 MiB de 128)
   export GALAXY_TEXTURE_POOL_MB="${GALAXY_TEXTURE_POOL_MB:-8}"
   export GALAXY_DISC_PREFETCH_BYTES="${GALAXY_DISC_PREFETCH_BYTES:-2097152}"

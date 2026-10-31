@@ -193,6 +193,44 @@ Killed process 1149 … anon-rss:435232kB, file-rss:305684kB, shmem-rss:16688kB
 
 El ahorro esperado es de unos 40-50 MiB a la altura de la 21.ª galaxia. Las texturas que el juego usa no se tocan.
 
+### Con los límites de 24 MiB (31-oct, cuarto recorrido)
+
+**Llegó a la 28.ª galaxia, OceanRingGalaxy (antes 21.ª).** Murió al cargarla, otra vez por falta de memoria:
+`anon-rss:481388kB, file-rss:262436kB, shmem-rss:16772kB`.
+
+- **Las cachés ya no crecen:**
+
+  | Caché | Uso |
+  |---|---|
+  | Display lists | ≤ 24 MiB |
+  | Vértices decodificados | ≤ 24 MiB |
+  | Texturas recicladas | ≤ 6 MiB |
+  | Texturas de GL | 40-53 MiB |
+  | Buffers de GL | 164 MiB |
+
+- **La memoria libre** se mantuvo en 65-82 MiB desde la 12.ª galaxia, con un mínimo de 45. La carga de OceanRingGalaxy
+  pidió más.
+- **Lo que no miden las cachés** (VmRSS menos cachés, texturas y buffers) pasa de 285 MiB al empezar a ~460, y desde
+  la 12.ª galaxia queda en 445-480.
+  - La memoria del juego (88 MiB) se va ocupando, y el resto lo pide el driver o el programa.
+  - Para separarlo, la línea `[memoria]` trae ahora la memoria anónima, la de archivos y GPU, lo que tiene malloc y el
+    swap libre.
+- **FPS:** 33.4 mostrados y 12.9 dibujados en 28 galaxias. Las primeras 6 siguen igual que en la segunda serie.
+- **El anillo de vértices de 24 MiB** siguió en otro slot 50 veces, en 5 de 155 ventanas de estadísticas. El pico pasó
+  de 20 MiB en 8 ventanas.
+
+**Siguiente ajuste:**
+
+| Ajuste | Antes | Ahora |
+|---|---|---|
+| Display lists | 24 | 16 |
+| Vértices decodificados | 24 | 16 (también −8 MiB del buffer residente) |
+| `GALAXY_EFB_COPY_DEST_BUDGET_MB` | 64 | 24 (el pico medido: 10 MiB) |
+
+- El lanzador también anota al abrir la memoria del sistema, el swap activo y si el kernel tiene zram.
+- **Con 1 GiB y sin swap, el margen es poco** para las cargas más pesadas. Si el kernel tiene zram, un swap comprimido
+  en RAM daría margen sin escribir en la SD. Es un cambio del sistema, así que no se hace sin preguntar.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
