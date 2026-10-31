@@ -5,6 +5,9 @@ Auditoría del commit `f6676d56` (rama `rg35xxh-arm64`) contra el pedido de GX-E
 [RG35XXH.md](RG35XXH.md). Lo que se afirma aquí sale del código y de mediciones hechas en la consola; lo que no se ha
 medido en la consola se dice.
 
+La auditoría completa del paso 1 (mapa de componentes, compatibilidad, riesgos, plan de migración y pruebas) está en
+[GX_ES_AUDIT.md](GX_ES_AUDIT.md) y los documentos que enlaza.
+
 ## Resultado de la auditoría
 
 GX-ES no hay que crearlo desde cero: Nebula ya tiene un backend OpenGL ES que corre Super Mario Galaxy en la RG35XX H
