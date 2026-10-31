@@ -158,7 +158,12 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   #   GALAXY_GLES_PEEK_FIELD=25          esas lecturas a 160x132 (25 %): se copian de la GPU 20 veces menos bytes
   export GALAXY_GLES_PEEK_FIELD="${GALAXY_GLES_PEEK_FIELD:-25}"
-  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-192}"
+  #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=32 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=32  las display lists y los vertices ya
+  #                                      convertidos que se guardan entre frames. Con 192 y 64 la memoria se acababa hacia
+  #                                      la 13.a galaxia (31-oct: 42 y 58 MiB usados, 32 MiB libres, el sistema se trababa;
+  #                                      docs/GX_ES_MEMORY_GROWTH.md). Lo que no cabe se vuelve a convertir (algo de CPU)
+  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-32}"
+  export GALAXY_GX_DECODED_VERTEX_CACHE_MB="${GALAXY_GX_DECODED_VERTEX_CACHE_MB:-32}"
   export GALAXY_EFB_COPY_DEST_BUDGET_MB="${GALAXY_EFB_COPY_DEST_BUDGET_MB:-64}"
   export GALAXY_TEXTURE_POOL_MB="${GALAXY_TEXTURE_POOL_MB:-128}"
   export GALAXY_DISC_PREFETCH_BYTES="${GALAXY_DISC_PREFETCH_BYTES:-2097152}"
@@ -209,6 +214,9 @@ export GALAXY_GLES_PENDING="${GALAXY_GLES_PENDING:-uber}"
 #                                        (ponlo en smg/ultra.cfg si algo se ve mal con el hilo).
 export GALAXY_GLES_THREAD="${GALAXY_GLES_THREAD:-1}"
 #   GALAXY_GLES_RING_INDEX_MB/MATRIX_MB  memoria por frame en vuelo para indices y matrices (el pico medido: <1 MiB)
+#   GALAXY_GLES_RING_VERTEX_MB=24        y para vertices (el pico al jugar: 17-21 MiB; un frame que pasa, como la
+#                                        carga de CosmosGardenGalaxy, sigue en el espacio de otro frame en vuelo)
+export GALAXY_GLES_RING_VERTEX_MB="${GALAXY_GLES_RING_VERTEX_MB:-24}"
 export GALAXY_GLES_RING_INDEX_MB="${GALAXY_GLES_RING_INDEX_MB:-3}"
 export GALAXY_GLES_RING_MATRIX_MB="${GALAXY_GLES_RING_MATRIX_MB:-3}"
 #   GALAXY_GLES_RESOLUTION=100           resolucion interna: 100 = 640x528 (alta definicion, la del Wii); 75 = 480x396;

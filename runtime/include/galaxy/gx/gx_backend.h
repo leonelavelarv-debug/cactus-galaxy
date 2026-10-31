@@ -1732,8 +1732,11 @@ private:
         bool regions_disjoint_sorted = false) noexcept;
     void prune_decoded_packet_run_cache();
 
+    // The decoded vertices' budget, and the resident buffer's size with it: GALAXY_GX_DECODED_VERTEX_CACHE_MB
+    // (64 by default; the RG35XX H launcher gives 32: its memory runs out after a dozen galaxies).
     static constexpr std::size_t kDecodedPacketRunCacheMaxBytes =
         64u * 1024u * 1024u;
+    [[nodiscard]] static std::size_t decoded_packet_run_cache_max_bytes();
     static constexpr std::size_t kDecodedPacketRunCacheMaxEntryBytes =
         8u * 1024u * 1024u;
     std::unordered_map<
@@ -1746,9 +1749,9 @@ private:
     // GPU-resident decoded vertices (render thread only). One persistently
     // mapped UPLOAD buffer, created lazily per device; see
     // resident_vertex_arena.h for the block retirement rule.
-    static constexpr std::uint32_t kResidentDecodedVertexCapacity =
-        static_cast<std::uint32_t>(
-            kDecodedPacketRunCacheMaxBytes / sizeof(GxVertexOut));
+    [[nodiscard]] static std::uint32_t resident_decoded_vertex_capacity() {
+        return static_cast<std::uint32_t>(decoded_packet_run_cache_max_bytes() / sizeof(GxVertexOut));
+    }
     ResidentVertexArena resident_vertices_;
     UploadBuffer resident_vertex_buffer_;
     std::byte* resident_vertex_mapped_ = nullptr;

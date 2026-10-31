@@ -104,6 +104,52 @@ Todo en MiB.
   o la memoria del juego.
 - Con 7 galaxias no alcanza para saber qué sigue creciendo. Hace falta el recorrido completo.
 
+### El recorrido completo (31-oct, con la corrección del lote)
+
+**El cierre de CosmosGardenGalaxy está resuelto.** El anillo siguió en otro slot (`it continues in slot 0`) y el
+recorrido pasó a la 8.ª galaxia y siguió hasta la 13.ª, FishTunnelGalaxy.
+
+**Ahí se acabó la memoria.**
+
+- A los 385 s entró a FishTunnelGalaxy con 33 MiB libres.
+- Desde los ~430 s el sistema quedó trabado:
+  - el hilo de render hacía 0.3 ms por frame y la GPU estaba al 0-2 %;
+  - el audio casi no avanzaba (de 23 857 a 23 885 frames de jaudio en 5 s);
+  - sin memoria libre, el kernel saca de la RAM el código y los archivos en uso y los vuelve a leer de la SD.
+- A los 568 s una espera a la GPU pasó los 10 s y el juego se detuvo: `frame-specific GPU completion wait timed out`.
+
+| Galaxia | VmRSS | Libre | Display lists | Vértices decodificados | Texturas de GL | Buffers de GL |
+|---|---|---|---|---|---|---|
+| Al empezar | 499 | 323 | 0.2 | 0.4 | 10.8 | 224 |
+| 7.ª | 685 | 131 | 18.6 | 43.2 | 35.0 | 224 |
+| 8.ª | 717 | 65 | 30.6 | 49.9 | 39.8 | 224 |
+| 12.ª | 721 | 51 | 29.7 | 41.6 | 41.4 | 224 |
+| 13.ª | 734 | 33 | 42.4 | 53.9 | 51.0 | 224 |
+| Trabado | 729 | 32 | 42.0 | 58.3 | 54.8 | 224 |
+
+Todo en MiB. Las texturas de GL incluyen las decodificadas (28) y las reciclables (10).
+
+- **Lo que crece y se puede limitar sin perder imagen:**
+  - las display lists, hasta 42 MiB de un presupuesto de 192;
+  - los vértices decodificados, hasta 58 de 64, más su buffer residente de 64 MiB, fijo, dentro de los 224.
+- **Las texturas** (55 MiB) son lo que el juego usa. No se tocan.
+- **Lo que no miden las cachés** creció unos 85 MiB y se estabiliza hacia la 8.ª galaxia: driver, montón y memoria
+  del juego.
+
+### Los límites nuevos (lanzador de la RG35XX H)
+
+| Ajuste | Antes | Ahora | Ahorro esperado |
+|---|---|---|---|
+| `GALAXY_GX_DISPLAY_LIST_CACHE_MB` | 192 | 32 | ~10 MiB a la 13.ª galaxia, más después |
+| `GALAXY_GX_DECODED_VERTEX_CACHE_MB` (nuevo) | 64 (fijo) | 32 | ~26 MiB de vértices + 32 MiB del buffer residente |
+| `GALAXY_GLES_RING_VERTEX_MB` | 28 | 24 | 16 MiB de anillo. El pico al jugar es de 17-21 MiB; los frames de carga que pasan (26.8 y 32.4 MiB, 2 de 74 ventanas) siguen en otro slot |
+
+- `GALAXY_GX_DECODED_VERTEX_CACHE_MB` es código nuevo en `gx_backend`:
+  `decoded_packet_run_cache_max_bytes()` lo lee una vez (entre 4 y 1024; si no, 64). Fija el presupuesto de la caché
+  y el tamaño del buffer residente (`resident_decoded_vertex_capacity()`).
+- **Costo:** lo que no quepa se vuelve a convertir en la CPU. Lo dirá la comparación de FPS de las primeras 6 galaxias
+  con las series anteriores (fetch: 34.6 mostrados, 14.0 dibujados).
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |

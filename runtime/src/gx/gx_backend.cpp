@@ -5394,7 +5394,7 @@ bool GxBackend::ensure_resident_vertex_buffer() {
     release_resident_vertex_buffer();
     resident_vertex_device_ = device;
     UploadBuffer buffer = renderer_.create_upload_buffer(
-        static_cast<std::size_t>(kResidentDecodedVertexCapacity) * sizeof(GxVertexOut),
+        static_cast<std::size_t>(resident_decoded_vertex_capacity()) * sizeof(GxVertexOut),
         "GX resident decoded vertices");
     if (!buffer) {
         // Not fatal: every hit keeps using the per-frame ring upload.
@@ -5406,9 +5406,9 @@ bool GxBackend::ensure_resident_vertex_buffer() {
     resident_vertex_mapped_ = buffer.cpu;
     resident_vertex_gpu_ = buffer.gpu;
     resident_vertex_buffer_ = std::move(buffer);
-    resident_vertices_.reset(kResidentDecodedVertexCapacity, kFramesInFlight);
+    resident_vertices_.reset(resident_decoded_vertex_capacity(), kFramesInFlight);
     renderer_.set_resident_vertices(resident_vertex_gpu_,
-                                    static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) *
+                                    static_cast<std::uint64_t>(resident_decoded_vertex_capacity()) *
                                         sizeof(GxVertexOut));
     return true;
 }
@@ -5551,8 +5551,24 @@ bool GxBackend::make_decoded_entry_resident(DecodedPacketRunCacheEntry& entry) {
     return true;
 }
 
+std::size_t GxBackend::decoded_packet_run_cache_max_bytes() {
+    static const std::size_t bytes = [] {
+        char value[16]{};
+        std::size_t length = 0;
+        if (getenv_s(&length, value, sizeof(value), "GALAXY_GX_DECODED_VERTEX_CACHE_MB") != 0 || length <= 1u) {
+            return kDecodedPacketRunCacheMaxBytes;
+        }
+        const long megabytes = std::strtol(value, nullptr, 10);
+        if (megabytes < 4 || megabytes > 1024) {
+            return kDecodedPacketRunCacheMaxBytes;
+        }
+        return static_cast<std::size_t>(megabytes) << 20u;
+    }();
+    return bytes;
+}
+
 void GxBackend::prune_decoded_packet_run_cache() {
-    if (decoded_packet_run_cache_bytes_ <= kDecodedPacketRunCacheMaxBytes ||
+    if (decoded_packet_run_cache_bytes_ <= decoded_packet_run_cache_max_bytes() ||
         decoded_packet_run_cache_.empty()) {
         return;
     }
@@ -5575,7 +5591,7 @@ void GxBackend::prune_decoded_packet_run_cache() {
         });
 
     for (const PruneCandidate& candidate : candidates) {
-        if (decoded_packet_run_cache_bytes_ <= kDecodedPacketRunCacheMaxBytes) {
+        if (decoded_packet_run_cache_bytes_ <= decoded_packet_run_cache_max_bytes()) {
             break;
         }
         const auto it = decoded_packet_run_cache_.find(candidate.key);
@@ -7662,7 +7678,7 @@ void GxBackend::sample_debake_model(std::uint64_t key, const DrawCall& call) {
     const std::uint32_t bytes = call.vertex_view.SizeInBytes;
     const std::byte* vertices = nullptr;
     const std::uint64_t resident_bytes =
-        static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) * sizeof(GxVertexOut);
+        static_cast<std::uint64_t>(resident_decoded_vertex_capacity()) * sizeof(GxVertexOut);
     if (resident_vertex_mapped_ != nullptr && va >= resident_vertex_gpu_ && va + bytes <= resident_vertex_gpu_ + resident_bytes) {
         vertices = resident_vertex_mapped_ + (va - resident_vertex_gpu_);
     } else {
