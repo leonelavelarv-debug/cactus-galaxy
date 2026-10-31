@@ -200,10 +200,28 @@ bool translator_available() noexcept {
 
 int glsl_version_for(int major, int minor) noexcept {
     if (const char* force = std::getenv("GALAXY_GLES_GLSL")) {
-        if (std::strcmp(force, "310") == 0) return 310;
-        if (std::strcmp(force, "320") == 0) return 320;
+        if (std::strcmp(force, "300") == 0) return 300;
+        if (std::strcmp(force, "310") == 0 && (major > 3 || minor >= 1)) return 310;
+        if (std::strcmp(force, "320") == 0 && (major > 3 || minor >= 2)) return 320;
     }
-    return major > 3 || (major == 3 && minor >= 2) ? 320 : 310;
+    return major > 3 || (major == 3 && minor >= 2) ? 320 : major == 3 && minor == 1 ? 310 : 300;
+}
+
+std::string bindings_of(std::string_view vs_glsl, std::string_view ps_glsl) {
+    static constexpr std::string_view kMark = "// nebula-bind ";
+    std::string out;
+    for (const std::string_view source : {vs_glsl, ps_glsl}) {
+        for (std::size_t at = source.find(kMark); at != std::string_view::npos; at = source.find(kMark, at)) {
+            const std::size_t end = std::min(source.find('\n', at), source.size());
+            const std::string_view line = source.substr(at, end - at);
+            if (out.find(line) == std::string::npos) {  // the same block in both stages: once
+                out.append(line);
+                out.push_back('\n');
+            }
+            at = end;
+        }
+    }
+    return out;
 }
 
 #if defined(NEBULA_GLES_NO_TRANSLATOR)

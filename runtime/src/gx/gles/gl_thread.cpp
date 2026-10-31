@@ -570,8 +570,8 @@ std::size_t upload_bytes(GLsizei width, GLsizei height, GLenum format, GLenum ty
     } else if ((type == GL_UNSIGNED_SHORT_5_6_5 && format == GL_RGB) ||
                ((type == GL_UNSIGNED_SHORT_5_5_5_1 || type == GL_UNSIGNED_SHORT_4_4_4_4) && format == GL_RGBA)) {
         texel = 2u;  // compact textures (texture_compact.h)
-    } else if (type == GL_FLOAT && format == GL_RGBA) {
-        texel = 16u;
+    } else if ((type == GL_FLOAT && format == GL_RGBA) || (type == GL_UNSIGNED_INT && format == GL_RGBA_INTEGER)) {
+        texel = 16u;  // GL_RGBA_INTEGER: the matrix palette's 2D texture (OpenGL ES 3.0, renderer_gles.cpp)
     }
     if (texel == 0u || width <= 0 || height <= 0 || g_shadow.unpack_skip_rows != 0 || g_shadow.unpack_skip_pixels != 0) {
         return 0u;

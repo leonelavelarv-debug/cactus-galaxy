@@ -2,11 +2,12 @@
 // nebula_glsl_aot: the GLSL library (shader_library_gles.h) on the PC, so the console's Nebula hands GLSL straight to
 // the driver and carries no translator.
 //
-//   nebula_glsl_aot <library.bin> [--formas 320t,320s,310t,310s] <keys>...
+//   nebula_glsl_aot <library.bin> [--formas 320t,320s,310t,310s,300t] <keys>...
 //       every GX program the keys use (gles_keys.bin of a console session, "GLEK", or the Vulkan seed of a whole tour,
 //       platform/android/vk_seed_keys.bin, "GXVK": the same records), the uber shaders and the renderer's own, each
 //       translated (shader_translate_gles.h) in every form asked: GLSL ES 320 or 310, the matrix palette as a texture
-//       buffer (t: Mali's driver) or a storage block (s). Its HLSL is made exactly as the GLES pipeline cache and
+//       buffer (t: Mali's driver) or a storage block (s); GLSL ES 300 (an OpenGL ES 3.0 driver, or
+//       GALAXY_GLES_FORCE_ES30=1) with the palette in a 2D texture. Its HLSL is made exactly as the GLES pipeline cache and
 //       renderer make it (shader_sources_gles.h), so the entries match.
 //   nebula_glsl_aot --verificar <library.bin> [--formas ...] <keys>...
 //       translates again and compares: every entry the keys need is there and is that GLSL.
@@ -93,6 +94,7 @@ bool parse_forms(const char* text, std::vector<Form>& out) {
         else if (f == "320s") out.push_back({320, true});
         else if (f == "310t") out.push_back({310, false});
         else if (f == "310s") out.push_back({310, true});
+        else if (f == "300t") out.push_back({300, false});  // the renderer's 2D palette keys as palette 2 (not storage)
         else return false;
         at = end + 1;
     }
@@ -107,15 +109,15 @@ int main(int argc, char** argv) {
     const bool verify = a < argc && std::strcmp(argv[a], "--verificar") == 0;
     if (verify) ++a;
     if (a >= argc) {
-        std::fprintf(stderr, "uso: nebula_glsl_aot [--verificar] <biblioteca.bin> [--formas 320t,320s,310t,310s] "
+        std::fprintf(stderr, "uso: nebula_glsl_aot [--verificar] <biblioteca.bin> [--formas 320t,320s,310t,310s,300t] "
                              "<claves>...\n");
         return 2;
     }
     const std::string library_path = argv[a++];
-    std::vector<Form> forms{{320, false}, {320, true}, {310, false}, {310, true}};
+    std::vector<Form> forms{{320, false}, {320, true}, {310, false}, {310, true}, {300, false}};
     if (a + 1 < argc && std::strcmp(argv[a], "--formas") == 0) {
         if (!parse_forms(argv[a + 1], forms)) {
-            std::fprintf(stderr, "--formas: 320t, 320s, 310t, 310s separadas por comas\n");
+            std::fprintf(stderr, "--formas: 320t, 320s, 310t, 310s, 300t separadas por comas\n");
             return 2;
         }
         a += 2;

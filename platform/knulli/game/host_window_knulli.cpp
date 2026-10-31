@@ -522,8 +522,8 @@ std::string driver_log() {
 
 bool gles_create_context(NativeWindow window) {
     auto* sdl_window = static_cast<SDL_Window*>(window);
-    // 3.2, else 3.1 (the renderer needs 3.1).
-    for (const int minor : {2, 1}) {
+    // 3.2, else 3.1, else 3.0 (the renderer's base: docs/GX-ES.md).
+    for (const int minor : {2, 1, 0}) {
         SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, minor);
         galaxy::sdl::g_context = SDL_GL_CreateContext(sdl_window);
         if (galaxy::sdl::g_context != nullptr) {

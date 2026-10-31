@@ -179,7 +179,7 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
     translate_options_.palette_storage_block = layout->palette_storage_block;
     generator_options_ = gles::gles_generator_options();
     const gles::Capabilities& caps = gles::Context::get().caps();
-    translate_options_.glsl_version = gles::glsl_version_for(caps.version_major, caps.version_minor);
+    translate_options_.glsl_version = caps.glsl_version;
     driver_key_ = caps.renderer + " | " + caps.version;
     const std::uint64_t driver_hash = fnv1a64(driver_key_.data(), driver_key_.size());
     char folder[40];
@@ -363,6 +363,9 @@ PipelineCacheGles::Program PipelineCacheGles::link(const std::string& vs_glsl, c
             glDetachShader(program, ps);
         }
     }
+    // GLSL ES 3.00: the uniform blocks' bindings and the samplers' units, which its sources cannot say.
+    const std::string bindings = program != 0u ? gles::bindings_of(vs_glsl, ps_glsl) : std::string{};
+    gles::apply_bindings(program, bindings);
     if (vs != 0u) glDeleteShader(vs);
     if (ps != 0u) glDeleteShader(ps);
     compile_us_.fetch_add(elapsed_us(start), std::memory_order_relaxed);
@@ -396,6 +399,11 @@ PipelineCacheGles::Program PipelineCacheGles::link(const std::string& vs_glsl, c
                     write_pod(file, out.attributes);
                     write_pod(file, static_cast<std::uint32_t>(written));
                     file.write(binary.data(), written);
+                    // A binary's program starts with no bindings: GLSL ES 3.00's after it (nothing for the others).
+                    if (!bindings.empty()) {
+                        write_pod(file, static_cast<std::uint32_t>(bindings.size()));
+                        file.write(bindings.data(), static_cast<std::streamsize>(bindings.size()));
+                    }
                 });
             }
         }
@@ -408,9 +416,12 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
     const gles::ProgramHlsl source = gles::program_hlsl(vs_key, ps_key, pair.form == 1u);
     const std::string& vs_hlsl = source.vs;
     const std::string& ps_hlsl = source.ps;
-    const std::uint64_t hash = combine64(combine64(fnv1a64(vs_hlsl.data(), vs_hlsl.size()),
-                                                   fnv1a64(ps_hlsl.data(), ps_hlsl.size())),
-                                         translate_options_.palette_storage_block ? 1u : 2u);
+    std::uint64_t hash = combine64(combine64(fnv1a64(vs_hlsl.data(), vs_hlsl.size()),
+                                             fnv1a64(ps_hlsl.data(), ps_hlsl.size())),
+                                   translate_options_.palette_storage_block ? 1u : 2u);
+    if (translate_options_.glsl_version == 300) {
+        hash = combine64(hash, 300u);  // the 2D palette's programs (3.10/3.20 keep the hashes they had)
+    }
     if (binaries_) {
         std::ifstream in(binary_path(hash), std::ios::binary);
         std::uint32_t magic = 0, format = 0, attributes = 0, length = 0;
@@ -423,6 +434,13 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
                 GLint ok = GL_FALSE;
                 glGetProgramiv(program, GL_LINK_STATUS, &ok);
                 if (ok == GL_TRUE) {
+                    std::uint32_t bindings_length = 0;
+                    if (read_pod(in, bindings_length) && bindings_length != 0u && bindings_length < (1u << 16u)) {
+                        std::string bindings(bindings_length, '\0');
+                        if (in.read(bindings.data(), bindings_length)) {
+                            gles::apply_bindings(program, bindings);
+                        }
+                    }
                     binary_loads_.fetch_add(1u, std::memory_order_relaxed);
                     return Program{program, attributes, false};
                 }

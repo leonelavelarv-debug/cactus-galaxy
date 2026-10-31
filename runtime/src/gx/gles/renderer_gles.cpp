@@ -95,6 +95,8 @@ constexpr GlesVertexAttribute kVertexAttributes[] = {
 };
 
 constexpr std::uint64_t kPaletteBytes = GxState::kMatrixPaletteWords * sizeof(std::uint32_t);
+// OpenGL ES 3.0's palette texture: rows of gles::kPaletteTextureWidth 16-byte texels, 1 MiB as the texture buffer's.
+constexpr std::uint32_t kPalette2dRows = (1u << 20u) / (16u * gles::kPaletteTextureWidth);
 
 }  // namespace
 
@@ -124,11 +126,6 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
     const gles::Capabilities& caps = context.caps();
     gx_layout_.palette_storage_block = caps.vertex_storage_blocks;
     gx_layout_.framebuffer_fetch = caps.framebuffer_fetch_arm || caps.framebuffer_fetch_ext;
-    if (glVertexAttribFormat == nullptr || glVertexAttribIFormat == nullptr || glVertexAttribBinding == nullptr ||
-        glBindVertexBuffer == nullptr) {
-        std::cerr << "[Renderer] the driver lacks the OpenGL ES 3.1 vertex attribute bindings\n";
-        return false;
-    }
     {
         const char* interval = std::getenv("GALAXY_GLES_SWAP_INTERVAL");
         host_window::gles_set_swap_interval(interval != nullptr ? std::atoi(interval) : 1);
@@ -210,16 +207,20 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
             shutdown();
             return false;
         }
-        // The draws' vertex layout: GxVertexOut at binding 0, every location's format set once.
+        // The draws' vertex layout: GxVertexOut at binding 0, every location's format set once (OpenGL ES 3.1); on
+        // 3.0 the pointers follow each draw's vertices (set_vertex_pointers).
         glGenVertexArrays(1, &vao_);
         glBindVertexArray(vao_);
-        for (const GlesVertexAttribute& attribute : kVertexAttributes) {
-            if (attribute.integer) {
-                glVertexAttribIFormat(attribute.location, attribute.size, attribute.type, attribute.offset);
-            } else {
-                glVertexAttribFormat(attribute.location, attribute.size, attribute.type, GL_FALSE, attribute.offset);
+        if (caps.vertex_attrib_binding) {
+            for (const GlesVertexAttribute& attribute : kVertexAttributes) {
+                if (attribute.integer) {
+                    glVertexAttribIFormat(attribute.location, attribute.size, attribute.type, attribute.offset);
+                } else {
+                    glVertexAttribFormat(attribute.location, attribute.size, attribute.type, GL_FALSE,
+                                         attribute.offset);
+                }
+                glVertexAttribBinding(attribute.location, 0);
             }
-            glVertexAttribBinding(attribute.location, 0);
         }
         glBindVertexArray(0);
         glGenVertexArrays(1, &empty_vao_);
@@ -236,6 +237,19 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         if (!gx_layout_.palette_storage_block) {
             glGenTextures(1, &palette_texture_);
         }
+        if (caps.palette_texture_2d) {
+            // OpenGL ES 3.0: the palette in a 2D texture as big as the texture buffer's view (1 MiB).
+            glActiveTexture(GL_TEXTURE0 + gles::kPaletteTextureUnit);
+            glBindTexture(GL_TEXTURE_2D, palette_texture_);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32UI, static_cast<GLsizei>(gles::kPaletteTextureWidth),
+                           static_cast<GLsizei>(kPalette2dRows));
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glActiveTexture(GL_TEXTURE0);
+            palette_2d_ = Palette2d{};
+        }
+        pointers_address_ = ~gpu::Address{0};
+        array_buffer_ = ~0u;
         // Ring sizes (GALAXY_GLES_RING_*_MB): Vulkan's defaults scaled to a handheld's memory; the peaks are logged.
         gpu::Device* const dev = context.device();
         if (!vertex_ring_.initialize(dev, "vertex", env_megabytes("GALAXY_GLES_RING_VERTEX_MB", 28u << 20u),
@@ -290,6 +304,9 @@ bool RendererGles::make_current() {
     context.set_owner_thread();
     bound_ = Bound{};
     enabled_attributes_ = ~0u;  // unknown on this thread: set again at the next draw
+    pointers_address_ = ~gpu::Address{0};
+    array_buffer_ = ~0u;
+    palette_2d_ = Palette2d{};
     return true;
 }
 
@@ -458,8 +475,7 @@ void RendererGles::destroy_efb() noexcept {
 
 GLuint RendererGles::build_utility_program(std::string_view vs_hlsl, std::string_view ps_hlsl, const char* what) {
     gles::TranslateOptions options;
-    options.glsl_version = gles::glsl_version_for(gles::Context::get().caps().version_major,
-                                                  gles::Context::get().caps().version_minor);
+    options.glsl_version = gles::Context::get().caps().glsl_version;
     std::string error;
     // From the GLSL library (shader_library_gles.h); translated here only by a build with the translator.
     const std::string vs = gles::shader_glsl(vs_hlsl, gles::Stage::Vertex, gles::ShaderKind::Utility, options, error);
@@ -509,6 +525,7 @@ GLuint RendererGles::build_utility_program(std::string_view vs_hlsl, std::string
         glDeleteProgram(program);
         return 0u;
     }
+    gles::apply_bindings(program, gles::bindings_of(vs, ps));  // GLSL ES 3.00's bindings (nothing for 3.10/3.20)
     return program;
 }
 
@@ -973,12 +990,19 @@ void RendererGles::report_stats() {
         const auto gpu_part_average = [this](std::size_t part) {
             return window_stats_.gpu_frames != 0u ? window_stats_.gpu_part_ms[part] / window_stats_.gpu_frames : 0.0;
         };
+        std::string palette_note;
+        if (gles::Context::get().caps().palette_texture_2d) {
+            char note[64];
+            std::snprintf(note, sizeof(note), "; %.1f palette uploads",
+                          static_cast<double>(window_stats_.palette_uploads) / frames);
+            palette_note = note;
+        }
         std::fprintf(stderr,
                      "[gles] %.1f frames/s; render thread %.1f ms/s (swap waits %.1f, frame-slot waits %.1f ms/s, readbacks %.1f ms/s); a frame: %.0f draws, "
                      "%.1f copies, %.1f clears, %.1f peeks (%.2f waited, %.2f whole fields), %.0f program changes, %.1f "
                      "draws skipped, %.0f vertices, %.2f depth discards, %.2f repeated display copies; in draw() %.1f ms/s, waited peeks %.1f ms/s; GPU %.2f ms "
                      "average (scene %.2f, copies %.2f, xfb %.2f, peeks %.2f, present %.2f), %.2f longest; "
-                     "rings peak KiB v=%zu i=%zu c=%zu m=%zu; textures %llu KiB uploaded\n",
+                     "rings peak KiB v=%zu i=%zu c=%zu m=%zu; textures %llu KiB uploaded%s\n",
                      frames / seconds, static_cast<double>(cpu - last_cpu) / 1e6 / seconds,
                      static_cast<double>(window_stats_.present_wait_ns) / 1e6 / seconds,
                      static_cast<double>(window_stats_.frame_wait_ns) / 1e6 / seconds,
@@ -1001,7 +1025,8 @@ void RendererGles::report_stats() {
                      index_ring_.take_peak_bytes_per_frame() >> 10u, constant_ring_.take_peak_bytes_per_frame() >> 10u,
                      matrix_ring_.take_peak_bytes_per_frame() >> 10u,
                      static_cast<unsigned long long>(textures_ != nullptr ? textures_->backend().take_uploaded_bytes() >> 10u
-                                                                          : 0u));
+                                                                          : 0u),
+                     palette_note.c_str());
     }
     last_cpu = cpu;
     last_time = now;
@@ -1327,8 +1352,12 @@ void RendererGles::draw(const DrawCall& call) {
     };
     bind(call.vs_constants, 0u, GL_UNIFORM_BUFFER, 0u, sizeof(GxVsConstants), constant_ring_.gpu_base());
     bind(call.ps_constants, 1u, GL_UNIFORM_BUFFER, 1u, sizeof(GxPsConstants), constant_ring_.gpu_base());
-    bind(call.matrix_palette, 2u, gx_layout_.palette_storage_block ? GL_SHADER_STORAGE_BUFFER : GL_TEXTURE_BUFFER, 0u,
-         0u, matrix_ring_.gpu_base());
+    if (context.caps().palette_texture_2d) {
+        bind_palette_2d(call.matrix_palette, matrix_ring_.gpu_base());
+    } else {
+        bind(call.matrix_palette, 2u, gx_layout_.palette_storage_block ? GL_SHADER_STORAGE_BUFFER : GL_TEXTURE_BUFFER,
+             0u, 0u, matrix_ring_.gpu_base());
+    }
     bound_.constants_valid = true;
 
     // Textures (units 0-7) and their samplers.
@@ -1403,16 +1432,18 @@ void RendererGles::draw(const DrawCall& call) {
     if (!bound_.viewport_valid) {
         bind_efb(nullptr);
     }
-    if (call.vertex_view.BufferLocation != bound_.vertex_address) {
+    const std::uint32_t stride = call.vertex_view.StrideInBytes != 0u ? call.vertex_view.StrideInBytes : 144u;
+    if (!context.caps().vertex_attrib_binding) {
+        set_vertex_pointers(call.vertex_view.BufferLocation, stride);
+    } else if (call.vertex_view.BufferLocation != bound_.vertex_address) {
         const gles::Context::BufferOffset vertices = context.resolve(call.vertex_view.BufferLocation);
-        glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(vertices.offset),
-                           static_cast<GLsizei>(call.vertex_view.StrideInBytes != 0u ? call.vertex_view.StrideInBytes
-                                                                                      : 144u));
+        glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(vertices.offset), static_cast<GLsizei>(stride));
         bound_.vertex_address = call.vertex_view.BufferLocation;
     }
     if (call.index_count == 0u) {
         return;
     }
+    context.flush_writes();  // OpenGL ES 3.0 without EXT_buffer_storage: this draw's uploads reach the GPU
     window_stats_.vertices += call.index_count;
     if (call.index_view.BufferLocation != 0u) {
         const gles::Context::BufferOffset indices = context.resolve(call.index_view.BufferLocation);
@@ -1428,6 +1459,76 @@ void RendererGles::draw(const DrawCall& call) {
     if (context.checking()) {
         context.check_errors("draw");
     }
+}
+
+void RendererGles::set_vertex_pointers(gpu::Address address, std::uint32_t stride) {
+    if (address != pointers_address_ || stride != pointers_stride_) {
+        pointers_address_ = address;
+        pointers_stride_ = stride;
+        pointers_mask_ = 0u;
+    }
+    // Only the locations the program reads (enabled_attributes_ is its mask now), each once per vertex address.
+    const std::uint32_t needed = enabled_attributes_ & ~pointers_mask_;
+    if (needed == 0u) {
+        return;
+    }
+    const gles::Context::BufferOffset vertices = gles::Context::get().resolve(address);
+    if (vertices.buffer != array_buffer_) {
+        glBindBuffer(GL_ARRAY_BUFFER, vertices.buffer);
+        array_buffer_ = vertices.buffer;
+    }
+    for (const GlesVertexAttribute& attribute : kVertexAttributes) {
+        if ((needed & (1u << attribute.location)) == 0u) {
+            continue;
+        }
+        const void* at = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(vertices.offset + attribute.offset));
+        if (attribute.integer) {
+            glVertexAttribIPointer(attribute.location, attribute.size, attribute.type, static_cast<GLsizei>(stride), at);
+        } else {
+            glVertexAttribPointer(attribute.location, attribute.size, attribute.type, GL_FALSE,
+                                  static_cast<GLsizei>(stride), at);
+        }
+    }
+    pointers_mask_ |= needed;
+}
+
+void RendererGles::bind_palette_2d(gpu::Address address, gpu::Address fallback) {
+    const gpu::Address use = address != 0u ? address : bound_.constants_valid ? 0u : fallback;
+    if (use == 0u) {
+        return;
+    }
+    const gles::Context::BufferOffset resolved = gles::Context::get().resolve(use);
+    if (resolved.object == nullptr || resolved.object->mapped == nullptr) {
+        return;
+    }
+    // As the texture buffer's: from the ring's base, the buffer to its end (mtx_palette_base counts from there),
+    // else one palette; at most the texture's 1 MiB.
+    std::uint64_t range = resolved.offset == 0u ? resolved.object->size : kPaletteBytes;
+    range = std::min<std::uint64_t>({range, resolved.object->size - resolved.offset,
+                                     std::uint64_t{16u} * gles::kPaletteTextureWidth * kPalette2dRows});
+    const std::uint64_t writes = resolved.object->writes.load(std::memory_order_acquire);
+    if (palette_2d_.buffer == resolved.object && palette_2d_.offset == resolved.offset && palette_2d_.range == range &&
+        palette_2d_.writes == writes) {
+        return;
+    }
+    // The CPU's bytes (the copy, or the persistent mapping): written before this draw, as the buffer's would be.
+    const std::byte* source = resolved.object->mapped + resolved.offset;
+    const std::uint64_t texels = range / 16u;
+    const std::uint64_t rows = texels / gles::kPaletteTextureWidth;
+    const std::uint64_t rest = texels % gles::kPaletteTextureWidth;
+    glActiveTexture(GL_TEXTURE0 + gles::kPaletteTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, palette_texture_);
+    if (rows != 0u) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(gles::kPaletteTextureWidth),
+                        static_cast<GLsizei>(rows), GL_RGBA_INTEGER, GL_UNSIGNED_INT, source);
+    }
+    if (rest != 0u) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLint>(rows), static_cast<GLsizei>(rest), 1, GL_RGBA_INTEGER,
+                        GL_UNSIGNED_INT, source + rows * gles::kPaletteTextureWidth * 16u);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    palette_2d_ = Palette2d{resolved.object, resolved.offset, range, writes};
+    ++window_stats_.palette_uploads;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1473,6 +1574,7 @@ void RendererGles::conversion_draw(GLuint framebuffer, unsigned dest_w, unsigned
     bound_.samplers_valid = false;
     glBindVertexArray(empty_vao_);
     enabled_attributes_ = ~0u;
+    gles::Context::get().flush_writes();
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(vao_);
     // The EFB textures leave the units, so a draw that samples a copy never also has the EFB bound.

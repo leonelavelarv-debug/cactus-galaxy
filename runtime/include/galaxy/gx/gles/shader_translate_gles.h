@@ -29,15 +29,20 @@ struct TranslateOptions {
     bool palette_storage_block = true;  // false: the palette as a texture buffer (unit 8)
     bool keep_names = true;             // readable GLSL (the dumps)
     // GLSL ES 320 (OpenGL ES 3.2: Mali's own drivers), or 310 for OpenGL ES 3.1 drivers (Mesa's Panfrost on
-    // Bifrost, e.g. ROCKNIX on the RK3326): the same shaders, extensions declared where 3.1 needs them.
+    // Bifrost, e.g. ROCKNIX on the RK3326): the same shaders, extensions declared where 3.1 needs them. 300 for an
+    // OpenGL ES 3.0 driver: the palette in a 2D texture (palette_storage_block is ignored), varyings named by their
+    // location, and the bindings in "// nebula-bind" lines that apply_bindings sets after linking.
     int glsl_version = 320;
 };
 
-// The GLSL ES version for a context of OpenGL ES major.minor (GALAXY_GLES_GLSL=310|320 forces one).
+// The GLSL ES version for a context of OpenGL ES major.minor (GALAXY_GLES_GLSL=300|310|320 forces one).
 [[nodiscard]] int glsl_version_for(int major, int minor) noexcept;
 
-// Texture unit of the palette's texture buffer.
+// Texture unit of the palette's texture buffer (or, with GLSL ES 3.00, of its 2D texture).
 inline constexpr unsigned kPaletteTextureUnit = 8u;
+// The palette's 2D texture under OpenGL ES 3.0: texel i (a float4 row of the palette) at (i % width, i / width).
+inline constexpr unsigned kPaletteTextureWidthLog2 = 12u;
+inline constexpr unsigned kPaletteTextureWidth = 1u << kPaletteTextureWidthLog2;
 
 // Changes with anything that changes translate()'s output for the same source (cached GLSL is keyed on it).
 inline constexpr std::uint32_t kTranslatorRevision = 1;
@@ -45,6 +50,13 @@ inline constexpr std::uint32_t kTranslatorRevision = 1;
 // GLSL ES for `hlsl` (entry `main`); empty with `error` set when it does not translate.
 [[nodiscard]] std::string translate(std::string_view hlsl, Stage stage, ShaderKind kind,
                                     const TranslateOptions& options, std::string& error);
+
+// GLSL ES 3.00 programs (no layout(binding)): the "// nebula-bind block <name> <binding>" and "// nebula-bind sampler
+// <name> <unit>" lines of their sources, one per line (empty for 3.10 and 3.20 sources). Program binaries keep them.
+[[nodiscard]] std::string bindings_of(std::string_view vs_glsl, std::string_view ps_glsl);
+// Sets those bindings on a linked (or binary-loaded) program on the calling thread's context; the program in use
+// stays the same. Defined with the GL entry points (gles_context.cpp).
+void apply_bindings(unsigned program, std::string_view bindings);
 
 // The HLSL changes translate() makes before glslang (exposed for the tests).
 [[nodiscard]] std::string prepare_hlsl(std::string_view hlsl, ShaderKind kind, const TranslateOptions& options);

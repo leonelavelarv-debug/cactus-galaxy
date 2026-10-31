@@ -285,4 +285,13 @@ struct UploadMemory {
 // `bytes` of upload memory, mapped for its lifetime; empty when it cannot be created.
 [[nodiscard]] UploadMemory create_upload_memory(Device* device, std::size_t bytes, const char* name);
 
+// The CPU wrote (or is about to write, before the next draw) `bytes` of upload memory at `address`. Only OpenGL ES
+// without GL_EXT_buffer_storage needs it: there the memory is a copy the renderer sends to the GPU before each draw
+// (gles_context.h); persistently mapped memory (D3D12, Vulkan, GLES with the extension) has nothing to do.
+#if defined(NEBULA_GPU_GLES)
+void note_upload_write(Address address, std::size_t bytes) noexcept;
+#else
+inline void note_upload_write(Address, std::size_t) noexcept {}
+#endif
+
 }  // namespace galaxy::gx::gpu

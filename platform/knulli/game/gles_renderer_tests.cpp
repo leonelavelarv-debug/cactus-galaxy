@@ -196,10 +196,26 @@ int main() {
     // A GX draw: the inline position matrix and projection identity, one triangle over the EFB's top-left quarter
     // in D3D's clip space ((-1, 1), (0, 1), (-1, 0): clockwise on the screen, D3D's front, GX's back) at z 0.25, depth
     // written always. Drawn with GX cull Front, culled with cull Back; the depth field shows where.
-    const auto draw_triangle = [&](CullMode cull) {
+    // With `palette_x` the position matrix comes from the matrix palette (vertex shader flag 1: rows 0-2, an identity
+    // moved by palette_x in clip space), so the palette's binding is read (OpenGL ES 3.0: its 2D texture).
+    // The default pixel key's alpha test never passes: its depth is GX's early Z's (written before the alpha test
+    // discards). GLSL ES 3.00 has no early_fragment_tests (docs/GX-ES.md), so on OpenGL ES 3.0 the draws pass the
+    // alpha test instead (GX_ALWAYS = 7) and the early-Z case is reported as not testable there.
+    const bool es30 = gles::Context::get().caps().glsl_version == 300;
+    if (es30) {
+        std::printf("skip GX early Z with a failing alpha test: GLSL ES 3.00 has no early_fragment_tests\n");
+    }
+    const auto draw_triangle = [&](CullMode cull, float palette_x = 0.0f, bool use_palette = false) {
         renderer.clear_efb(0u, 0u, 0xFFFFFFu, true, true, true);
         VertexShaderKey vs_key{};
         PixelShaderKey ps_key{};
+        if (use_palette) {
+            vs_key.flags |= 0x01u;
+        }
+        if (use_palette || es30) {
+            ps_key.alpha_comp0 = 7u;
+            ps_key.alpha_comp1 = 7u;
+        }
         RenderStateKey rs{};
         rs.zmode_bits = 1u | (7u << 1u) | (1u << 4u);
         rs.blend_bits = (1u << 25u) | (1u << 26u);
@@ -222,6 +238,11 @@ int main() {
         std::memset(ps.cpu, 0, sizeof(GxPsConstants));
         UploadRing::Allocation palette = renderer.matrix_ring().allocate(GxState::kMatrixPaletteWords * 4u, 256u);
         std::memset(palette.cpu, 0, GxState::kMatrixPaletteWords * 4u);
+        if (use_palette) {
+            auto* rows = reinterpret_cast<float*>(palette.cpu);
+            for (int r = 0; r < 3; ++r) rows[r * 4 + r] = 1.0f;
+            rows[0 * 4 + 3] = palette_x;
+        }
         UploadRing::Allocation vertices = renderer.vertex_ring().allocate(3u * sizeof(GxVertexOut), 16u);
         auto* v = reinterpret_cast<GxVertexOut*>(vertices.cpu);
         std::memset(v, 0, 3u * sizeof(GxVertexOut));
@@ -249,6 +270,15 @@ int main() {
     draw_triangle(CullMode::Back);
     (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
     expect(value == 0xFFFFFFu, "GX back face culled (cull Back)", value, 0xFFFFFFu);
+    // The palette's matrix: moved right by 1 (half the clip space), then back with a new palette in the same ring.
+    draw_triangle(CullMode::Front, 1.0f, true);
+    (void)renderer.peek_efb(330, 10, EfbPeekKind::Depth, value);
+    expect(value == 0xC00000u, "palette matrix moves the triangle to (330,10)", value, 0xC00000u);
+    (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+    expect(value == 0xFFFFFFu, "and off (10,10)", value, 0xFFFFFFu);
+    draw_triangle(CullMode::Front, 0.0f, true);
+    (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+    expect(value == 0xC00000u, "a second palette puts it back at (10,10)", value, 0xC00000u);
     renderer.end_frame(true);
 
     // A second frame: the slots and fences come round.

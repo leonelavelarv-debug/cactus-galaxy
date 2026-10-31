@@ -139,6 +139,9 @@ UploadRing::Allocation UploadRing::allocate(std::size_t size, std::size_t alignm
         ++slot_generations_[active_slot_];
         segment_allocation_pending_ = false;
     }
+    if (size != 0) {
+        gpu::note_upload_write(gpu_base_ + static_cast<gpu::Address>(aligned), size);
+    }
     return Allocation{
         mapped_ + aligned,
         gpu_base_ + static_cast<gpu::Address>(aligned),

@@ -496,7 +496,20 @@ private:
         GLuint palette_texture = 0;
     } bound_;
     std::array<int, 4> efb_viewport_{};  // bind_efb's
-    GLuint palette_texture_ = 0;        // the texture-buffer palette's texture (no vertex SSBOs)
+    GLuint palette_texture_ = 0;        // the texture-buffer palette's texture (no vertex SSBOs), or its 2D one
+    // OpenGL ES 3.0's palette: the bound range mirrored into palette_texture_ (2D, RGBA32UI, kPaletteTextureWidth
+    // texels a row), again when the range or its buffer's writes change.
+    struct Palette2d {
+        const gles::Buffer* buffer = nullptr;
+        std::uint64_t offset = 0, range = 0, writes = ~std::uint64_t{0};
+    } palette_2d_;
+    void bind_palette_2d(gpu::Address address, gpu::Address fallback);
+    // OpenGL ES 3.0's vertex attributes (no glBindVertexBuffer): the pointers set for this address and stride.
+    gpu::Address pointers_address_ = ~gpu::Address{0};
+    std::uint32_t pointers_stride_ = 0;
+    std::uint32_t pointers_mask_ = 0;
+    GLuint array_buffer_ = ~0u;
+    void set_vertex_pointers(gpu::Address address, std::uint32_t stride);
 
     // EFB copies.
     std::unordered_map<std::uint64_t, EfbCopyDest> efb_copy_dests_;
@@ -533,6 +546,7 @@ private:
         std::uint64_t clears = 0;
         std::uint64_t peeks = 0;
         std::uint64_t pipeline_changes = 0;
+        std::uint64_t palette_uploads = 0;  // OpenGL ES 3.0's 2D palette (bind_palette_2d)
         std::uint64_t skipped_draws = 0;
         std::uint64_t sync_peeks = 0;
         std::uint64_t sync_fields = 0;

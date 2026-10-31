@@ -174,6 +174,8 @@ export NEBULA_DATA_DIR="$GAMEDIR/data"
 if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
   export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$GAMEDIR/shaders-gles.bin}"
 fi
+#   GALAXY_GLES_FORCE_ES30=1             (prueba) solo lo de OpenGL ES 3.0 con el driver de 3.2: anillos copiados,
+#                                        paleta en textura 2D, GLSL ES 3.00 (docs/GX-ES.md)
 #   GALAXY_TEXTURE_COMPACT=exacto|16bits|no  texturas en la memoria de video en 8 o 16 bits cuando caben: exacto (por
 #                                        defecto) no cambia ni un texel (I4/I8 en 1 byte, IA4/IA8 y RGB565 en 2); 16bits
 #                                        tambien CMPR y RGB5A3 (pierden los bits mas bajos del color); no: todo en RGBA8.

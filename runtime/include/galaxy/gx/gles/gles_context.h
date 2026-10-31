@@ -44,11 +44,18 @@ struct Texture : std::enable_shared_from_this<Texture> {
 };
 
 // A persistently mapped buffer (EXT_buffer_storage, coherent) with a GX address, or a plain one (mapped == null).
+// Without the extension (an OpenGL ES 3.0 driver) `mapped` is a CPU copy: what the CPU writes there (noted with
+// gpu::note_upload_write) goes to the GPU with glBufferSubData before the next draw (Context::flush_writes).
 struct Buffer {
     GLuint name = 0;
     std::byte* mapped = nullptr;
     std::uint64_t size = 0;
     std::uint64_t address = 0;
+    std::unique_ptr<std::byte[]> copy;  // `mapped` when the buffer is not persistently mapped
+    // The bytes written since the last flush: [dirty_begin, dirty_end) (guarded by the Context's write mutex).
+    std::uint64_t dirty_begin = UINT64_MAX;
+    std::uint64_t dirty_end = 0;
+    std::atomic<std::uint64_t> writes{0};  // note_write calls (the palette's 2D texture follows its source by it)
 
     Buffer() = default;
     Buffer(const Buffer&) = delete;
@@ -59,9 +66,13 @@ struct Buffer {
 struct Capabilities {
     int version_major = 3;
     int version_minor = 0;
-    bool buffer_storage = false;       // EXT_buffer_storage: persistent mapped rings
+    bool buffer_storage = false;       // EXT_buffer_storage: persistent mapped rings (else copies, flush_writes)
     bool vertex_storage_blocks = false;  // SSBOs readable in the vertex stage (the matrix palette)
     bool texture_buffer = false;       // texelFetch on a buffer (the palette's fallback)
+    bool palette_texture_2d = false;   // neither: the palette mirrored into a 2D texture (OpenGL ES 3.0)
+    int glsl_version = 320;            // the GLSL ES the programs are made in (300 with the 2D palette)
+    bool vertex_attrib_binding = false;  // OpenGL ES 3.1's glVertexAttribFormat/glBindVertexBuffer (else pointers)
+    bool forced_es30 = false;          // GALAXY_GLES_FORCE_ES30=1: only what OpenGL ES 3.0 has, on any driver
     bool timer_query = false;          // EXT_disjoint_timer_query
     bool framebuffer_fetch_arm = false;
     bool framebuffer_fetch_ext = false;
@@ -117,8 +128,21 @@ public:
     [[nodiscard]] std::shared_ptr<Texture> create_texture(std::uint32_t width, std::uint32_t height,
                                                           std::uint32_t levels, GLenum format, bool render_target,
                                                           const char* name);
-    // A persistently mapped buffer with a GX address (the upload rings, uniform data, readbacks).
+    // A persistently mapped buffer with a GX address (the upload rings, uniform data, readbacks); without
+    // EXT_buffer_storage, a buffer with a CPU copy (readable buffers are not supported there).
     [[nodiscard]] std::shared_ptr<Buffer> create_buffer(std::uint64_t size, const char* name, bool readable = false);
+
+    // OpenGL ES 3.0 (no EXT_buffer_storage): the CPU wrote `bytes` at `address` of a buffer's copy; flush_writes
+    // (on the owner thread, before a draw) sends every range written since the last one. With the palette in a 2D
+    // texture it also counts the buffer's writes. Persistent buffers without that: never called (tracking_writes).
+    [[nodiscard]] bool tracking_writes() const noexcept { return !caps_.buffer_storage || caps_.palette_texture_2d; }
+    void note_write(std::uint64_t address, std::uint64_t bytes) noexcept;
+    void flush_writes() {
+        if (dirty_pending_.load(std::memory_order_acquire)) {
+            flush_dirty();
+        }
+    }
+    void forget_writes(Buffer* buffer) noexcept;
 
     static constexpr unsigned kAddressShift = 40;
     struct BufferOffset {
@@ -163,6 +187,10 @@ private:
     std::atomic<std::uint64_t> completed_{0};
     std::mutex deferred_mutex_;
     std::vector<Deferred> deferred_;
+    void flush_dirty();
+    std::mutex dirty_mutex_;
+    std::vector<Buffer*> dirty_;
+    std::atomic<bool> dirty_pending_{false};
     std::array<std::atomic<Buffer*>, kAddressSlots> address_slots_{};
     std::mutex address_mutex_;
     std::vector<std::uint32_t> free_address_ids_;

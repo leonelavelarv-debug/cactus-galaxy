@@ -5465,6 +5465,9 @@ bool GxBackend::make_decoded_entry_resident(DecodedPacketRunCacheEntry& entry) {
             static_cast<std::size_t>(*offset) * sizeof(GxVertexOut),
         entry.vertices.data(),
         static_cast<std::size_t>(units) * sizeof(GxVertexOut));
+    gpu::note_upload_write(
+        resident_vertex_gpu_ + static_cast<gpu::Address>(*offset) * sizeof(GxVertexOut),
+        static_cast<std::size_t>(units) * sizeof(GxVertexOut));
     entry.resident_epoch = resident_vertices_.epoch();
     entry.resident_offset = *offset;
     entry.resident_units = units;
