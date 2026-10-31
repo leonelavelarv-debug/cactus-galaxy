@@ -19,6 +19,8 @@
 #            NEBULA_PARCHES  opcional: una carpeta con parches .xdelta de traduccion (van a smg/patches/)
 #            NEBULA_CLAVES   opcional: gles_keys.bin de sesiones en la consola (mas shaders en la biblioteca)
 #            NEBULA_TRADUCTOR=1  opcional: Nebula con el traductor de shaders dentro (como antes)
+#            NEBULA_MEDICION=1   opcional: ademas, <salida>/paquete-medicion: el mismo port con ULTRA-GLES (smg/ultra/,
+#                                NEBULA_ULTRA=bench|serie, compare.py) para medir en la consola; el paquete normal va limpio
 # Sin datos de la PC en los binarios (sin RPATH ni rutas) ni en los paquetes (fechas fijas, sin usuario).
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -158,12 +160,21 @@ for b in "$full/smg/nebula" "$full/smg/libsmg_game.so" "$full/smg/nebula-pak" "$
   if grep -qa "${rutas[@]}" "$b"; then fail "$(basename "$b") lleva rutas de esta PC"; fi
 done
 python3 "$here/limpiar.py" "$full" "$out/port" > /dev/null
-rm -rf "$full"
+if [ "${NEBULA_MEDICION:-0}" = 1 ]; then
+  rm -rf "$out/port-medicion"
+  mv "$full" "$out/port-medicion"
+else
+  rm -rf "$full"
+fi
 
 say "6/6 los paquetes"
 "$here/empaquetar.sh" "$out/port" "$out/paquete"
+if [ "${NEBULA_MEDICION:-0}" = 1 ]; then
+  "$here/empaquetar.sh" "$out/port-medicion" "$out/paquete-medicion"
+fi
 say ""
 say "Listo:"
 say "  $out/port      copia Super Mario Galaxy.sh y smg/ a la SD (o usa el instalador)"
 say "  $out/paquete   smg.zip para PortMaster e \"Instalar Super Mario Galaxy.sh\""
 say "  $out/herramientas  nebula_glsl_aot y las claves semilla (nopal nebula shaders rehace smg/shaders-gles.bin)"
+[ "${NEBULA_MEDICION:-0}" = 1 ] && say "  $out/paquete-medicion   el mismo port con ULTRA-GLES (para medir en la consola)"

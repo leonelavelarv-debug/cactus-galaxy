@@ -92,18 +92,25 @@ pipelines sin doble fuente de la Mali también se comparan con la PC, con tolera
 
 ### 2. El juego
 
-Para la estabilidad, los anillos y las capturas del juego, en `smg/ajustes.cfg`, una vuelta de ULTRA por ajuste:
+El `smg.zip` normal va limpio, sin ULTRA (`limpiar.py`). Para medir hace falta el **paquete de medición**: el mismo
+port con ULTRA-GLES. Se arma con `NEBULA_MEDICION=1 armar.sh …` y queda en `<salida>/paquete-medicion/`. Su
+`smg/ultra/serie.cfg` ya trae la serie de este paso; con `NEBULA_ULTRA=serie` en `smg/ultra.cfg` corre sola:
 
-| Vuelta | Ajustes | Qué mide |
+| Recorrido | Ajustes | Qué mide |
 |---|---|---|
-| 1 | (ninguno: fetch por defecto) | Estabilidad (0 errores de GL, sin cierres), `dual-source draws (… blended in the shader)` en log.txt, FPS frente a la base |
-| 2 | `GALAXY_GLES_BLEND_FETCH=0` | La ruta de antes, para comparar FPS y capturas |
-| 3 | `GALAXY_GLES_FORCE_ES30=1` | La ruta de 3.0 con el juego |
+| calentamiento | — | Deja las cachés de programas hechas; no cuenta |
+| fetch | (ninguno: fetch por defecto) | Estabilidad (0 errores de GL, sin cierres), `dual-source draws (… blended in the shader)` en log.txt, FPS |
+| antes | `GALAXY_GLES_BLEND_FETCH=0` | La ruta de antes, para comparar FPS y capturas |
+| es30 | `GALAXY_GLES_FORCE_ES30=1` | La ruta de 3.0 con el juego |
+| fetch2 | (ninguno) | Repetición de fetch: el ruido de la medición |
+
+Al final, `smg/ultra/<fecha>-serie/comparacion.txt` compara todo con el primero. Con las 44 galaxias son 5 recorridos de
+15-20 minutos: entre una hora y cuarto y una hora y tres cuartos; `NEBULA_ULTRA_GALAXIAS=10` la acorta.
 
 - **Anillos de subida:** `rings peak KiB v=… i=… c=… m=…` en las líneas `[gles] … frames/s` de log.txt. Se miden aquí;
   no se cambian en este paso.
 - **Memoria:** la de ULTRA (`informe.txt`: memoria media, pico, mínimo libre).
-- **Capturas:** `capturas/<galaxia>.ppm` de ULTRA, para verlas a ojo entre las vueltas 1 y 2. No sirven para métricas
+- **Capturas:** `capturas/<galaxia>.ppm` de ULTRA, para verlas a ojo entre fetch y antes. No sirven para métricas
   por píxel (el juego no está en el mismo instante: 23-28 dB entre repeticiones).
 
 ## Limitaciones
@@ -124,7 +131,7 @@ Para la estabilidad, los anillos y las capturas del juego, en `smg/ajustes.cfg`,
 
 ## Problemas pendientes
 
-1. Correr `pruebamezcla.zip` y las tres vueltas de ULTRA en KNULLI. Luego, por separado, en muOS.
+1. Correr `pruebamezcla.zip` y la serie de ULTRA (paquete de medición) en KNULLI. Luego, por separado, en muOS.
 2. Si el driver rechaza la forma ARM: corregir la transformación con el mensaje del log.
 3. Si el costo en GPU importa: medirlo. **No optimizar en este paso.**
 4. Una alternativa sin extensiones para otros drivers: en 202 de los 241 pipelines (alfa del EFB sin escribir), sacar la
