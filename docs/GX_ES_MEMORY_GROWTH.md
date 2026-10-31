@@ -150,6 +150,49 @@ Todo en MiB. Las texturas de GL incluyen las decodificadas (28) y las reciclable
 - **Costo:** lo que no quepa se vuelve a convertir en la CPU. Lo dirá la comparación de FPS de las primeras 6 galaxias
   con las series anteriores (fetch: 34.6 mostrados, 14.0 dibujados).
 
+### Con los límites de 32 MiB (31-oct, tercer recorrido)
+
+**Llegó a la 21.ª galaxia, IceVolcanoGalaxy, antes 13.ª.** Ahí el kernel lo mató por falta de memoria:
+
+```
+Out of memory: Kill process 1149 (Nebula Host Mai) score 739
+Killed process 1149 … anon-rss:435232kB, file-rss:305684kB, shmem-rss:16688kB
+```
+
+- **`file-rss` (~300 MiB) es memoria de la GPU mapeada en el proceso**, no archivos. El oom_reaper no la soltó.
+  Coincide con los buffers de GL (176 MiB) más las texturas de GL (~68) y lo del driver.
+  - Por eso VmRSS (~720 MiB) cuenta también la memoria de la GPU.
+  - La memoria de la CPU del proceso (`anon-rss`) eran 435 MiB.
+- **Los límites se cumplieron:**
+  - display lists: 28-32 MiB;
+  - vértices decodificados: 16-32 MiB;
+  - buffers de GL: 176 MiB, antes 224.
+- **Lo que siguió creciendo:**
+  - las texturas recicladas, de 16 a 27 MiB (con 128 de presupuesto);
+  - las texturas de GL, de 42 a 68 MiB.
+- **La memoria libre** quedó en 47-80 MiB entre la 8.ª y la 20.ª galaxia y bajó a 33 en la 21.ª.
+- **IceVolcanoGalaxy ya iba muy lenta:** 2.2 FPS dibujados, GPU 38.6 ms, frame p99 de 2.3 s. Puede ser falta de
+  memoria antes de la muerte, o esa galaxia.
+- **FPS dibujados de las primeras 6 galaxias**, frente a la segunda serie con fetch:
+
+  | | Astro | BattleShip | BeltConveyer | BreakDown | CannonFleet | Cocoon |
+  |---|---|---|---|---|---|---|
+  | Ahora | 10.0 | 14.5 | 17.2 | 16.6 | 14.4 | 13.1 |
+  | Antes | 9.9 | 16.2 | 18.2 | 15.9 | 13.6 | 11.4 |
+
+  Las diferencias están dentro de lo que ya varían las repeticiones. Los límites no costaron FPS medibles.
+
+**Siguiente ajuste (lanzador):**
+
+| Ajuste | Antes | Ahora |
+|---|---|---|
+| `GALAXY_TEXTURE_POOL_MB` | 128 | 8 |
+| `GALAXY_GX_DISPLAY_LIST_CACHE_MB` | 32 | 24 |
+| `GALAXY_GX_DECODED_VERTEX_CACHE_MB` | 32 | 24 |
+| `GALAXY_GLES_RING_CONSTANT_MB` | 6 | 5 (el pico medido: 3.9 MiB) |
+
+El ahorro esperado es de unos 40-50 MiB a la altura de la 21.ª galaxia. Las texturas que el juego usa no se tocan.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
