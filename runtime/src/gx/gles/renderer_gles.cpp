@@ -264,6 +264,11 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
             shutdown();
             return false;
         }
+        // A frame that fills a ring's segment (a galaxy's loading frames can pass 28 MiB of vertices) continues in
+        // the next slot instead of stopping the game: borrow_frame_slot.
+        for (UploadRing* ring : {&vertex_ring_, &index_ring_, &constant_ring_, &matrix_ring_}) {
+            ring->set_overflow([this](unsigned slot) { return borrow_frame_slot(slot); });
+        }
         timer_queries_ = caps.timer_query && glGenQueries != nullptr && glBeginQuery != nullptr &&
             glGetQueryObjectui64vEXT != nullptr && glGetQueryObjectuiv != nullptr;
         refresh_default_sampler_table();
@@ -413,6 +418,26 @@ UploadBuffer RendererGles::create_upload_buffer(std::size_t bytes, const char* n
 
 std::uint64_t RendererGles::completed_fence_value() const {
     return gles::Context::get().completed_value();
+}
+
+bool RendererGles::borrow_frame_slot(unsigned slot) {
+    if (slot >= kFramesInFlight || slot == frame_slot_ || !gpu_in_frame_) {
+        return false;
+    }
+    if ((borrowed_slots_ & (1u << slot)) == 0u) {
+        // The GPU finishes that slot's last frame first; the next frame to use the slot waits for this one
+        // (end_frame gives it this frame's fence).
+        Frame& frame = frames_[slot];
+        const auto wait_start = std::chrono::steady_clock::now();
+        if (frame.fence != 0u) {
+            wait_for_fence_value(frame.fence);
+        }
+        window_stats_.frame_wait_ns +=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - wait_start).count();
+        borrowed_slots_ |= 1u << slot;
+        ++window_stats_.borrowed_slots;
+    }
+    return true;
 }
 
 void RendererGles::wait_for_fence_value(std::uint64_t fence_value) {
@@ -855,6 +880,13 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
     }
     const std::uint64_t fence = context.submit();
     frames_[frame_slot_].fence = fence;
+    // Slots this frame's rings continued into (borrow_frame_slot): their next frame waits for this one.
+    for (unsigned slot = 0; slot < kFramesInFlight; ++slot) {
+        if ((borrowed_slots_ & (1u << slot)) != 0u) {
+            frames_[slot].fence = fence;
+        }
+    }
+    borrowed_slots_ = 0u;
     if (pointer_depth_in_frame_) {
         pointer_depth_fence_ = fence;
         pointer_depth_in_frame_ = false;
@@ -1002,6 +1034,12 @@ void RendererGles::report_stats() {
             char note[64];
             std::snprintf(note, sizeof(note), "; %.1f palette uploads",
                           static_cast<double>(window_stats_.palette_uploads) / frames);
+            palette_note += note;
+        }
+        if (window_stats_.borrowed_slots != 0u) {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %llu ring segments continued into another slot",
+                          static_cast<unsigned long long>(window_stats_.borrowed_slots));
             palette_note += note;
         }
         if (!gles::Context::get().caps().buffer_storage) {

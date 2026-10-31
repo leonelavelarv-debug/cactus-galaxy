@@ -444,6 +444,8 @@ struct FifoGuestMemoryReadRecorder {
 // ---------------------------------------------------------------------------
 class FifoParser {
 public:
+    // Retained capacity of the display-list cache (the memory census; budget GALAXY_GX_DISPLAY_LIST_CACHE_MB).
+    [[nodiscard]] std::uint64_t display_list_cache_bytes() const noexcept { return cache_bytes_; }
     // Parses one frame's accumulated FIFO bytes.  Register loads mutate
     // `state` (including LOAD_INDX resolution through `memory`); draws, EFB
     // copies, PE events, and invalidations are dispatched to `sink`.

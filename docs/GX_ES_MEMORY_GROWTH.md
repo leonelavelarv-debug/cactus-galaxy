@@ -1,0 +1,87 @@
+# GX-ES: el cierre en CosmosGardenGalaxy y la memoria que crece por galaxia
+
+Paso aparte, con permiso: toca los anillos y la memoria de la ruta normal (OpenGL ES 3.2), que el paso 2 no permitía
+cambiar. Viene del `smg/log.txt` de la tercera serie de ULTRA en KNULLI (31-oct).
+
+## Lo que mostró el log
+
+**1. Con la corrección, el juego se cerraba siempre al entrar a CosmosGardenGalaxy** (la 7.ª parada del recorrido, Jardín
+Céfiro).
+
+- Los tres recorridos con fetch (calentamiento, fetch y fetch2) terminaron igual, al byte:
+  `fatal: the renderer stopped: UploadRing 'vertex' exhausted: request 432 B at frame-used 29359728/29360128 B`
+  (NEB-C02, estado 3).
+- Un frame de la carga pide más de los 28 MiB de vértices por frame. En las otras galaxias el pico es de 17-21 MiB.
+- **La serie no tenía límite de galaxias** (son 44 paradas). Los "6 galaxias" de todas las series de este paso eran este
+  cierre, no un límite. Las cifras de FPS de GX_ES_STEP2_RESULTS.md son de esas 6 galaxias y siguen valiendo para ellas.
+
+**2. "antes" no se cerraba ahí, y por eso tardaba más.**
+
+- Con `GALAXY_GLES_BLEND_FETCH=0`, el pico de ese frame fue de 26.8 MiB, debajo de 28. El recorrido siguió hasta la
+  12.ª galaxia (FactoryGalaxy) y a los 370 s el sistema lo mató (`Killed`, 137).
+- Así se explican los 606 s y 342 s de "antes" en la primera y la tercera serie: no era el blending.
+- Por qué con fetch ese frame pasa de 28 MiB y sin fetch no, no está investigado. Con fetch hay más draws por frame en
+  todas las series (182 contra 162-167).
+
+**3. La memoria crece galaxia por galaxia.**
+
+En el recorrido "antes" (las líneas `memoria:` del lanzador):
+
+| | VmRSS de nebula | Libre |
+|---|---|---|
+| Al empezar | 614 MiB | 253 MiB |
+| AstroGalaxy | 707 MiB | 176 MiB |
+| Hacia la 8.ª galaxia | 749 MiB | 89 MiB |
+| Antes del `Killed` (12.ª) | 758 MiB | 45 MiB |
+
+El log no dice qué parte crece. Los presupuestos de las cachés suman más de lo que deja libre la consola:
+
+- display lists: 192 MiB por intérprete de FIFO, y hay tres (dibujo, dependencias y eventos);
+- texturas reciclables: 128 MiB;
+- copias del EFB: 64 MiB;
+- vértices decodificados: 64 MiB, más su buffer residente de 64 MiB;
+- reemplazos de texturas: 256 MiB, solo con packs.
+
+## El cambio
+
+### El anillo que se llena ya no cierra el juego
+
+| Archivo | Qué |
+|---|---|
+| `runtime/include/galaxy/gx/upload_ring.h`, `runtime/src/gx/upload_ring.cpp` | **`set_overflow`:** un frame que llena su parte del anillo sigue en la del slot siguiente, si quien lo maneja la libera. Hasta `frames_in_flight - 1` slots por frame; si no alcanza, sigue siendo un error fatal. Esa parte deja de valer para las subidas inmutables: nueva generación del slot y nueva identidad del anillo. Log de las primeras 8 veces: `[ring] vertex: a frame needed more than 28 MiB …; it continues in slot N` |
+| `runtime/src/gx/gles/renderer_gles.cpp`, `renderer_gles.h` | **`borrow_frame_slot`:** espera a que la GPU termine el último frame de ese slot y lo marca. `end_frame` le da a ese slot el fence de este frame, así que el siguiente frame que lo use espera a que este termine. Los cuatro anillos lo usan. En la línea `[gles] … frames/s`: `N ring segments continued into another slot` |
+| `platform/knulli/game/gles_renderer_tests.cpp` | **Prueba:** un frame que pasa su parte dibuja el triángulo que queda fuera. Los 5 frames siguientes dan la vuelta a todos los slots sin pedir nada prestado. Pasar de los cuatro slots juntos sigue siendo fatal, y el frame siguiente dibuja |
+
+- **Memoria:** no cuesta nada fijo. Usa los slots de los frames en vuelo, que ya existen.
+- **Costo:** solo en el frame que se pasa. Espera a la GPU una vez por slot prestado, y el frame que sigue en ese slot
+  espera al que se pasó.
+- **D3D12 y Vulkan:** no ponen el manejador, así que no cambian.
+
+### La medición de la memoria
+
+| Archivo | Qué |
+|---|---|
+| `runtime/src/gx/gx_backend.cpp`, `gx_backend.h` | **`log_memory_census`:** cada `GALAXY_GX_MEMORY_LOG` segundos (60 por defecto, 0 lo apaga), una línea `[memoria]` en log.txt. Trae VmRSS, la memoria libre y las cachés: display lists de los tres intérpretes, texturas decodificadas, caché de contenido, texturas reciclables, vértices decodificados y rangos inmutables. En GLES también las texturas y buffers de GL vivos y las copias del EFB |
+| `runtime/include/galaxy/gx/fifo_parser.h`, `texture_cache.h` | Lo que ocupan sus cachés (solo lectura) |
+| `runtime/src/gx/gles/gles_context.cpp`, `gles_context.h` | Bytes y número de texturas de GL vivas, bytes de buffers |
+| `platform/knulli/smg/smg/ultra/serie.cfg` | La serie de esta medición: un recorrido por las 44 galaxias, `[memoria]` cada 30 s, límite de 2400 s |
+
+No se limita nada todavía: primero hay que ver qué caché crece.
+
+## Pruebas (PC, Mesa)
+
+| Prueba | Resultado |
+|---|---|
+| `nebula_gles_renderer_tests`: 3.2, hilo de GL, `FORCE_ES30` y `FORCE_ES30` + hilo | 0 fallos, con la prueba nueva del anillo |
+| `nebula_gles_blend_tests` plain/fetch y `--comparar` | Cumple |
+| `nebula_gl_thread_tests`, `nebula_gles_shader_tests`, `nebula_texture_compact_tests`, `nebula_fifo_display_list_tests` | Pasan |
+| `armar.sh` para aarch64 con `NEBULA_MEDICION=1` | Compila; sin datos de la PC |
+
+## En la consola
+
+Con el paquete de medición, la serie corre sola: un recorrido de unos 20-25 minutos.
+
+1. **El cierre:** el recorrido debe pasar CosmosGardenGalaxy. En log.txt debe aparecer
+   `[ring] vertex: a frame needed more than 28 MiB …` en vez de `fatal`.
+2. **La memoria:** las líneas `[memoria]`, galaxia por galaxia, dicen qué caché crece. Con eso se decide qué limitar.
+3. Si el sistema mata el recorrido, el lanzador guarda lo que dice el kernel.

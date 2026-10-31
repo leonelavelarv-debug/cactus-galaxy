@@ -1759,6 +1759,10 @@ private:
     std::uint64_t frame_resident_vertex_bytes_ = 0;
     [[nodiscard]] bool ensure_resident_vertex_buffer();
     void release_resident_vertex_buffer() noexcept;
+    // [memoria] line every GALAXY_GX_MEMORY_LOG seconds (60; 0 = off): the caches that grow as galaxies load, the
+    // GL textures and buffers, VmRSS and MemAvailable. Render thread, after a frame's submit.
+    void log_memory_census();
+    std::int64_t memory_census_next_ns_ = 0;
     // Returns the entry's block to the arena (deferred reuse). Every removal or
     // replacement of a decoded_packet_run_cache_ entry must call this.
     void release_decoded_entry_residency(DecodedPacketRunCacheEntry& entry) noexcept;

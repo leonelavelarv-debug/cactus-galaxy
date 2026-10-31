@@ -149,6 +149,10 @@ public:
         }
     }
     void forget_writes(Buffer* buffer) noexcept;
+    // Live GL textures and buffers made here, in bytes (the memory census, GxBackend's [memoria] line).
+    static inline std::atomic<std::uint64_t> live_texture_bytes{0};
+    static inline std::atomic<std::uint64_t> live_texture_count{0};
+    static inline std::atomic<std::uint64_t> live_buffer_bytes{0};
     // OpenGL ES 3.0: the CPU copies' size and what flush_writes has sent (ULTRA-GLES and the window log).
     struct CopyStats {
         std::uint64_t copy_bytes = 0;

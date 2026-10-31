@@ -72,6 +72,7 @@
 #include <vector>
 
 #if defined(NEBULA_GPU_GLES)
+#include "galaxy/gx/gles/gles_context.h"
 #include "galaxy/gx/gles/ultra_gles.h"
 #endif
 
@@ -5410,6 +5411,75 @@ bool GxBackend::ensure_resident_vertex_buffer() {
                                     static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) *
                                         sizeof(GxVertexOut));
     return true;
+}
+
+void GxBackend::log_memory_census() {
+    static const std::int64_t period_s = [] {
+        char value[16]{};
+        std::size_t length = 0;
+        if (getenv_s(&length, value, sizeof(value), "GALAXY_GX_MEMORY_LOG") != 0 || length <= 1u) {
+            return std::int64_t{60};
+        }
+        return static_cast<std::int64_t>(std::max(0L, std::strtol(value, nullptr, 10)));
+    }();
+    if (period_s == 0) {
+        return;
+    }
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (memory_census_next_ns_ == 0) {
+        memory_census_next_ns_ = now + 10'000'000'000;  // the first 10 s after the first frame
+        return;
+    }
+    if (now < memory_census_next_ns_) {
+        return;
+    }
+    memory_census_next_ns_ = now + period_s * 1'000'000'000;
+    long rss_kib = -1;
+    long available_kib = -1;
+    const auto read_kib = [](const char* path, const char* key) {
+        long kib = -1;
+        if (std::FILE* file = std::fopen(path, "r")) {
+            char line[160];
+            const std::size_t length = std::strlen(key);
+            while (std::fgets(line, sizeof(line), file) != nullptr) {
+                if (std::strncmp(line, key, length) == 0) {
+                    kib = std::strtol(line + length, nullptr, 10);
+                    break;
+                }
+            }
+            std::fclose(file);
+        }
+        return kib;
+    };
+    rss_kib = read_kib("/proc/self/status", "VmRSS:");
+    available_kib = read_kib("/proc/meminfo", "MemAvailable:");
+    const auto mib = [](std::uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
+    const TextureCache::MemoryStats textures = texture_cache_.memory_stats();
+    char line[640];
+    int used = std::snprintf(
+        line, sizeof(line),
+        "[memoria] VmRSS %ld MiB, libre %ld MiB; listas %.1f + %.1f + %.1f MiB (dibujo, dependencias, eventos); "
+        "texturas decodificadas %.1f, contenido %.1f, reciclables %.1f MiB; vertices decodificados %.1f MiB, "
+        "rangos inmutables %.1f MiB",
+        rss_kib >= 0 ? rss_kib / 1024 : -1, available_kib >= 0 ? available_kib / 1024 : -1,
+        mib(parser_.display_list_cache_bytes()), mib(dependency_parser_.display_list_cache_bytes()),
+        mib(event_parser_.display_list_cache_bytes()), mib(textures.decoded_bytes), mib(textures.content_bytes),
+        mib(textures.pool_bytes), mib(decoded_packet_run_cache_bytes_), mib(immutable_range_cache_bytes_));
+#if defined(NEBULA_GPU_GLES)
+    if (used > 0 && static_cast<std::size_t>(used) < sizeof(line)) {
+        std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used),
+                      "; GL: %llu texturas %.1f MiB, buffers %.1f MiB, copias del EFB %.1f MiB",
+                      static_cast<unsigned long long>(
+                          gles::Context::live_texture_count.load(std::memory_order_relaxed)),
+                      mib(gles::Context::live_texture_bytes.load(std::memory_order_relaxed)),
+                      mib(gles::Context::live_buffer_bytes.load(std::memory_order_relaxed)),
+                      mib(renderer_.efb_copy_dest_bytes()));
+    }
+#else
+    (void)used;
+#endif
+    std::fprintf(stderr, "%s\n", line);
 }
 
 void GxBackend::release_resident_vertex_buffer() noexcept {
@@ -13393,6 +13463,7 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
             context.backend->poll_completed_frame_effects();
         },
         &submission_context);
+    log_memory_census();
     if (chunk.present_swap_chain && present_swap_chain &&
         selected_xfb != nullptr) {
         present_epoch_ = current_present_epoch;

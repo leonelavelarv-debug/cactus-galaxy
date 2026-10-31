@@ -290,6 +290,50 @@ int main() {
     renderer.begin_frame(true);
     renderer.end_frame(true);
 
+    // A frame that fills the vertex ring's segment continues in the next slot (a galaxy's loading frame passed
+    // 28 MiB on the console and stopped the game); the frames after it come round every slot as usual.
+    {
+        UploadRing& ring = renderer.vertex_ring();
+        const std::size_t per_frame = ring.bytes_per_frame();
+        renderer.begin_frame(true);
+        const std::uint64_t before = ring.overflows();
+        (void)ring.allocate(per_frame - 256u, 16u);
+        draw_triangle(CullMode::Front);  // its 432 bytes do not fit in what is left
+        expect(ring.overflows() == before + 1u, "vertex ring continued in the next slot",
+               static_cast<std::uint32_t>(ring.overflows() - before), 1u);
+        expect(ring.borrowed_slots() == 1u, "one slot borrowed", ring.borrowed_slots(), 1u);
+        (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+        expect(value == 0xC00000u, "the triangle past the segment is drawn", value, 0xC00000u);
+        renderer.end_frame(true);
+        for (unsigned i = 0; i < kFramesInFlight + 1u; ++i) {
+            renderer.begin_frame(true);
+            draw_triangle(CullMode::Front);
+            (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+            expect(value == 0xC00000u, "frames after the overflow draw", value, 0xC00000u);
+            expect(ring.borrowed_slots() == 0u, "and borrow nothing", ring.borrowed_slots(), 0u);
+            renderer.end_frame(true);
+        }
+        // More than every slot together is still fatal: geometry is never dropped silently.
+        renderer.begin_frame(true);
+        bool threw = false;
+        try {
+            for (unsigned i = 0; i <= kFramesInFlight; ++i) {
+                (void)ring.allocate(per_frame - 64u, 16u);
+            }
+        } catch (const std::runtime_error&) {
+            threw = true;
+        }
+        expect(threw, "a frame past every slot stops", threw ? 1u : 0u, 1u);
+        expect(ring.borrowed_slots() == kFramesInFlight - 1u, "after borrowing the other slots",
+               ring.borrowed_slots(), kFramesInFlight - 1u);
+        renderer.end_frame(true);
+        renderer.begin_frame(true);
+        draw_triangle(CullMode::Front);
+        (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+        expect(value == 0xC00000u, "and the next frame draws", value, 0xC00000u);
+        renderer.end_frame(true);
+    }
+
     // GLES_TEST_EDGE_PPM=<file>: a white diagonal on black through the display copy and present, the window saved
     // (to look at the upscale's filters by eye).
     if (const char* edge_ppm = std::getenv("GLES_TEST_EDGE_PPM"); edge_ppm != nullptr) {

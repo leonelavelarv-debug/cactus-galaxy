@@ -403,6 +403,9 @@ private:
     gles::GxLayout gx_layout_{};
     std::array<Frame, kFramesInFlight> frames_{};
     unsigned frame_slot_ = 0;
+    // UploadRing overflow: the slots the current frame's rings continued into (bit per slot).
+    unsigned borrowed_slots_ = 0;
+    bool borrow_frame_slot(unsigned slot);
     std::uint64_t frame_index_ = 0;
     bool current_ = false;
     bool presented_this_frame_ = false;
@@ -569,6 +572,7 @@ private:
         std::uint64_t vertices = 0;
         std::uint64_t depth_discards = 0;
         std::uint64_t xfb_repeats = 0;
+        std::uint64_t borrowed_slots = 0;  // ring segments a frame continued into (borrow_frame_slot)
     } window_stats_;
     gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.

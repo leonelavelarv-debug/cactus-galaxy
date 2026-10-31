@@ -80,6 +80,10 @@ void GL_APIENTRY debug_callback(GLenum, GLenum type, GLuint, GLenum severity, GL
 }  // namespace
 
 Texture::~Texture() {
+    if (allocation_bytes != 0u) {
+        Context::live_texture_bytes.fetch_sub(allocation_bytes, std::memory_order_relaxed);
+        Context::live_texture_count.fetch_sub(1u, std::memory_order_relaxed);
+    }
     const GLuint texture = name;
     const GLuint fb = framebuffer;
     if (texture == 0u && fb == 0u) {
@@ -92,6 +96,9 @@ Texture::~Texture() {
 }
 
 Buffer::~Buffer() {
+    if (size != 0u) {
+        Context::live_buffer_bytes.fetch_sub(size, std::memory_order_relaxed);
+    }
     const GLuint buffer = name;
     const std::uint64_t gx_address = address;
     const bool was_mapped = mapped != nullptr && !copy;
@@ -409,6 +416,8 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
         bytes += static_cast<std::uint64_t>(std::max(1u, width >> l)) * std::max(1u, height >> l) * texel;
     }
     texture->allocation_bytes = bytes;
+    live_texture_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    live_texture_count.fetch_add(1u, std::memory_order_relaxed);
     return texture;
 }
 
@@ -443,6 +452,7 @@ std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char* n
         }
         buffer->mapped = buffer->copy.get();
         buffer->size = size;
+        live_buffer_bytes.fetch_add(size, std::memory_order_relaxed);
         buffer->address = register_address(buffer.get());
         (void)readable;  // nothing reads these back on the CPU (readbacks use their own pixel-pack buffers)
         return buffer;
@@ -460,6 +470,7 @@ std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char* n
     }
     buffer->mapped = static_cast<std::byte*>(mapped);
     buffer->size = size;
+    live_buffer_bytes.fetch_add(size, std::memory_order_relaxed);
     buffer->address = register_address(buffer.get());
     return buffer;
 }

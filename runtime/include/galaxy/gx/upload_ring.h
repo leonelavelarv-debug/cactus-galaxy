@@ -9,6 +9,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <vector>
 
 namespace galaxy::gx {
@@ -40,10 +41,19 @@ public:
     void begin_frame(unsigned frame_slot);
 
     // Bump-allocates within the current frame segment. Exhaustion is a GxFatalError:
-    // geometry is never dropped silently.
+    // geometry is never dropped silently. With an overflow handler (set_overflow), a frame that
+    // fills its segment first continues in the next slot's segment, if the handler frees it.
     // Alignment must be a nonzero power of two. Rejected requests do not
     // consume bytes or advance the segment's content generation.
     Allocation allocate(std::size_t size, std::size_t alignment);
+
+    // `borrow(slot)`: the renderer waits until the GPU is done with `slot`'s last frame and keeps that
+    // slot for the current frame (the next frame to use it waits for this one); false refuses. Up to
+    // frames_in_flight - 1 slots a frame. Without a handler (D3D12, Vulkan) exhaustion stays fatal.
+    void set_overflow(std::function<bool(unsigned slot)> borrow) { borrow_ = std::move(borrow); }
+    // Slots this frame continued into, and how many times that has happened (diagnostics).
+    [[nodiscard]] unsigned borrowed_slots() const { return borrowed_; }
+    [[nodiscard]] std::uint64_t overflows() const { return overflows_; }
 
     Allocation upload_immutable(
         const void* source, std::size_t size, std::size_t alignment,
@@ -110,6 +120,12 @@ private:
     std::uint64_t copied_bytes_ = 0;
     std::uint64_t immutable_upload_calls_ = 0;
     std::size_t peak_bytes_per_frame_ = 0;
+    std::function<bool(unsigned)> borrow_;
+    unsigned borrowed_ = 0;            // slots after active_slot_ this frame continued into
+    std::size_t frame_used_before_ = 0;  // bytes the frame used in the segments before the current one
+    std::uint64_t overflows_ = 0;
+    // Moves the frame into the next free slot (see set_overflow); false when there is none.
+    bool continue_in_next_slot(std::size_t size, std::size_t alignment);
 };
 
 // A mapped upload buffer that lives until it is released (GxBackend's resident decoded vertices).
