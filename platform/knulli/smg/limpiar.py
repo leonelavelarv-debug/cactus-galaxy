@@ -22,7 +22,7 @@ def clean_launcher(s):
     # Los ajustes de smg/ajustes.cfg se leen nada mas entrar en la carpeta del juego, antes de abrir Cactus Galaxy Wrapper
     # (que tambien usa NEBULA_FACE_LAYOUT, NEBULA_QUIT_COMBO...) y antes de la primera linea del log, que los muestra.
     a = s.index("# Ajustes (se pueden cambiar aqui")
-    b = s.index("done\n", s.index('for cfg in "$GAMEDIR/ultra.cfg"', a)) + len("done\n")
+    b = s.index("done\n", s.index('for cfg in "$GAMEDIR/', a)) + len("done\n")
     block = s[a:b]
     s = s[:a] + s[b:]
     anchor = 'exec > >(tee "$GAMEDIR/log.txt") 2>&1\n'
@@ -35,7 +35,9 @@ def clean_launcher(s):
         "# Ajustes (se pueden cambiar aqui, o en smg/ajustes.cfg: lineas NOMBRE=valor, solo NEBULA_*, GALAXY_* y NOPAL_*, que mandan\n"
         "# sobre lo de abajo sin editar este archivo).\n"
         "# Se aceptan ajustes.cfg y ajustes.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del\n")
-    s = s.replace('for cfg in "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do',
+    s = s.replace("# Tambien smg/ajustes.cfg (el del port limpio, leido antes) y smg/ultra/ultra.cfg: los de ultra.cfg mandan.\n", "")
+    s = s.replace('for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt" '
+                  '"$GAMEDIR/ultra/ultra.cfg"; do',
                   'for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt"; do')
     s = s.replace("(ponlo en smg/ultra.cfg si algo se ve mal con el hilo)", "(ponlo en smg/ajustes.cfg si algo se ve mal con el hilo)")
     # Comentarios sin referencias a las mediciones ni a numeros de version.
