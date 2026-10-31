@@ -15,7 +15,7 @@ consola. Abajo están el paquete y la lista de pruebas que faltan, por firmware.
 | 5 | Los no afectados siguen igual | En la PC: imágenes idénticas byte a byte (controles sintéticos y 256 pipelines reales). Las pruebas que ya había siguen pasando |
 | 6 | Comparaciones documentadas | GX_ES_VISUAL_REGRESSION.md, hojas en `docs/gx_es_blend/` |
 | 7 | Ruta sin framebuffer fetch | La de antes (blending fijo), automática si el driver no lo tiene o con `GALAXY_GLES_BLEND_FETCH=0`; su error está medido |
-| 8 | Prueba en la RG35XX H | **Pendiente**: el paquete `pruebamezcla.zip` está listo (abajo) |
+| 8 | Prueba en la RG35XX H | **Parcial (KNULLI):** el juego corre con la forma ARM aceptada por el driver, 99.1 % de los draws de doble fuente mezclados en el shader, 0 errores de GL. Falta la comparación por píxel (`pruebamezcla.zip`), la serie de ULTRA y muOS |
 
 No se declara compatibilidad completa: lo verificado es la variante EXT en Mesa, en x86-64.
 
@@ -58,7 +58,23 @@ No se declara compatibilidad completa: lo verificado es la variante EXT en Mesa,
 
 ### KNULLI
 
-**Sin medir.** La prueba está lista (`pruebamezcla.zip`).
+**Primera corrida del juego (31-oct, log.txt de la consola, sin ULTRA: ~293 s, pantalla de título, selección de
+partida y Castillo de Peach):**
+
+- **El driver de la Mali acepta la forma ARM:** `[gles-blend] dual-source alpha: blended in the shader
+  (GL_ARM_shader_framebuffer_fetch)`.
+- **Ningún programa volvió al blending fijo:** ninguna línea `stays on fixed-function blending`.
+- **El 99.1 % de los draws de doble fuente** (20.3 por frame de media en 32 ventanas de 600 frames) se mezclaron en el
+  shader. El resto son draws con el uber: un programa que no estaba en la biblioteca, o mientras se enlazaban.
+- **0 errores de GL** y sin cierres.
+- **Picos de los anillos por frame:** vértices 17 464 KiB, índices 552, constantes 3 892, matrices 656.
+  - El de vértices es mucho mayor que los ~4 MiB de los menús; los 28 MiB por frame no sobran tanto como parecía en la
+    auditoría.
+  - No se cambian en este paso.
+
+**Falta:** `pruebamezcla.zip` (la comparación por píxel en la Mali), la serie de ULTRA (FPS con y sin la corrección) y
+la ruta de 3.0. ULTRA no arrancó en esa corrida: ningún archivo de ajustes tenía `NEBULA_ULTRA`. El paquete de
+medición ahora lo trae puesto (`smg/ultra/ultra.cfg`).
 
 ### muOS
 

@@ -124,8 +124,9 @@ fi
 # sobre lo de abajo sin editar este archivo; lo usa ULTRA-GLES para comparar ajustes):
 # Se aceptan ultra.cfg y ultra.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del
 # principio, espacios alrededor del =, comentarios con # y una ultima linea sin salto; cada ajuste leido queda en log.txt.
-# Tambien smg/ajustes.cfg (el del port limpio, leido antes) y smg/ultra/ultra.cfg: los de ultra.cfg mandan.
-for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt" "$GAMEDIR/ultra/ultra.cfg"; do
+# Tambien smg/ajustes.cfg (el del port limpio) y smg/ultra/ultra.cfg (el del paquete de medicion), leidos antes:
+# los de smg/ultra.cfg mandan.
+for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
   [ -f "$cfg" ] || continue
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
@@ -134,7 +135,7 @@ for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra.cfg
     key=$(printf '%s' "${line%%=*}" | tr -d ' \t')
     value=$(printf '%s' "${line#*=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     case "$key" in
-      NEBULA_*|GALAXY_*|NOPAL_*) export "$key=$value"; echo "ajuste de ${cfg##*/}: $key=$value" ;;
+      NEBULA_*|GALAXY_*|NOPAL_*) export "$key=$value"; echo "ajuste de ${cfg#"$GAMEDIR"/}: $key=$value" ;;
     esac
   done < "$cfg"
 done

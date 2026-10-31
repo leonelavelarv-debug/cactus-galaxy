@@ -163,6 +163,11 @@ python3 "$here/limpiar.py" "$full" "$out/port" > /dev/null
 if [ "${NEBULA_MEDICION:-0}" = 1 ]; then
   rm -rf "$out/port-medicion"
   mv "$full" "$out/port-medicion"
+  # Mide al abrirlo, sin editar nada en la consola: la serie de smg/ultra/serie.cfg (NEBULA_ULTRA_MEDICION=bench para
+  # un solo recorrido). Lo que se ponga en smg/ultra.cfg manda sobre esto.
+  printf '%s\n' "# El paquete de medicion: al abrir el juego corre la serie de ULTRA-GLES (smg/ultra/serie.cfg) y sale." \
+    "# Para jugar normal, instala el paquete limpio (o pon NEBULA_ULTRA=0 en smg/ultra.cfg)." \
+    "NEBULA_ULTRA=${NEBULA_ULTRA_MEDICION:-serie}" > "$out/port-medicion/smg/ultra/ultra.cfg"
 else
   rm -rf "$full"
 fi

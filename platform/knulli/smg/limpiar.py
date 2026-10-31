@@ -35,9 +35,10 @@ def clean_launcher(s):
         "# Ajustes (se pueden cambiar aqui, o en smg/ajustes.cfg: lineas NOMBRE=valor, solo NEBULA_*, GALAXY_* y NOPAL_*, que mandan\n"
         "# sobre lo de abajo sin editar este archivo).\n"
         "# Se aceptan ajustes.cfg y ajustes.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del\n")
-    s = s.replace("# Tambien smg/ajustes.cfg (el del port limpio, leido antes) y smg/ultra/ultra.cfg: los de ultra.cfg mandan.\n", "")
-    s = s.replace('for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt" '
-                  '"$GAMEDIR/ultra/ultra.cfg"; do',
+    s = s.replace("# Tambien smg/ajustes.cfg (el del port limpio) y smg/ultra/ultra.cfg (el del paquete de medicion), leidos antes:\n"
+                  "# los de smg/ultra.cfg mandan.\n", "")
+    s = s.replace('for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" '
+                  '"$GAMEDIR/ultra.cfg.txt"; do',
                   'for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt"; do')
     s = s.replace("(ponlo en smg/ultra.cfg si algo se ve mal con el hilo)", "(ponlo en smg/ajustes.cfg si algo se ve mal con el hilo)")
     # Comentarios sin referencias a las mediciones ni a numeros de version.
