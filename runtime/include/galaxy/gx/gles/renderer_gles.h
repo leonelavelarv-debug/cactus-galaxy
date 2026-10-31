@@ -570,6 +570,7 @@ private:
         std::uint64_t depth_discards = 0;
         std::uint64_t xfb_repeats = 0;
     } window_stats_;
+    gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.
     Window ultra_prev_{};
     std::int64_t ultra_cpu_prev_ = 0;

@@ -1004,6 +1004,29 @@ void RendererGles::report_stats() {
                           static_cast<double>(window_stats_.palette_uploads) / frames);
             palette_note += note;
         }
+        if (!gles::Context::get().caps().buffer_storage) {
+            // OpenGL ES 3.0: what the CPU copies sent a frame, and the process's resident memory (the copies' pages
+            // count once written).
+            const gles::Context::CopyStats copies = gles::Context::get().copy_stats();
+            long rss_kib = -1;
+            if (std::FILE* status = std::fopen("/proc/self/status", "r")) {
+                char line[128];
+                while (std::fgets(line, sizeof(line), status) != nullptr) {
+                    if (std::strncmp(line, "VmRSS:", 6) == 0) {
+                        rss_kib = std::strtol(line + 6, nullptr, 10);
+                        break;
+                    }
+                }
+                std::fclose(status);
+            }
+            char note[160];
+            std::snprintf(note, sizeof(note), "; copies %.1f writes %.0f KiB a frame (%llu MiB of copies), VmRSS %ld MiB",
+                          static_cast<double>(copies.ranges - copy_stats_prev_.ranges) / frames,
+                          static_cast<double>(copies.bytes - copy_stats_prev_.bytes) / 1024.0 / frames,
+                          static_cast<unsigned long long>(copies.copy_bytes >> 20u), rss_kib >= 0 ? rss_kib / 1024 : -1);
+            copy_stats_prev_ = copies;
+            palette_note += note;
+        }
         std::fprintf(stderr,
                      "[gles] %.1f frames/s; render thread %.1f ms/s (swap waits %.1f, frame-slot waits %.1f ms/s, readbacks %.1f ms/s); a frame: %.0f draws, "
                      "%.1f copies, %.1f clears, %.1f peeks (%.2f waited, %.2f whole fields), %.0f program changes, %.1f "

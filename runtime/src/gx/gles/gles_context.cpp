@@ -95,13 +95,17 @@ Buffer::~Buffer() {
     const GLuint buffer = name;
     const std::uint64_t gx_address = address;
     const bool was_mapped = mapped != nullptr && !copy;
+    // The GL thread reads the copy when a queued write runs (glthread::write_buffer): it lives until the deferred
+    // deletion, after a fence past every call queued now.
+    std::shared_ptr<std::byte> keep_copy;
     if (copy) {
         Context::get().forget_writes(this);
+        keep_copy.reset(copy.release(), FreeCopy{});
     }
     if (buffer == 0u) {
         return;
     }
-    Context::get().defer([buffer, gx_address, was_mapped] {
+    Context::get().defer([buffer, gx_address, was_mapped, keep_copy] {
         if (was_mapped) {
             glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
             glUnmapBuffer(GL_COPY_WRITE_BUFFER);
@@ -408,7 +412,7 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
     return texture;
 }
 
-std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char*, bool readable) {
+std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char* name, bool readable) {
     if (size == 0u) {
         return {};
     }
@@ -417,14 +421,26 @@ std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char*, 
     glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->name);
     if (!caps_.buffer_storage) {
         // OpenGL ES 3.0: the CPU writes a copy; flush_writes sends what changed before the draws that read it.
-        buffer->copy.reset(new (std::nothrow) std::byte[size]);
+        // calloc, not new + memset: zero without touching the pages, so the copy costs what is written.
+        buffer->copy.reset(static_cast<std::byte*>(std::calloc(static_cast<std::size_t>(size), 1u)));
         if (!buffer->copy) {
             glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+            std::fprintf(stderr, "[gles] no memory for the %llu-byte CPU copy of buffer '%s'\n",
+                         static_cast<unsigned long long>(size), name != nullptr ? name : "");
             return {};
         }
         glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW);
         glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
-        std::memset(buffer->copy.get(), 0, size);
+        std::uint64_t all = 0;
+        {
+            std::lock_guard<std::mutex> lock(dirty_mutex_);
+            all = copied_bytes_ += size;
+        }
+        if (size >= (8u << 20u)) {
+            std::fprintf(stderr, "[gles] buffer '%s' copied: %llu MiB (%llu MiB of copies in all; pages committed as "
+                         "written)\n", name != nullptr ? name : "", static_cast<unsigned long long>(size >> 20u),
+                         static_cast<unsigned long long>(all >> 20u));
+        }
         buffer->mapped = buffer->copy.get();
         buffer->size = size;
         buffer->address = register_address(buffer.get());
@@ -506,17 +522,15 @@ void Context::flush_dirty() {
     std::lock_guard<std::mutex> lock(dirty_mutex_);
     for (Buffer* buffer : dirty_) {
         if (buffer->dirty_begin < buffer->dirty_end) {
-            glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->name);
-            // From the copy: the GL thread (gl_thread.h) copies the bytes when it records the call.
-            glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(buffer->dirty_begin),
-                            static_cast<GLsizeiptr>(buffer->dirty_end - buffer->dirty_begin),
-                            buffer->copy.get() + buffer->dirty_begin);
+            // From the copy, mapped unsynchronized (glthread::write_buffer): no driver copy of a buffer in use and,
+            // with the GL thread, no copy of the bytes in its queue.
+            glthread::write_buffer(buffer->name, buffer->dirty_begin, buffer->dirty_end - buffer->dirty_begin,
+                                   buffer->copy.get() + buffer->dirty_begin);
+            ++flushed_ranges_;
+            flushed_bytes_ += buffer->dirty_end - buffer->dirty_begin;
         }
         buffer->dirty_begin = UINT64_MAX;
         buffer->dirty_end = 0;
-    }
-    if (!dirty_.empty()) {
-        glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
     }
     dirty_.clear();
     dirty_pending_.store(false, std::memory_order_release);

@@ -703,6 +703,8 @@ int compare_all(const std::filesystem::path& dir) {
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Line by line: if the kernel kills the test (out of memory), the log keeps up to the last step.
+    std::setvbuf(stdout, nullptr, _IOLBF, 0);
     if (argc >= 3 && std::string(argv[1]) == "--comparar") {
         return compare_all(argv[2]);
     }

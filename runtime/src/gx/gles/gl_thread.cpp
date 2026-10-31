@@ -899,6 +899,36 @@ void enqueue(std::function<void()> run) {
     push(std::move(run));
 }
 
+namespace {
+// GL_MAP_UNSYNCHRONIZED_BIT: the ranges written are ones no draw in flight reads (the rings' frame slots, the
+// resident vertices' free blocks), as with the persistent mapping of OpenGL ES 3.2. glBufferSubData on a buffer the
+// GPU still reads makes some drivers (the Mali's) copy the whole buffer first, and the rings are 100+ MiB.
+void write_buffer_now(GLuint buffer, std::uint64_t offset, std::uint64_t size, const std::byte* source) {
+    gl::glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+    void* target = gl::glMapBufferRange(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size),
+                                    GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+    if (target != nullptr) {
+        std::memcpy(target, source, static_cast<std::size_t>(size));
+        if (gl::glUnmapBuffer(GL_COPY_WRITE_BUFFER) == GL_FALSE) {
+            // The store was lost (the spec allows it, e.g. on a mode switch): send it again.
+            gl::glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), source);
+        }
+    } else {
+        gl::glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), source);
+    }
+    gl::glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+}
+}  // namespace
+
+void write_buffer(GLuint buffer, std::uint64_t offset, std::uint64_t size, const std::byte* source) {
+    if (!rec()) {
+        write_buffer_now(buffer, offset, size, source);
+        return;
+    }
+    // Read from `source` on the GL thread: no copy in the queue (they were as big as the range).
+    push([=] { write_buffer_now(buffer, offset, size, source); });
+}
+
 void run_sync(const std::function<void()>& run) {
     if (!rec()) {
         run();

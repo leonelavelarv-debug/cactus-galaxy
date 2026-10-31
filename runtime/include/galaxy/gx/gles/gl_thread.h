@@ -57,6 +57,11 @@ void stop();
 void enqueue(std::function<void()> run);
 // The same, and waits until it has run.
 void run_sync(const std::function<void()>& run);
+// OpenGL ES 3.0 buffers with a CPU copy (Context::flush_writes): `size` bytes of `source` into `buffer` at `offset`,
+// mapped unsynchronized. `source` must stay as it is until the GPU has read the range (the copy of a ring slot or
+// a resident block does: it is not rewritten before the frames that use it are done), and no draw in flight may
+// read the range. On the GL thread it is read when the call runs.
+void write_buffer(GLuint buffer, std::uint64_t offset, std::uint64_t size, const std::byte* source);
 // The GL thread starts on what is queued now (a frame's end; queued calls are also picked up as they come).
 void kick() noexcept;
 

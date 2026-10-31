@@ -16,7 +16,7 @@ están los resultados y lo que falta, por firmware.
 | 5 | Los no afectados siguen igual | En la PC y en la Mali (KNULLI, 3.2): imágenes idénticas byte a byte (controles sintéticos y 256 pipelines reales). Las pruebas que ya había siguen pasando |
 | 6 | Comparaciones documentadas | GX_ES_VISUAL_REGRESSION.md, hojas en `docs/gx_es_blend/` |
 | 7 | Ruta sin framebuffer fetch | La de antes (blending fijo), automática si el driver no lo tiene o con `GALAXY_GLES_BLEND_FETCH=0`; su error está medido |
-| 8 | Prueba en la RG35XX H | **KNULLI, 3.2: pasa.** Por píxel (`pruebamezcla.zip`, con y sin hilo de GL) y en el juego (forma ARM aceptada, 0 errores de GL, sin costo medible en la serie de ULTRA). **Falta:** la ruta de 3.0 (muere por memoria al crear los anillos, también sin la corrección), un recorrido "antes" que salió raro y muOS |
+| 8 | Prueba en la RG35XX H | **KNULLI, 3.2: pasa.** Por píxel (`pruebamezcla.zip`, con y sin hilo de GL) y en el juego (forma ARM aceptada, 0 errores de GL, sin costo medible en la serie de ULTRA). **Falta:** la ruta de 3.0 (muere por memoria, también sin la corrección; corregido en la PC en GX_ES_ES30_MEMORY.md) y muOS |
 
 No se declara compatibilidad completa. Está verificado: EXT en Mesa (x86-64) y ARM en la Mali con KNULLI, en OpenGL ES 3.2.
 Falta muOS y la ruta de 3.0 en la consola.
@@ -86,12 +86,12 @@ partida y Castillo de Peach):**
   igual: es la diferencia entre la Mali y Mesa (GX_ES_VISUAL_REGRESSION.md).
   - `--comparar` marcó FAIL las seis escenas porque usaba tolerancia 1 también entre GPUs.
   - Ahora: con otra GPU, RGB ≤ 2 y alfa ≤ 5. Con esos datos pasan las seis.
-- **es30 murió al crear los anillos**, antes del primer frame y antes de las líneas `[ring]`, igual con y sin la
-  corrección:
+- **es30 murió después de cargar la caché de programas**, igual con y sin la corrección. El log no dice en qué paso:
+  la salida de la prueba iba en búfer y se perdió con el proceso (ahora va línea por línea).
   - En 3.0 (sin `GL_EXT_buffer_storage`) cada anillo tiene una copia en la CPU, puesta a cero completa, además del
     buffer de GL. En la prueba son 192 MiB de anillos, así que la memoria se duplica.
   - Lo más probable es que el kernel lo matara por falta de memoria. No lo confirma ningún log.
-  - **No se cambia en este paso**: son anillos y memoria. Queda como problema pendiente.
+  - **No se cambia en este paso**: son anillos y memoria. Va en un paso aparte (GX_ES_ES30_MEMORY.md).
   - La Mali tiene 3.2, así que esta ruta no se usa en esta consola salvo con `GALAXY_GLES_FORCE_ES30=1`.
   - La primera `--comparar` dio estado 0 sin imágenes. Ahora es FAIL.
 
@@ -122,6 +122,26 @@ partida y Castillo de Peach):**
 - **Capturas:** entre recorridos con los mismos ajustes, el PSNR va de 22 dB a inf. No sirven para comparar por píxel,
   solo a ojo.
 - **Pantalla negra al final:** es el cambio entre recorridos de la serie. Ahí era donde moría es30.
+
+**Segunda serie de ULTRA (31-oct, la biblioteca GLSL rehecha con las claves de la consola, 1133 programas):**
+
+| Recorrido | FPS mostrados | FPS dibujados | p95 (ms) | GPU (ms) | draws/frame | draws uber | Duración |
+|---|---|---|---|---|---|---|---|
+| calentamiento | 33.31 | 13.08 | 52.8 | 8.25 | 186.2 | 0.00 % | 202 s |
+| fetch | 34.63 | 13.87 | 49.0 | 8.33 | 182.4 | 0.04 % | 181 s |
+| antes (`BLEND_FETCH=0`) | 34.80 | 13.35 | 48.2 | 8.12 | 183.7 | 0.03 % | 182 s |
+| es30 | — | — | — | — | — | — | 22 s, sin galaxias |
+| fetch2 | 34.66 | 14.13 | 48.9 | 8.33 | 182.8 | 0.00 % | 182 s |
+
+- **El uber era lo que más costaba:** con los programas en la biblioteca, el uber baja del 18 % a 0, la GPU de 41 ms a 8 ms
+  por frame y los FPS mostrados de 20 a 34.6.
+  - Ahora todos los draws de doble fuente se mezclan en el shader.
+  - No es una optimización de este paso: son los mismos shaders. La biblioteca solo tenía menos.
+- **Costo de la corrección: no medible.** fetch y fetch2 dan GPU 8.33 ms, "antes" 8.12 y el calentamiento 8.25, dentro del
+  ruido. FPS dibujados: 13.87 y 14.13 con fetch, 13.35 antes.
+- **"antes" ya no sale raro:** 182 s, como fetch. Lo de la primera serie (606 s) no se repite. Su `informe.txt` no muestra
+  nada fuera de lo normal: 0 errores de GL, 0 paradas de más de 250 ms, mínimo libre 138 MiB.
+- **es30 volvió a morir** a los 22 s. Es lo que corrige el paso aparte de la memoria de 3.0 (GX_ES_ES30_MEMORY.md).
 
 ### muOS
 
@@ -197,12 +217,11 @@ Al final, `smg/ultra/<fecha>-serie/comparacion.txt` compara todo con el primero.
 ## Problemas pendientes
 
 1. **muOS:** correr `pruebamezcla.zip` y la serie de ULTRA por separado.
-2. **El recorrido "antes" de KNULLI:** ver su `informe.txt` y repetirlo si se atascó.
-3. **La ruta de 3.0 muere por memoria** en la consola, con y sin la corrección. La causa probable es la copia en la CPU
-   de los anillos. Arreglarla cambia anillos y memoria, lo que este paso no permite; queda para otro paso, con permiso.
-4. **El 18 % de draws en el uber en la consola:** la biblioteca GLSL ya está rehecha con el `gles_keys.bin` de KNULLI
-   (`platform/knulli/smg/claves-consola.bin`, que `armar.sh` incluye solo). Pasa de 892 a 1133 programas GX. Falta
-   medir en la serie de ULTRA cuánto baja el uber.
+2. ~~El recorrido "antes" de KNULLI~~: en la segunda serie tardó lo mismo que fetch (182 s).
+3. **La ruta de 3.0 muere por memoria** en la consola, con y sin la corrección. Se corrige en un paso aparte
+   (GX_ES_ES30_MEMORY.md): pasa en la PC y falta en la consola.
+4. ~~El 18 % de draws en el uber~~: con la biblioteca rehecha con el `gles_keys.bin` de KNULLI
+   (`platform/knulli/smg/claves-consola.bin`, que `armar.sh` incluye solo; 892 → 1133 programas GX) es 0 %.
 5. Si un driver rechaza la forma ARM: corregir la transformación con el mensaje del log.
 6. Si el costo en GPU importa: medirlo. **No optimizar en este paso.**
 7. Una alternativa sin extensiones para otros drivers: en 202 de los 241 pipelines (alfa del EFB sin escribir), sacar la

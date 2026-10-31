@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -51,7 +52,12 @@ struct Buffer {
     std::byte* mapped = nullptr;
     std::uint64_t size = 0;
     std::uint64_t address = 0;
-    std::unique_ptr<std::byte[]> copy;  // `mapped` when the buffer is not persistently mapped
+    // `mapped` when the buffer is not persistently mapped. Zeroed by calloc: the pages are only committed as they are
+    // written (a ring uses its peak per frame, not all of its 100+ MiB).
+    struct FreeCopy {
+        void operator()(std::byte* bytes) const noexcept { std::free(bytes); }
+    };
+    std::unique_ptr<std::byte[], FreeCopy> copy;
     // The bytes written since the last flush: [dirty_begin, dirty_end) (guarded by the Context's write mutex).
     std::uint64_t dirty_begin = UINT64_MAX;
     std::uint64_t dirty_end = 0;
@@ -143,6 +149,16 @@ public:
         }
     }
     void forget_writes(Buffer* buffer) noexcept;
+    // OpenGL ES 3.0: the CPU copies' size and what flush_writes has sent (ULTRA-GLES and the window log).
+    struct CopyStats {
+        std::uint64_t copy_bytes = 0;
+        std::uint64_t ranges = 0;
+        std::uint64_t bytes = 0;
+    };
+    [[nodiscard]] CopyStats copy_stats() {
+        std::lock_guard<std::mutex> lock(dirty_mutex_);
+        return {copied_bytes_, flushed_ranges_, flushed_bytes_};
+    }
 
     static constexpr unsigned kAddressShift = 40;
     struct BufferOffset {
@@ -191,6 +207,9 @@ private:
     std::mutex dirty_mutex_;
     std::vector<Buffer*> dirty_;
     std::atomic<bool> dirty_pending_{false};
+    std::uint64_t copied_bytes_ = 0;    // CPU copies made (create_buffer, OpenGL ES 3.0)
+    std::uint64_t flushed_ranges_ = 0;  // flush_dirty writes and their bytes (under dirty_mutex_)
+    std::uint64_t flushed_bytes_ = 0;
     std::array<std::atomic<Buffer*>, kAddressSlots> address_slots_{};
     std::mutex address_mutex_;
     std::vector<std::uint32_t> free_address_ids_;

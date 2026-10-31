@@ -127,8 +127,8 @@ C frente a A, en todas las baldosas: máx. 1.
 - **La primera versión de `--comparar`** usaba tolerancia 1 también entre GPUs y marcó FAIL en las seis escenas, también
   en los controles, donde B y C son idénticas. Ahora usa la tolerancia entre GPUs de arriba. Con esos datos, las seis
   pasan.
-- **La ruta de 3.0** (`GALAXY_GLES_FORCE_ES30=1`) no dio resultados. B y C terminaron con `Killed` (estado 137) al
-  crear los anillos, antes del primer frame: falta de memoria con los buffers copiados (GX_ES_STEP2_RESULTS.md). La
+- **La ruta de 3.0** (`GALAXY_GLES_FORCE_ES30=1`) no dio resultados. B y C terminaron con `Killed` (estado 137): falta
+  de memoria con los buffers copiados (GX_ES_STEP2_RESULTS.md; corregido en la PC en GX_ES_ES30_MEMORY.md). La
   primera `--comparar` daba estado 0 sin imágenes; ahora una imagen de B o C que falta es un FAIL.
 
 ## Capturas

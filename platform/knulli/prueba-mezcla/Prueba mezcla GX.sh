@@ -49,7 +49,13 @@ for ruta in es32 es32-hilo es30; do
   [ "$ruta" = es30 ] && extra="GALAXY_GLES_FORCE_ES30=1"
   for modo in plain fetch; do
     env $extra "$GAMEDIR/nebula_gles_blend_tests" --modo "$modo" "$dir"
-    echo "estado $ruta $modo: $?"
+    estado=$?
+    echo "estado $ruta $modo: $estado"
+    if [ "$estado" -ge 128 ]; then
+      # Matado por una senal (137 = SIGKILL, casi siempre falta de memoria): lo que dice el kernel y la memoria libre.
+      dmesg 2>/dev/null | grep -iE "out of memory|killed process|oom" | tail -n 4
+      grep -E "MemAvailable" /proc/meminfo
+    fi
   done
   "$GAMEDIR/nebula_gles_blend_tests" --comparar "$dir"
   echo "comparacion $ruta: $?"
