@@ -57,6 +57,23 @@ El log no dice qué parte crece. Los presupuestos de las cachés suman más de l
   espera al que se pasó.
 - **D3D12 y Vulkan:** no ponen el manejador, así que no cambian.
 
+**Primera prueba en la consola (31-oct): el anillo siguió en otro slot, pero el juego se cerró igual.**
+
+- El log dice `[ring] vertex: a frame needed more than 28 MiB (29359728 B used, 432 B more); it continues in slot 3`.
+- Enseguida: `fatal: … draw batch upload rings were not contiguous`.
+- GxBackend junta draws seguidos en uno solo si sus vértices e índices quedan uno detrás del otro en el anillo. Cuando
+  el anillo salta a otro slot, el draw que se iba a juntar ya no queda contiguo.
+
+**Corrección:** `UploadRing::fits` dice si un tamaño cabe en lo que queda de la parte actual.
+`GxBackend::batch_rings_fit` lo pregunta en los tres lugares donde un draw se junta con el anterior (`on_cached_packet_draw_run`,
+`on_cached_draw_run_draw` y el draw normal).
+
+- Si un primitivo de *n* vértices podría no caber, no se junta. Se mide con cotas altas: 4 × *n* vértices y 6 × *n* índices.
+- El lote anterior se manda, y el primitivo empieza uno nuevo, que puede seguir en otro slot sin romper nada.
+- Solo cambia algo cerca del final de una parte del anillo. En D3D12 y Vulkan, donde el anillo nunca salta, ahí se manda
+  un lote antes del error de siempre.
+- La prueba del renderer comprueba `fits` antes del salto.
+
 ### La medición de la memoria
 
 | Archivo | Qué |
@@ -67,6 +84,25 @@ El log no dice qué parte crece. Los presupuestos de las cachés suman más de l
 | `platform/knulli/smg/smg/ultra/serie.cfg` | La serie de esta medición: un recorrido por las 44 galaxias, `[memoria]` cada 30 s, límite de 2400 s |
 
 No se limita nada todavía: primero hay que ver qué caché crece.
+
+### Primeras líneas `[memoria]` (la misma corrida, 7 galaxias)
+
+| Momento | VmRSS | Libre | Display lists | Texturas decodificadas | Vértices decodificados | Texturas de GL | Buffers de GL |
+|---|---|---|---|---|---|---|---|
+| Al empezar | 500 | 324 | 0.2 | 2.0 | 0.4 | 10.8 | 224 |
+| AstroGalaxy | 598 | 237 | 12.5 | 11.0 | 23.0 | 21.6 | 224 |
+| 3.ª galaxia | 643 | 191 | 19.7 | 14.5 | 34.2 | 26.2 | 224 |
+| 5.ª galaxia | 673 | 148 | 22.1 | 19.3 | 45.6 | 34.0 | 224 |
+| 7.ª galaxia | 680 | 133 | 18.6 | 17.4 | 43.2 | 35.3 | 224 |
+
+Todo en MiB.
+
+- **Lo que más creció:** los vértices decodificados (+43; su tope es 64), las texturas de GL (+25) y las display lists
+  (+18; solo las del intérprete de dibujo, los otros dos no guardan nada).
+- **Los buffers de GL** son fijos: 224 MiB, los cuatro anillos más los vértices residentes.
+- **Lo que no miden las cachés** también creció, unos 95 MiB de los 180. Puede ser el driver (programas), el montón
+  o la memoria del juego.
+- Con 7 galaxias no alcanza para saber qué sigue creciendo. Hace falta el recorrido completo.
 
 ## Pruebas (PC, Mesa)
 

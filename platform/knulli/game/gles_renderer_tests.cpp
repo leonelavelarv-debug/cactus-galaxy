@@ -298,6 +298,9 @@ int main() {
         renderer.begin_frame(true);
         const std::uint64_t before = ring.overflows();
         (void)ring.allocate(per_frame - 256u, 16u);
+        // What a draw batch asks before appending (GxBackend::batch_rings_fit).
+        expect(ring.fits(240u, 16u), "240 bytes still fit", 0u, 1u);
+        expect(!ring.fits(432u, 16u), "432 bytes do not", 1u, 0u);
         draw_triangle(CullMode::Front);  // its 432 bytes do not fit in what is left
         expect(ring.overflows() == before + 1u, "vertex ring continued in the next slot",
                static_cast<std::uint32_t>(ring.overflows() - before), 1u);

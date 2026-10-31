@@ -5413,6 +5413,13 @@ bool GxBackend::ensure_resident_vertex_buffer() {
     return true;
 }
 
+bool GxBackend::batch_rings_fit(std::uint64_t vertices) {
+    // Upper bounds for one primitive: lines expand to quads (4 vertices, 6 indices a vertex at most).
+    const std::size_t n = static_cast<std::size_t>(vertices);
+    return renderer_.vertex_ring().fits(n * 4u * sizeof(GxVertexOut), 16u) &&
+           renderer_.index_ring().fits(n * 6u * sizeof(std::uint16_t), sizeof(std::uint16_t));
+}
+
 void GxBackend::log_memory_census() {
     static const std::int64_t period_s = [] {
         char value[16]{};
@@ -16053,6 +16060,11 @@ bool GxBackend::on_cached_packet_draw_run(
         append_to_pending = false;
         cached_draw_run_batch_compatible_known_ = false;
     }
+    if (append_to_pending && !batch_rings_fit(total_vertices)) {
+        // The rings would continue in another slot (UploadRing::set_overflow): not contiguous with the batch.
+        append_to_pending = false;
+        cached_draw_run_batch_compatible_known_ = false;
+    }
     if (pending_draw_batch_.active && !append_to_pending) {
         flush_pending_draw_batch();
         cached_draw_run_batch_compatible_known_ = false;
@@ -16468,6 +16480,11 @@ void GxBackend::on_cached_draw_run_draw(
         append_to_pending = false;
         cached_draw_run_batch_compatible_known_ = false;
     }
+    if (append_to_pending && !batch_rings_fit(source_vertex_count)) {
+        // The rings would continue in another slot (UploadRing::set_overflow): not contiguous with the batch.
+        append_to_pending = false;
+        cached_draw_run_batch_compatible_known_ = false;
+    }
     if (pending_draw_batch_.active && !append_to_pending) {
         flush_pending_draw_batch();
         cached_draw_run_batch_compatible_known_ = false;
@@ -16708,6 +16725,10 @@ void GxBackend::on_draw(
             static_cast<std::uint32_t>(source_vertex_count) >
             std::numeric_limits<std::uint16_t>::max()) {
         flush_pending_draw_batch();
+        append_to_pending = false;
+    }
+    if (append_to_pending && !batch_rings_fit(source_vertex_count)) {
+        // The rings would continue in another slot (UploadRing::set_overflow): not contiguous with the batch.
         append_to_pending = false;
     }
     if (pending_draw_batch_.active && !append_to_pending) {

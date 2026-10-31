@@ -1762,6 +1762,9 @@ private:
     // [memoria] line every GALAXY_GX_MEMORY_LOG seconds (60; 0 = off): the caches that grow as galaxies load, the
     // GL textures and buffers, VmRSS and MemAvailable. Render thread, after a frame's submit.
     void log_memory_census();
+    // Whether a primitive of `vertices` fits in what is left of the vertex and index rings' segments: a draw batch
+    // appends only then (a ring that continues in another slot is not contiguous with it).
+    bool batch_rings_fit(std::uint64_t vertices);
     std::int64_t memory_census_next_ns_ = 0;
     // Returns the entry's block to the arena (deferred reuse). Every removal or
     // replacement of a decoded_packet_run_cache_ entry must call this.

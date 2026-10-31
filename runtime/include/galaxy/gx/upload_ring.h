@@ -51,6 +51,13 @@ public:
     // slot for the current frame (the next frame to use it waits for this one); false refuses. Up to
     // frames_in_flight - 1 slots a frame. Without a handler (D3D12, Vulkan) exhaustion stays fatal.
     void set_overflow(std::function<bool(unsigned slot)> borrow) { borrow_ = std::move(borrow); }
+    // Whether `size` bytes at `alignment` fit in what is left of the current segment (no slot change). A caller
+    // that needs its next allocations contiguous with the last ones (GxBackend's draw batches) asks first.
+    [[nodiscard]] bool fits(std::size_t size, std::size_t alignment) const noexcept {
+        const std::size_t padding = (std::size_t{0} - cursor_) & (alignment - 1u);
+        const std::size_t remaining = bytes_per_frame_ - (cursor_ - segment_base_);
+        return padding <= remaining && size <= remaining - padding;
+    }
     // Slots this frame continued into, and how many times that has happened (diagnostics).
     [[nodiscard]] unsigned borrowed_slots() const { return borrowed_; }
     [[nodiscard]] std::uint64_t overflows() const { return overflows_; }
