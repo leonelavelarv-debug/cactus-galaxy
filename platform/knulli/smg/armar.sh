@@ -110,6 +110,8 @@ cmake -S "$repo/platform/knulli/game" -B "$build/aot" -DCMAKE_BUILD_TYPE=Release
   -DNEBULA_DEPS="$NEBULA_DEPS" -DNEBULA_GLES_TRANSLATOR=ON > "$build/aot.log"
 cmake --build "$build/aot" -j "$jobs" --target nebula_glsl_aot >> "$build/aot.log" || fail "nebula_glsl_aot no compilo: $build/aot.log"
 claves=("$repo/platform/android/vk_seed_keys.bin")
+# Las que anoto el juego en la RG35XX H (KNULLI, 31-oct): 486 claves, 241 programas que la semilla no tiene.
+[ -f "$here/claves-consola.bin" ] && claves+=("$here/claves-consola.bin")
 for c in ${NEBULA_CLAVES:-}; do [ -f "$c" ] || fail "no existe $c (NEBULA_CLAVES)"; claves+=("$c"); done
 "$build/aot/nebula_glsl_aot" "$build/shaders-gles.bin" "${claves[@]}" 2>> "$build/aot.log" || fail "la biblioteca GLSL fallo: $build/aot.log"
 say "4/6 nebula-pak y Cactus Galaxy Wrapper"

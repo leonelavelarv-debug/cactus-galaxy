@@ -200,7 +200,9 @@ Al final, `smg/ultra/<fecha>-serie/comparacion.txt` compara todo con el primero.
 2. **El recorrido "antes" de KNULLI:** ver su `informe.txt` y repetirlo si se atascó.
 3. **La ruta de 3.0 muere por memoria** en la consola, con y sin la corrección. La causa probable es la copia en la CPU
    de los anillos. Arreglarla cambia anillos y memoria, lo que este paso no permite; queda para otro paso, con permiso.
-4. **El 18 % de draws en el uber en la consola:** rearmar la biblioteca GLSL con `gles_keys.bin` de la consola.
+4. **El 18 % de draws en el uber en la consola:** la biblioteca GLSL ya está rehecha con el `gles_keys.bin` de KNULLI
+   (`platform/knulli/smg/claves-consola.bin`, que `armar.sh` incluye solo). Pasa de 892 a 1133 programas GX. Falta
+   medir en la serie de ULTRA cuánto baja el uber.
 5. Si un driver rechaza la forma ARM: corregir la transformación con el mensaje del log.
 6. Si el costo en GPU importa: medirlo. **No optimizar en este paso.**
 7. Una alternativa sin extensiones para otros drivers: en 202 de los 241 pipelines (alfa del EFB sin escribir), sacar la
