@@ -48,6 +48,7 @@ sección 5).
 | A frente a la mezcla calculada | ≤ 1 | La especificación de GL no obliga al blending fijo a redondear igual que el cálculo exacto; Mesa difiere en 1 en parte de los píxeles |
 | A frente a C, todas las escenas | ≤ 1 por canal en todos los píxeles | Lo anterior en cada lado |
 | B frente a C en los controles | **0** (idénticas) | Los pipelines sin doble fuente no cambian: misma clave, mismo programa, mismo estado |
+| A de otra GPU frente a C (consola: A de Mesa, C de la Mali) | RGB ≤ 2, alfa ≤ 5 | Medido en la Mali con los **controles**, que este cambio no toca: frente a Mesa ya difieren en RGB 2 (redondeo de la interpolación) y alfa 4-5 (un escalón de la alfa de 6 bits del EFB). `--comparar` la usa cuando `referencia/gl.txt` y `fetch/gl.txt` no dicen la misma GPU; con la misma GPU, ≤ 1. La prueba exacta en la Mali es la de C contra la mezcla calculada, que no depende de otra GPU |
 
 ## Resultados en la PC (x86-64, Mesa 25.2.8 llvmpipe, OpenGL ES 3.2)
 
@@ -98,6 +99,38 @@ C frente a A, en todas las baldosas: máx. 1.
 | Sin traductor (`NEBULA_GLES_TRANSLATOR=OFF`, como la consola), con la biblioteca GLSL: B y C | Iguales; A vs C ≤ 1 en todo; 0 programas fuera de la biblioteca |
 | Fetch en los programas | 208 programas transformados, 0 que vuelvan al blending fijo |
 
+## Resultados en la RG35XX H (KNULLI, Mali-G31, driver r20p0)
+
+`pruebamezcla.zip`, 31-oct, rutas es32 y es32-hilo (las dos dieron lo mismo). El driver acepta la forma ARM
+(`GL_ARM_shader_framebuffer_fetch`).
+
+**Contra la mezcla calculada en la Mali** (la prueba exacta; no depende de la PC):
+
+| Modo | `exactas-galaxy` (326 656 píxeles de doble fuente) | `exactas-controles` (336 864) |
+|---|---|---|
+| B antes | **102 610 con error > 1; máx. 199** | 0 con error > 1; máx. 0 |
+| C fetch | **0 con error > 1; máx. 1** | 0 con error > 1; máx. 0 |
+
+**Imagen contra imagen** (A es la referencia de la PC; `metricas.txt` de la consola):
+
+| Escena | A vs B máx. R G B A | A vs C máx. R G B A | B vs C |
+|---|---|---|---|
+| exactas-galaxy | 180 199 193 4 | 2 2 2 4 | distintas (la corrección) |
+| exactas-controles | 2 2 2 4 | 2 2 2 4 | **idénticas** |
+| gradientes | 122 142 153 5 | 2 2 2 5 | distintas |
+| superpuestas | 32 58 40 4 | 1 1 2 4 | distintas |
+| claves-reales | 109 77 102 4 | 2 1 2 4 | distintas |
+| controles-reales | 1 1 2 4 | 1 1 2 4 | **idénticas** |
+
+- **C coincide con la referencia** en todas las escenas, dentro de lo que la Mali ya difiere de Mesa en los controles
+  (RGB 2, alfa 4-5). B conserva el error de antes, hasta 199 niveles.
+- **La primera versión de `--comparar`** usaba tolerancia 1 también entre GPUs y marcó FAIL en las seis escenas, también
+  en los controles, donde B y C son idénticas. Ahora usa la tolerancia entre GPUs de arriba. Con esos datos, las seis
+  pasan.
+- **La ruta de 3.0** (`GALAXY_GLES_FORCE_ES30=1`) no dio resultados. B y C terminaron con `Killed` (estado 137) al
+  crear los anillos, antes del primer frame: falta de memoria con los buffers copiados (GX_ES_STEP2_RESULTS.md). La
+  primera `--comparar` daba estado 0 sin imágenes; ahora una imagen de B o C que falta es un FAIL.
+
 ## Capturas
 
 Hojas de contacto en `docs/gx_es_blend/`. Cada una tiene, en este orden:
@@ -122,13 +155,15 @@ Las imágenes completas (`<modo>/<escena>.png`, `fondo-*.png` y `dif/`) las escr
 
 | # | Prueba | Cómo | Estado |
 |---|---|---|---|
-| 1 | Pipelines afectados | `claves-reales` + escenas exactas, C contra A y contra el cálculo | Pasa en la PC |
-| 2 | Pipelines no afectados | `exactas-controles`, `controles-reales`: B y C idénticas | Pasa en la PC |
-| 3 | `GXSetDstAlpha` | Filas `+dstalpha` de las escenas exactas; alfa del EFB comparada | Pasa en la PC |
-| 4 | Alfa del TEV | 11 alfas, entre ellas 1 (que cuenta como 0) y los bordes de 6 bits | Pasa en la PC |
-| 5 | Combinaciones de blending | Los 5 pares de Galaxy × escritura de alfa × alfa constante, más 4 controles | Pasa en la PC |
-| 6 | Framebuffer fetch | Modo C: EXT en Mesa; **ARM solo en la consola** | EXT pasa; ARM pendiente |
-| 7 | Ruta sin la extensión | Modo B (`GALAXY_GLES_BLEND_FETCH=0`): sin errores en los controles; el error de doble fuente queda medido | Pasa en la PC |
+| 1 | Pipelines afectados | `claves-reales` + escenas exactas, C contra A y contra el cálculo | Pasa en la PC y en KNULLI (3.2) |
+| 2 | Pipelines no afectados | `exactas-controles`, `controles-reales`: B y C idénticas | Pasa en la PC y en KNULLI (3.2) |
+| 3 | `GXSetDstAlpha` | Filas `+dstalpha` de las escenas exactas; alfa del EFB comparada | Pasa en la PC y en KNULLI (3.2) |
+| 4 | Alfa del TEV | 11 alfas, entre ellas 1 (que cuenta como 0) y los bordes de 6 bits | Pasa en la PC y en KNULLI (3.2) |
+| 5 | Combinaciones de blending | Los 5 pares de Galaxy × escritura de alfa × alfa constante, más 4 controles | Pasa en la PC y en KNULLI (3.2) |
+| 6 | Framebuffer fetch | Modo C: EXT en Mesa; ARM en la Mali | EXT pasa; **ARM pasa en KNULLI**; muOS pendiente |
+| 7 | Ruta sin la extensión | Modo B (`GALAXY_GLES_BLEND_FETCH=0`): sin errores en los controles; el error de doble fuente queda medido | Pasa en la PC y en KNULLI (3.2) |
+
+En la consola, la ruta de 3.0 no corrió (falta de memoria, arriba) y muOS no está medido.
 
 **Pruebas que no corren en Linux** (dependen de D3D12) y no se cuentan como pasadas: `vertex_loader_tests`,
 `shader_gen_tests`, `xf_lighting_tests`, `efb_conversion_tests` y `sampler_key_tests` (GX_ES_TEST_PLAN.md).

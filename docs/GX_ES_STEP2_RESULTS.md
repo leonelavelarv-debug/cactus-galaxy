@@ -1,8 +1,9 @@
 # GX-ES paso 2: resultados
 
-La mezcla de doble fuente de GX está corregida con framebuffer fetch y verificada **en la PC**. **No está probada en la
-RG35XX H**: la ruta `GL_ARM_shader_framebuffer_fetch`, la que usará la Mali, solo puede compilarse y medirse en la
-consola. Abajo están el paquete y la lista de pruebas que faltan, por firmware.
+La mezcla de doble fuente de GX está corregida con framebuffer fetch. Está verificada en la PC y **en la RG35XX H con
+KNULLI (OpenGL ES 3.2)**: la Mali acepta `GL_ARM_shader_framebuffer_fetch` y su resultado coincide con la mezcla de GX
+calculada (0 píxeles con error > 1). Faltan la ruta de 3.0 en la consola (no llegó a correr por memoria) y muOS. Abajo
+están los resultados y lo que falta, por firmware.
 
 ## Criterios de finalización
 
@@ -11,13 +12,14 @@ consola. Abajo están el paquete y la lista de pruebas que faltan, por firmware.
 | 1 | Reproducir el problema | Hecho: hasta 199 niveles de error frente a la mezcla de GX en la escena exacta; 107 186 píxeles con error > 1 (GX_ES_VISUAL_REGRESSION.md) |
 | 2 | Causa exacta | Hecho. La salida 1 del shader (alfa del TEV) no llega al blender sin `GL_EXT_blend_func_extended`, y `GL_SRC_ALPHA` lee la salida 0. En 35 pipelines esa salida lleva la constante de `GXSetDstAlpha`; en 206, la alfa a 6 bits (GX_ES_BLEND_ANALYSIS.md). Corrige la auditoría, que decía "alfa constante" para los 241 |
 | 3 | Solución verificable | Hecho: la mezcla en el shader con framebuffer fetch, activable y desactivable (GX_ES_FRAMEBUFFER_FETCH.md) |
-| 4 | Los afectados pasan | En la PC (EXT): 0 píxeles con error > 1 frente a la mezcla calculada; los 241 pipelines reales ≤ 1 frente a la referencia SRC1. **En la Mali (ARM): pendiente** |
-| 5 | Los no afectados siguen igual | En la PC: imágenes idénticas byte a byte (controles sintéticos y 256 pipelines reales). Las pruebas que ya había siguen pasando |
+| 4 | Los afectados pasan | En la PC (EXT): 0 píxeles con error > 1 frente a la mezcla calculada; los 241 pipelines reales ≤ 1 frente a la referencia SRC1. **En la Mali (ARM, KNULLI, 3.2): 0 píxeles con error > 1 (máx. 1)**; frente a la referencia de la PC, dentro de lo que ya difieren los controles (RGB 2, alfa 4-5) |
+| 5 | Los no afectados siguen igual | En la PC y en la Mali (KNULLI, 3.2): imágenes idénticas byte a byte (controles sintéticos y 256 pipelines reales). Las pruebas que ya había siguen pasando |
 | 6 | Comparaciones documentadas | GX_ES_VISUAL_REGRESSION.md, hojas en `docs/gx_es_blend/` |
 | 7 | Ruta sin framebuffer fetch | La de antes (blending fijo), automática si el driver no lo tiene o con `GALAXY_GLES_BLEND_FETCH=0`; su error está medido |
-| 8 | Prueba en la RG35XX H | **Parcial (KNULLI):** el juego corre con la forma ARM aceptada por el driver, 99.1 % de los draws de doble fuente mezclados en el shader, 0 errores de GL. Falta la comparación por píxel (`pruebamezcla.zip`), la serie de ULTRA y muOS |
+| 8 | Prueba en la RG35XX H | **KNULLI, 3.2: pasa.** Por píxel (`pruebamezcla.zip`, con y sin hilo de GL) y en el juego (forma ARM aceptada, 0 errores de GL, sin costo medible en la serie de ULTRA). **Falta:** la ruta de 3.0 (muere por memoria al crear los anillos, también sin la corrección), un recorrido "antes" que salió raro y muOS |
 
-No se declara compatibilidad completa: lo verificado es la variante EXT en Mesa, en x86-64.
+No se declara compatibilidad completa. Está verificado: EXT en Mesa (x86-64) y ARM en la Mali con KNULLI, en OpenGL ES 3.2.
+Falta muOS y la ruta de 3.0 en la consola.
 
 ## Archivos modificados
 
@@ -28,7 +30,7 @@ No se declara compatibilidad completa: lo verificado es la variante EXT en Mesa,
 | `runtime/src/gx/gles/pipeline_cache_gles.cpp` | +66 −4 | `GALAXY_GLES_BLEND_FETCH`, `PairKey::blend`, transformar al enlazar, binario propio, vuelta al blending fijo si falla, blend apagado en el pipeline, log |
 | `runtime/include/galaxy/gx/gles/pipeline_cache_gles.h` | +18 | Lo anterior |
 | `runtime/src/gx/gles/renderer_gles.cpp`, `renderer_gles.h` | +18 −1 | Contadores de draws de doble fuente; acceso al EFB para pruebas |
-| `platform/knulli/game/gles_blend_tests.cpp` | nuevo, 825 | Las pruebas de imagen (A/B/C, mezcla calculada, métricas, diferencias) |
+| `platform/knulli/game/gles_blend_tests.cpp` | nuevo, ~860 | Las pruebas de imagen (A/B/C, mezcla calculada, métricas, diferencias; tolerancia entre GPUs) |
 | `platform/knulli/game/CMakeLists.txt` | +12 | Ese objetivo (con `$ORIGIN`: también corre en la consola) |
 | `platform/knulli/prueba-mezcla/` | nuevo | El paquete de prueba para la consola: lanzador, `port.json`, `LEEME.txt`, `empaquetar-prueba.sh` |
 | `platform/knulli/smg/Super Mario Galaxy.sh` | +3 | Documenta `GALAXY_GLES_BLEND_FETCH` |
@@ -72,9 +74,54 @@ partida y Castillo de Peach):**
     auditoría.
   - No se cambian en este paso.
 
-**Falta:** `pruebamezcla.zip` (la comparación por píxel en la Mali), la serie de ULTRA (FPS con y sin la corrección) y
-la ruta de 3.0. ULTRA no arrancó en esa corrida: ningún archivo de ajustes tenía `NEBULA_ULTRA`. El paquete de
-medición ahora lo trae puesto (`smg/ultra/ultra.cfg`).
+**`pruebamezcla.zip` (31-oct; MemTotal 973 MiB, MemAvailable 759 MiB al empezar):**
+
+| Ruta | B (antes) contra la mezcla calculada | C (fetch) contra la mezcla calculada | B vs C en los controles | Estado |
+|---|---|---|---|---|
+| es32 | 102 610 píxeles con error > 1, máx. 199 | **0 con error > 1, máx. 1** | idénticas | 0 y 0 |
+| es32-hilo | igual | **igual** | idénticas | 0 y 0 |
+| es30 | — | — | — | **137 (`Killed`) en B y en C** |
+
+- **Frente a la referencia de la PC**, C difiere en RGB 2 y alfa 4-5. Los controles, que este cambio no toca, difieren
+  igual: es la diferencia entre la Mali y Mesa (GX_ES_VISUAL_REGRESSION.md).
+  - `--comparar` marcó FAIL las seis escenas porque usaba tolerancia 1 también entre GPUs.
+  - Ahora: con otra GPU, RGB ≤ 2 y alfa ≤ 5. Con esos datos pasan las seis.
+- **es30 murió al crear los anillos**, antes del primer frame y antes de las líneas `[ring]`, igual con y sin la
+  corrección:
+  - En 3.0 (sin `GL_EXT_buffer_storage`) cada anillo tiene una copia en la CPU, puesta a cero completa, además del
+    buffer de GL. En la prueba son 192 MiB de anillos, así que la memoria se duplica.
+  - Lo más probable es que el kernel lo matara por falta de memoria. No lo confirma ningún log.
+  - **No se cambia en este paso**: son anillos y memoria. Queda como problema pendiente.
+  - La Mali tiene 3.2, así que esta ruta no se usa en esta consola salvo con `GALAXY_GLES_FORCE_ES30=1`.
+  - La primera `--comparar` dio estado 0 sin imágenes. Ahora es FAIL.
+
+**Serie de ULTRA (31-oct, 6 galaxias + selección, paquete de medición):**
+
+| Recorrido | FPS mostrados | FPS dibujados | p95 (ms) | GPU (ms) | draws/frame | draws uber | Duración |
+|---|---|---|---|---|---|---|---|
+| calentamiento | 19.93 | 8.42 | 158.6 | 41.2 | 182.1 | 18.7 % | 342 s |
+| fetch | 20.11 | 8.19 | 158.1 | 41.1 | 182.7 | 17.9 % | 322 s |
+| antes (`BLEND_FETCH=0`) | 20.68 | 8.51 | 144.9 | 41.8 | 162.1 | 20.0 % | **606 s** |
+| es30 | — | — | — | — | — | — | sin `resumen.json` |
+| fetch2 | 19.70 | 8.26 | 160.5 | 40.4 | 181.5 | 18.0 % | 322 s |
+
+- **Costo de la corrección: no medible.** fetch, fetch2 y el calentamiento (todos con fetch) varían entre sí más que
+  cualquier diferencia de GPU.
+- **"antes" salió raro:**
+  - El recorrido tardó 606 s frente a 322 s, con 78 % más frames > 25 ms.
+  - Al mismo tiempo dio 11 % menos draws por frame y p95 mejor.
+  - Ninguna de las dos cosas sale del blending. Puede que se haya quedado en otro punto o atascado en una galaxia.
+  - Hace falta su `informe.txt` para saberlo. No cuenta como medición de la ruta de antes.
+- **es30 no terminó:** probablemente lo mismo que en `pruebamezcla`.
+- **18 % de los draws van al uber** en todos los recorridos.
+  - Son programas que la biblioteca GLSL no tiene: este paquete no trae traductor, y la biblioteca se armó solo con las
+    claves semilla.
+  - Los draws de doble fuente que caen en el uber siguen con el blending fijo, es decir, con el error de antes.
+  - Se arregla rearmando la biblioteca con las claves que el juego guardó en la consola
+    (`smg/data/shadercache/RMGE01/gles_keys.bin`). No es parte de este paso.
+- **Capturas:** entre recorridos con los mismos ajustes, el PSNR va de 22 dB a inf. No sirven para comparar por píxel,
+  solo a ojo.
+- **Pantalla negra al final:** es el cambio entre recorridos de la serie. Ahí era donde moría es30.
 
 ### muOS
 
@@ -95,7 +142,7 @@ Copiar "Prueba mezcla GX.sh" y `pruebamezcla/` a `ports` y ejecutarlo. Hace, sin
 | La ruta de 3.0 con `GALAXY_GLES_FORCE_ES30=1` | `es30/`: "contexto OpenGL ES 3.0 (GALAXY_GLES_FORCE_ES30), GLSL ES 300, paleta 2D, buffers copiados" y sus resultados |
 | Memoria libre | `log.txt`: MemAvailable antes y después; `gl.txt`: VmHWM (pico de la prueba) y MemAvailable |
 | Escenas reproducibles | `*/plain/*.png`, `*/fetch/*.png`, `dif/`, `metricas.txt` |
-| La corrección en la Mali | `es32/fetch/gl.txt`: "exactas-galaxy: … 0 con error > 1"; `metricas.txt`: fetch frente a la referencia de la PC ≤ 1 |
+| La corrección en la Mali | `es32/fetch/gl.txt`: "exactas-galaxy: … 0 con error > 1"; `metricas.txt`: fetch frente a la referencia de la PC dentro de RGB 2 / alfa 5 (otra GPU) |
 
 La prueba **pasa en la consola** si se cumplen las tres:
 
@@ -103,8 +150,9 @@ La prueba **pasa en la consola** si se cumplen las tres:
 - `comparacion …: 0`;
 - `es32/plain` muestra el error grande y `es32/fetch` no.
 
-La referencia A de la consola son las imágenes hechas en la PC: la Mali no tiene `GL_EXT_blend_func_extended`. Los
-pipelines sin doble fuente de la Mali también se comparan con la PC, con tolerancia 1 (redondeo de cada GPU).
+La referencia A de la consola son las imágenes hechas en la PC: la Mali no tiene `GL_EXT_blend_func_extended`. Entre
+GPUs distintas la tolerancia es RGB ≤ 2 y alfa ≤ 5: lo que ya difieren los controles. La prueba exacta es la de C contra
+la mezcla calculada en `gl.txt`.
 
 ### 2. El juego
 
@@ -131,15 +179,16 @@ Al final, `smg/ultra/<fecha>-serie/comparacion.txt` compara todo con el primero.
 
 ## Limitaciones
 
-- **La ruta ARM no está compilada ni probada en ningún driver.** Ni Mesa ni el validador de glslang conocen
-  `GL_ARM_shader_framebuffer_fetch`.
-  - Si el driver de la Mali rechaza un programa, ese pipeline vuelve solo al blending fijo y el log lo dice
+- **La ruta ARM está probada solo en el driver r20p0 de la Mali-G31, con KNULLI.** Ni Mesa ni el validador de glslang
+  conocen `GL_ARM_shader_framebuffer_fetch`.
+  - Si otro driver (el de muOS) rechaza un programa, ese pipeline vuelve solo al blending fijo y el log lo dice
     (`a dual-source program stays on fixed-function blending`).
   - El juego no se rompe, pero esos draws siguen con el error de antes.
 - **El uber shader** sigue con blending fijo en sus variantes de doble fuente. Solo afecta a lo que la biblioteca no
-  tiene (0.0 % de los draws en la base de ULTRA).
+  tiene: 0.0 % de los draws en la base de ULTRA en la PC, **18 % en la consola** con la biblioteca de las claves semilla.
 - **Costo:** la lectura del framebuffer y la mezcla en el shader cuestan algo de GPU en esos draws (en la Mali el EFB
-  está en la memoria del tile). No está medido; lo dirá la vuelta 1 frente a la 2.
+  está en la memoria del tile). En la serie de ULTRA de KNULLI no se distingue del ruido (GPU 41.1 ms con fetch, 40.4-41.2
+  en las repeticiones).
 - **La comparación visual usa escenas sintéticas** con los shaders y estados reales, no frames del juego. Agua,
   partículas, sombras e iluminación del juego solo se verán en las capturas de la consola.
 - **Los binarios de programa de los 241 pipelines son nuevos:** la primera vez que se usan se enlazan (uber mientras
@@ -147,9 +196,13 @@ Al final, `smg/ultra/<fecha>-serie/comparacion.txt` compara todo con el primero.
 
 ## Problemas pendientes
 
-1. Correr `pruebamezcla.zip` y la serie de ULTRA (paquete de medición) en KNULLI. Luego, por separado, en muOS.
-2. Si el driver rechaza la forma ARM: corregir la transformación con el mensaje del log.
-3. Si el costo en GPU importa: medirlo. **No optimizar en este paso.**
-4. Una alternativa sin extensiones para otros drivers: en 202 de los 241 pipelines (alfa del EFB sin escribir), sacar la
+1. **muOS:** correr `pruebamezcla.zip` y la serie de ULTRA por separado.
+2. **El recorrido "antes" de KNULLI:** ver su `informe.txt` y repetirlo si se atascó.
+3. **La ruta de 3.0 muere por memoria** en la consola, con y sin la corrección. La causa probable es la copia en la CPU
+   de los anillos. Arreglarla cambia anillos y memoria, lo que este paso no permite; queda para otro paso, con permiso.
+4. **El 18 % de draws en el uber en la consola:** rearmar la biblioteca GLSL con `gles_keys.bin` de la consola.
+5. Si un driver rechaza la forma ARM: corregir la transformación con el mensaje del log.
+6. Si el costo en GPU importa: medirlo. **No optimizar en este paso.**
+7. Una alternativa sin extensiones para otros drivers: en 202 de los 241 pipelines (alfa del EFB sin escribir), sacar la
    alfa del TEV por la salida 0 sería exacto. No implementada.
-5. Lo demás del registro de riesgos (R-02 en adelante) queda para los pasos siguientes.
+8. Lo demás del registro de riesgos (R-02 en adelante) queda para los pasos siguientes.

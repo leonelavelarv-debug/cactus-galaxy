@@ -22,6 +22,12 @@ cp "$repo/platform/android/vk_seed_keys.bin" "$work/pruebamezcla/claves-semilla.
 for scene in exactas-galaxy exactas-controles gradientes superpuestas claves-reales controles-reales; do
   cp "$ref/$scene.png" "$work/pruebamezcla/referencia/"
 done
+# Solo la GPU de la referencia (--comparar usa tolerancia entre GPUs si no es la de la consola); nada mas de la PC.
+if grep -q '^GL_RENDERER ' "$ref/gl.txt" 2>/dev/null; then
+  grep -m1 '^GL_RENDERER ' "$ref/gl.txt" > "$work/pruebamezcla/referencia/gl.txt"
+else
+  echo "GL_RENDERER ${REF_GPU:-llvmpipe (Mesa)}" > "$work/pruebamezcla/referencia/gl.txt"
+fi
 cp "$repo/LICENSE" "$work/pruebamezcla/LICENSE.txt"
 chmod 755 "$work/Prueba mezcla GX.sh" "$work/pruebamezcla/nebula_gles_blend_tests"
 find "$work" -exec touch -h -d "2026-01-01 00:00:00" {} +

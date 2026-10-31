@@ -620,10 +620,34 @@ Metrics compare(const Image& a, const Image& b, Image* diff) {
     return m;
 }
 
+std::string renderer_of(const std::filesystem::path& gl_txt) {
+    std::ifstream in(gl_txt);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (line.rfind("GL_RENDERER ", 0) == 0) return line.substr(12);
+    }
+    return {};
+}
+
 int compare_all(const std::filesystem::path& dir) {
     static const char* kScenes[] = {"exactas-galaxy", "exactas-controles", "gradientes", "superpuestas", "claves-reales",
                                     "controles-reales"};
+    // The reference images come from GL_EXT_blend_func_extended, which the Mali lacks, so they are usually rendered on
+    // another GPU (Mesa). Across GPUs the controls - pipelines this change does not touch - already differ by up to 2
+    // in RGB (interpolation rounding) and 4-5 in alpha (one step of the 6-bit EFB alpha), so the cross-GPU tolerance
+    // is that: RGB 2, alpha 5. On the same GPU it stays 1. The fetch-vs-CPU-blend check in the render modes is exact.
+    const std::string ref_gpu = renderer_of(dir / "referencia" / "gl.txt");
+    const std::string fetch_gpu = renderer_of(dir / "fetch" / "gl.txt");
+    const bool same_gpu = !ref_gpu.empty() && ref_gpu == fetch_gpu;
+    const int tol_rgb = same_gpu ? 1 : 2;
+    const int tol_alpha = same_gpu ? 1 : 5;
+    std::printf("reference GPU: %s | fetch GPU: %s -> tolerance RGB %d, alpha %d\n",
+                ref_gpu.empty() ? "?" : ref_gpu.c_str(), fetch_gpu.empty() ? "?" : fetch_gpu.c_str(), tol_rgb,
+                tol_alpha);
     std::ofstream report(dir / "metricas.txt", std::ios::trunc);
+    report << "# GPU referencia: " << (ref_gpu.empty() ? "?" : ref_gpu) << " | GPU fetch: "
+           << (fetch_gpu.empty() ? "?" : fetch_gpu) << " | tolerancia RGB " << tol_rgb << ", alfa " << tol_alpha
+           << "\n";
     report << "escena | comparacion | pixeles | % distintos | error medio R G B A | error max R G B A\n";
     int failures = 0;
     for (const char* scene : kScenes) {
@@ -656,11 +680,16 @@ int compare_all(const std::filesystem::path& dir) {
         (void)ref_plain;
         const bool controls = std::string(scene).find("control") != std::string::npos;
         if (have[0] && have[2]) {
-            const int worst = std::max({ref_fetch.max[0], ref_fetch.max[1], ref_fetch.max[2], ref_fetch.max[3]});
-            if (worst > 1) {
-                std::printf("FAIL %s: fetch differs from the reference by %d (tolerance 1)\n", scene, worst);
+            const int worst_rgb = std::max({ref_fetch.max[0], ref_fetch.max[1], ref_fetch.max[2]});
+            if (worst_rgb > tol_rgb || ref_fetch.max[3] > tol_alpha) {
+                std::printf("FAIL %s: fetch differs from the reference by RGB %d / alpha %d (tolerance %d / %d)\n",
+                            scene, worst_rgb, ref_fetch.max[3], tol_rgb, tol_alpha);
                 ++failures;
             }
+        }
+        if (!have[1] || !have[2]) {
+            std::printf("FAIL %s: plain or fetch image missing (did that run finish?)\n", scene);
+            ++failures;
         }
         if (controls && have[1] && have[2] && plain_fetch.different != 0u) {
             std::printf("FAIL %s: pipelines that are not dual source changed with fetch\n", scene);
