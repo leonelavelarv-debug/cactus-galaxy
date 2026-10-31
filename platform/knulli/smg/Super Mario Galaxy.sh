@@ -455,6 +455,11 @@ if [ "$NEBULA_ULTRA" = serie ]; then
     status=$?
     runs="$runs $run_dir"
     [ "$status" = 0 ] || echo "ultra: el recorrido $name termino con $status"
+    if [ "$status" -ge 128 ] 2>/dev/null; then
+      # Matado por una senal (137 = SIGKILL: falta de memoria o el limite de tiempo): lo que dice el kernel.
+      dmesg 2>/dev/null | grep -iE "out of memory|killed process|oom" | tail -n 4
+      grep -E "MemAvailable" /proc/meminfo
+    fi
     serie_compare
   done
 else

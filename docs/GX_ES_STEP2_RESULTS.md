@@ -217,7 +217,9 @@ Al final, `smg/ultra/<fecha>-serie/comparacion.txt` compara todo con el primero.
 ## Problemas pendientes
 
 1. **muOS:** correr `pruebamezcla.zip` y la serie de ULTRA por separado.
-2. ~~El recorrido "antes" de KNULLI~~: en la segunda serie tardó lo mismo que fetch (182 s).
+2. **El recorrido "antes" a veces tarda casi el doble:** 606 s en la primera serie, 182 s en la segunda, 342 s en la
+   tercera (fetch: 181-182 s). Cuando pasa, también hay más frames > 25 ms y menos draws por frame. Los FPS por
+   galaxia son normales. Es la ruta de antes (`GALAXY_GLES_BLEND_FETCH=0`), no la corregida. Sin explicar.
 3. **La ruta de 3.0 muere por memoria** en la consola, con y sin la corrección. Se corrige en un paso aparte
    (GX_ES_ES30_MEMORY.md): pasa en la PC y falta en la consola.
 4. ~~El 18 % de draws en el uber~~: con la biblioteca rehecha con el `gles_keys.bin` de KNULLI

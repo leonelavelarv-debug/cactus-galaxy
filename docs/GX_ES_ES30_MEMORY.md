@@ -82,6 +82,33 @@ En 3.0, la memoria de más pasa de 200 MiB (las copias enteras) a 25 MiB (lo que
   - Si en la consola no alcanza: `GALAXY_GX_RESIDENT_DECODED_VERTICES=0` quita los 64 MiB de vértices residentes,
     con más carga en el anillo de vértices.
 
+## Resultados en la consola (KNULLI, 31-oct)
+
+**`pruebamezcla.zip`: la ruta de 3.0 pasa.**
+
+- `estado es30 plain: 0`, `estado es30 fetch: 0`, `comparacion es30: 0`.
+- Las métricas son idénticas a las de es32 y es32-hilo: fetch con 0 píxeles con error > 1 frente a la mezcla calculada,
+  y controles idénticos.
+- El log muestra las cuatro copias (192 MiB en total, ocupadas al escribirse). MemAvailable: 726 MiB al empezar y 725
+  al terminar.
+
+**Serie de ULTRA: el recorrido es30 llega más lejos, pero no termina.**
+
+| | Antes del cambio | Con el cambio |
+|---|---|---|
+| Duración | 22 s, sin galaxias | 141 s: selección de partida y AstroGalaxy |
+| Memoria pico | — | 729 MiB (fetch: 698) |
+| FPS dibujados | — | 4.84 (fetch: 14.0) |
+| CPU del hilo de GL | — | 30.9 ms por frame (fetch: 12.8) |
+| draws/frame | — | 299 (fetch: 183) |
+
+- **Falta saber por qué se cortó después de AstroGalaxy.** Puede ser memoria otra vez o un cierre. La línea
+  `ultra: el recorrido es30 termino con …` de `smg/log.txt` lo dice.
+  - El lanzador ahora guarda, si un recorrido muere por una señal, lo que dice el kernel.
+- **La ruta de 3.0 es mucho más lenta en el juego.** Los envíos de las copias se ven en el hilo de GL (30.9 ms).
+  - Además hay 64 % más draws por frame. La causa no está investigada.
+  - No se optimiza aquí: esta ruta es solo para drivers sin 3.2.
+
 ## En la consola
 
 1. `pruebamezcla.zip`: `estado es30 plain: 0`, `estado es30 fetch: 0` y `comparacion es30: 0`. Las tres rutas deben dar
