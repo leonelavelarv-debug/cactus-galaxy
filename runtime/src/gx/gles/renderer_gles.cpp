@@ -277,6 +277,12 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
             ring->set_overflow([this](unsigned slot) { return borrow_frame_slot(slot); });
         }
         flush_draws_ = 0u;  // off: the Mali's growing heap block was not the draws (docs/GX_ES_MEMORY_GROWTH.md)
+        if (const char* value = std::getenv("GALAXY_GLES_DRAW_RANGE"); value != nullptr && value[0] == '0') {
+            draw_range_ = false;  // plain glDrawElements, as before
+        }
+        if (const char* value = std::getenv("GALAXY_GLES_CHECK_RANGE"); value != nullptr && value[0] == '1') {
+            check_range_ = true;
+        }
         if (const char* value = std::getenv("GALAXY_GLES_FLUSH_DRAWS"); value != nullptr && value[0] != '\0') {
             flush_draws_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));  // 0: never
         }
@@ -1055,6 +1061,12 @@ void RendererGles::report_stats() {
                           static_cast<unsigned long long>(window_stats_.split_flushes));
             palette_note += note;
         }
+        if (check_range_) {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %llu draws with indices past their vertices",
+                          static_cast<unsigned long long>(window_stats_.range_misses));
+            palette_note += note;
+        }
         if (window_stats_.borrowed_slots != 0u) {
             char note[96];
             std::snprintf(note, sizeof(note), "; %llu ring segments continued into another slot",
@@ -1555,8 +1567,29 @@ void RendererGles::draw(const DrawCall& call) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices.buffer);
             bound_.index_buffer = indices.buffer;
         }
-        glDrawElements(call.topology, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT,
-                       reinterpret_cast<const void*>(static_cast<std::uintptr_t>(indices.offset)));
+        // glDrawRangeElements with the draw's vertices (0 .. count - 1): the indices only reach the vertices the
+        // draw's view holds. With plain glDrawElements the Mali's driver works the range out itself and keeps a heap
+        // table for it that only grows (NEBULA_MEMTRACE: 5 -> 80 MiB over the galaxies, in glDrawElements).
+        const std::uint32_t vertex_count = call.vertex_view.SizeInBytes / stride;
+        const void* first = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(indices.offset));
+        if (draw_range_ && vertex_count != 0u) {
+            std::uint32_t last = vertex_count - 1u;
+            if (check_range_ && indices.object != nullptr && indices.object->mapped != nullptr) {
+                // GALAXY_GLES_CHECK_RANGE=1: the indices read back; a draw past its view is counted and drawn with
+                // its true range.
+                const auto* index = reinterpret_cast<const std::uint16_t*>(indices.object->mapped + indices.offset);
+                std::uint32_t highest = 0u;
+                for (std::uint32_t i = 0; i < call.index_count; ++i) highest = std::max<std::uint32_t>(highest, index[i]);
+                if (highest > last) {
+                    ++window_stats_.range_misses;
+                    last = highest;
+                }
+            }
+            glDrawRangeElements(call.topology, 0u, last, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT,
+                                first);
+        } else {
+            glDrawElements(call.topology, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT, first);
+        }
     } else {
         glDrawArrays(call.topology, 0, static_cast<GLsizei>(call.index_count));
     }

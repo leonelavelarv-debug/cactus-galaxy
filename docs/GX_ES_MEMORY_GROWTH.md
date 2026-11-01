@@ -378,6 +378,35 @@ Una carga de galaxia dibuja miles de draws sin presentar, así que esa memoria s
   `gl_thread.cpp`), y memtrace lo agrega a cada bloque grande. Es la dirección de la función que ejecuta ese registro, y
   el simbolizador la convierte en el `w_gl…` de origen.
 
+### La llamada: `glDrawElements` (31-oct, décimo recorrido)
+
+Los cinco bloques que se duplican (5, 10, 20, 40, 80 MiB) se pidieron todos con la misma llamada de GL en curso:
+`nebula+0x2262a0`. Es el registro del hilo de GL de **`glDrawElements`**
+(`OffsetThunk<&real::glDrawElements>`).
+
+**Lectura:**
+
+- Con `glDrawElements`, el driver no sabe qué vértices usa un draw y lo calcula leyendo sus índices.
+- Lo que crece al doble y no se libera tiene la forma de una tabla hash propia del driver: guarda esos resultados por
+  posición del buffer de índices.
+- El anillo de índices cambia de posición cada frame, así que la tabla solo crece. Al llenarse se duplica (la tabla
+  nueva es el bloque grande que se ve) y no se vacía nunca.
+
+**Corrección:**
+
+- `RendererGles::draw` usa `glDrawRangeElements(modo, 0, n - 1, …)`, con `n` los vértices de la vista del draw
+  (`vertex_view.SizeInBytes / stride`).
+- Los índices de GX los genera el cargador de vértices y solo apuntan a los vértices cargados de ese draw o lote (son
+  u16, a lo más 65 535).
+  - El driver ya no tiene que calcular el rango, y se espera que no llene la tabla.
+- **`GALAXY_GLES_DRAW_RANGE=0`** vuelve a `glDrawElements`.
+- **`GALAXY_GLES_CHECK_RANGE=1`** (lento, para medir) lee los índices de cada draw.
+  - Si alguno pasa de `n - 1`, lo cuenta y lo dibuja con su rango verdadero.
+  - La línea `[gles] … frames/s` dice cuántos hubo.
+  - La serie `[memoria]` lo activa: tiene que dar 0.
+- **Prueba en el renderer:** el triángulo indexado se cubre y se recorta igual que el no indexado. Pasa en 3.2, con hilo
+  de GL, en 3.0 con hilo y con la comprobación.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |

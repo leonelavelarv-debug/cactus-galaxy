@@ -798,6 +798,8 @@ void install() {
     gl::glGetError = w_glGetError;
     gl::glCheckFramebufferStatus = w_glCheckFramebufferStatus;
     gl::glDrawElements = OffsetThunk<&real::glDrawElements, std::remove_pointer_t<PFNGLDRAWELEMENTSPROC>>::call;
+    gl::glDrawRangeElements =
+        OffsetThunk<&real::glDrawRangeElements, std::remove_pointer_t<PFNGLDRAWRANGEELEMENTSPROC>>::call;
     gl::glVertexAttribPointer =
         OffsetThunk<&real::glVertexAttribPointer, std::remove_pointer_t<PFNGLVERTEXATTRIBPOINTERPROC>>::call;
     gl::glVertexAttribIPointer =

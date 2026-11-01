@@ -205,7 +205,8 @@ int main() {
     if (es30) {
         std::printf("skip GX early Z with a failing alpha test: GLSL ES 3.00 has no early_fragment_tests\n");
     }
-    const auto draw_triangle = [&](CullMode cull, float palette_x = 0.0f, bool use_palette = false) {
+    const auto draw_triangle = [&](CullMode cull, float palette_x = 0.0f, bool use_palette = false,
+                                   bool indexed = false) {
         renderer.clear_efb(0u, 0u, 0xFFFFFFu, true, true, true);
         VertexShaderKey vs_key{};
         PixelShaderKey ps_key{};
@@ -253,6 +254,15 @@ int main() {
         call.matrix_palette = palette.gpu;
         call.vertex_view = gpu::vertex_view(vertices.gpu, 3u * sizeof(GxVertexOut), sizeof(GxVertexOut));
         call.index_count = 3u;
+        if (indexed) {
+            // Through the index ring (glDrawRangeElements 0..2), in the same winding.
+            UploadRing::Allocation ib = renderer.index_ring().allocate(3u * sizeof(std::uint16_t), 2u);
+            auto* index = reinterpret_cast<std::uint16_t*>(ib.cpu);
+            index[0] = 0u;
+            index[1] = 1u;
+            index[2] = 2u;
+            call.index_view = gpu::index_view(ib.gpu, 3u * sizeof(std::uint16_t));
+        }
         call.topology = gpu::kTopologyTriangleList;
         call.scissor = gpu::rect(0, 0, 640, 528);
         renderer.bind_efb(nullptr);
@@ -270,6 +280,15 @@ int main() {
     draw_triangle(CullMode::Back);
     (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
     expect(value == 0xFFFFFFu, "GX back face culled (cull Back)", value, 0xFFFFFFu);
+    // The same triangle indexed (glDrawRangeElements): covered, and culled the same.
+    draw_triangle(CullMode::Front, 0.0f, false, true);
+    (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+    expect(value == 0xC00000u, "indexed triangle covers (10,10)", value, 0xC00000u);
+    (void)renderer.peek_efb(300, 240, EfbPeekKind::Depth, value);
+    expect(value == 0xFFFFFFu, "indexed triangle leaves (300,240)", value, 0xFFFFFFu);
+    draw_triangle(CullMode::Back, 0.0f, false, true);
+    (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+    expect(value == 0xFFFFFFu, "indexed triangle culled (cull Back)", value, 0xFFFFFFu);
     // The palette's matrix: moved right by 1 (half the clip space), then back with a new palette in the same ring.
     draw_triangle(CullMode::Front, 1.0f, true);
     (void)renderer.peek_efb(330, 10, EfbPeekKind::Depth, value);

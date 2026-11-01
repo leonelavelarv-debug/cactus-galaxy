@@ -85,6 +85,7 @@
     X(PFNGLVERTEXATTRIBIPOINTERPROC, glVertexAttribIPointer)                      \
     X(PFNGLDRAWARRAYSPROC, glDrawArrays)                                          \
     X(PFNGLDRAWELEMENTSPROC, glDrawElements)                                      \
+    X(PFNGLDRAWRANGEELEMENTSPROC, glDrawRangeElements)                            \
     X(PFNGLDRAWARRAYSINSTANCEDPROC, glDrawArraysInstanced)                        \
     X(PFNGLGENTEXTURESPROC, glGenTextures)                                        \
     X(PFNGLDELETETEXTURESPROC, glDeleteTextures)                                  \

@@ -407,6 +407,8 @@ private:
     unsigned borrowed_slots_ = 0;
     std::uint64_t frame_draws_ = 0;   // draws in the current frame
     std::uint32_t flush_draws_ = 0;   // GALAXY_GLES_FLUSH_DRAWS: glFlush every that many draws in a frame (0: never)
+    bool draw_range_ = true;          // glDrawRangeElements (GALAXY_GLES_DRAW_RANGE=0: glDrawElements)
+    bool check_range_ = false;        // GALAXY_GLES_CHECK_RANGE=1: check the indices against the vertex view
     bool borrow_frame_slot(unsigned slot);
     std::uint64_t frame_index_ = 0;
     bool current_ = false;
@@ -577,6 +579,7 @@ private:
         std::uint64_t borrowed_slots = 0;  // ring segments a frame continued into (borrow_frame_slot)
         std::uint64_t max_frame_draws = 0;  // the most draws one frame had
         std::uint64_t split_flushes = 0;    // glFlush inside a frame (GALAXY_GLES_FLUSH_DRAWS)
+        std::uint64_t range_misses = 0;     // GALAXY_GLES_CHECK_RANGE: draws whose indices pass their vertex view
     } window_stats_;
     gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.
