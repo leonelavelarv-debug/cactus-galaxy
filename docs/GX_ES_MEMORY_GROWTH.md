@@ -475,6 +475,26 @@ Los cinco bloques que se duplican (5, 10, 20, 40, 80 MiB) se pidieron todos con 
   - La copia en la CPU es `calloc`: ocupa lo que se escribe del anillo de 12 MiB.
 - `GALAXY_GLES_INDEX_RECYCLE` queda como opción, apagada.
 
+### Recorrido completo con la copia de índices (31-oct)
+
+**Las 44 galaxias** (`tour: done`, estado 0, 1298 s), sin ningún bloque grande del driver.
+
+| | Antes (bloques de subida corregidos) | Ahora (copia de índices) |
+|---|---|---|
+| malloc máximo | 379 MiB (OceanRing) | **233 MiB** |
+| Memoria libre mínima | 36 MiB | **138 MiB** |
+| malloc en OceanRingGalaxy | 247 → 333 MiB | 226 → 223 MiB |
+
+- **malloc ya no salta en las cargas:** sube de 113 al abrir a ~207 en la 5.ª galaxia y se queda en 207-233 hasta el
+  final.
+- **Hay 100 MiB más de margen en el peor momento.**
+- **Queda resuelto lo de este documento:**
+  - el cierre de CosmosGardenGalaxy (el anillo de vértices sigue en otro slot);
+  - los bloques de subida de texturas que no se devolvían;
+  - la tabla del driver de la Mali que crecía por los índices.
+- Los límites de las cachés (display lists y vértices 24, texturas recicladas 8) se pueden volver a subir si hace
+  falta CPU. Medir antes.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
