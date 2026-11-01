@@ -283,6 +283,12 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         if (const char* value = std::getenv("GALAXY_GLES_CHECK_RANGE"); value != nullptr && value[0] == '1') {
             check_range_ = true;
         }
+        if (const char* value = std::getenv("GALAXY_GLES_VERTEX_BASE"); value != nullptr && value[0] == '1' &&
+            caps.vertex_attrib_binding && glDrawRangeElementsBaseVertex != nullptr) {
+            vertex_base_ = true;
+            std::fprintf(stderr, "[gles] vertex buffers bound at offset mod stride, the rest as base vertex "
+                         "(GALAXY_GLES_VERTEX_BASE)\n");
+        }
         if (const char* value = std::getenv("GALAXY_GLES_FLUSH_DRAWS"); value != nullptr && value[0] != '\0') {
             flush_draws_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));  // 0: never
         }
@@ -1545,8 +1551,21 @@ void RendererGles::draw(const DrawCall& call) {
         bind_efb(nullptr);
     }
     const std::uint32_t stride = call.vertex_view.StrideInBytes != 0u ? call.vertex_view.StrideInBytes : 144u;
+    GLint base_vertex = 0;
     if (!context.caps().vertex_attrib_binding) {
         set_vertex_pointers(call.vertex_view.BufferLocation, stride);
+    } else if (vertex_base_) {
+        // GALAXY_GLES_VERTEX_BASE=1: the buffer bound at (offset mod stride) and the rest as the draw's base vertex, so
+        // the binding takes at most `stride / 16` offsets per buffer instead of a new one every draw.
+        const gles::Context::BufferOffset vertices = context.resolve(call.vertex_view.BufferLocation);
+        const std::uint64_t residue = vertices.offset % stride;
+        base_vertex = static_cast<GLint>((vertices.offset - residue) / stride);
+        const gpu::Address key = (call.vertex_view.BufferLocation - (vertices.offset - residue)) ^
+            (static_cast<gpu::Address>(stride) << 56u);
+        if (key != bound_.vertex_address) {
+            glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(residue), static_cast<GLsizei>(stride));
+            bound_.vertex_address = key;
+        }
     } else if (call.vertex_view.BufferLocation != bound_.vertex_address) {
         const gles::Context::BufferOffset vertices = context.resolve(call.vertex_view.BufferLocation);
         glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(vertices.offset), static_cast<GLsizei>(stride));
@@ -1585,13 +1604,21 @@ void RendererGles::draw(const DrawCall& call) {
                     last = highest;
                 }
             }
-            glDrawRangeElements(call.topology, 0u, last, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT,
-                                first);
+            if (base_vertex != 0) {
+                glDrawRangeElementsBaseVertex(call.topology, 0u, last, static_cast<GLsizei>(call.index_count),
+                                              GL_UNSIGNED_SHORT, first, base_vertex);
+            } else {
+                glDrawRangeElements(call.topology, 0u, last, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT,
+                                    first);
+            }
+        } else if (base_vertex != 0) {
+            glDrawRangeElementsBaseVertex(call.topology, 0u, 65535u, static_cast<GLsizei>(call.index_count),
+                                          GL_UNSIGNED_SHORT, first, base_vertex);
         } else {
             glDrawElements(call.topology, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT, first);
         }
     } else {
-        glDrawArrays(call.topology, 0, static_cast<GLsizei>(call.index_count));
+        glDrawArrays(call.topology, base_vertex, static_cast<GLsizei>(call.index_count));
     }
     if (context.checking()) {
         context.check_errors("draw");

@@ -407,6 +407,29 @@ Los cinco bloques que se duplican (5, 10, 20, 40, 80 MiB) se pidieron todos con 
 - **Prueba en el renderer:** el triángulo indexado se cubre y se recorta igual que el no indexado. Pasa en 3.2, con hilo
   de GL, en 3.0 con hilo y con la comprobación.
 
+### Con `glDrawRangeElements` (31-oct, undécimo recorrido)
+
+- **Las 44 galaxias pasan** y la comprobación da **0 draws con índices fuera de sus vértices** en las 250 ventanas: el
+  rango que se pasa es correcto.
+- **El bloque del driver creció igual** (5 → 10 → 20 → 40 → 80 MiB), ahora dentro de `glDrawRangeElements`. No era el
+  cálculo del rango de índices.
+- **La forma no cambia:** algo se guarda por cada draw, o por cada desplazamiento distinto que se le da, y la tabla se
+  duplica al llenarse.
+- **Lo que cambia en cada draw:**
+  - el desplazamiento del buffer de vértices (`glBindVertexBuffer`);
+  - el de índices;
+  - los de las constantes (`glBindBufferRange`).
+  - Todos salen de anillos y son distintos cada frame.
+
+**Prueba del primero, `GALAXY_GLES_VERTEX_BASE=1`:**
+
+- El buffer de vértices se ata en `desplazamiento mod stride`: con stride 144 y alineación 16, solo 9 desplazamientos
+  por buffer.
+- El resto va como vértice base: `glDrawRangeElementsBaseVertex`, o el primero en `glDrawArrays`.
+- En la PC da lo mismo: pruebas del renderer (3.2, hilo de GL, comprobación de rango) y de mezcla, con imágenes
+  idénticas.
+- La serie corre dos recorridos de 8 galaxias, sin y con el cambio, para ver si el bloque deja de doblarse.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |

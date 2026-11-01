@@ -800,6 +800,10 @@ void install() {
     gl::glDrawElements = OffsetThunk<&real::glDrawElements, std::remove_pointer_t<PFNGLDRAWELEMENTSPROC>>::call;
     gl::glDrawRangeElements =
         OffsetThunk<&real::glDrawRangeElements, std::remove_pointer_t<PFNGLDRAWRANGEELEMENTSPROC>>::call;
+    if (real::glDrawRangeElementsBaseVertex != nullptr) {
+        gl::glDrawRangeElementsBaseVertex = OffsetThunk<&real::glDrawRangeElementsBaseVertex,
+                                                        std::remove_pointer_t<PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC>>::call;
+    }
     gl::glVertexAttribPointer =
         OffsetThunk<&real::glVertexAttribPointer, std::remove_pointer_t<PFNGLVERTEXATTRIBPOINTERPROC>>::call;
     gl::glVertexAttribIPointer =

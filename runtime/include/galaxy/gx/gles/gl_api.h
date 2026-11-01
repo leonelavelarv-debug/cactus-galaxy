@@ -131,7 +131,8 @@
     X(PFNGLGETQUERYOBJECTUIVPROC, glGetQueryObjectuiv)                            \
     X(PFNGLGETQUERYOBJECTUI64VEXTPROC, glGetQueryObjectui64vEXT)                  \
     X(PFNGLDEBUGMESSAGECALLBACKKHRPROC, glDebugMessageCallbackKHR)                \
-    X(PFNGLGETPROGRAMRESOURCEINDEXPROC, glGetProgramResourceIndex)
+    X(PFNGLGETPROGRAMRESOURCEINDEXPROC, glGetProgramResourceIndex)               \
+    X(PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC, glDrawRangeElementsBaseVertex)
 
 namespace galaxy::gx::gles::gl {
 

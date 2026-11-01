@@ -409,6 +409,7 @@ private:
     std::uint32_t flush_draws_ = 0;   // GALAXY_GLES_FLUSH_DRAWS: glFlush every that many draws in a frame (0: never)
     bool draw_range_ = true;          // glDrawRangeElements (GALAXY_GLES_DRAW_RANGE=0: glDrawElements)
     bool check_range_ = false;        // GALAXY_GLES_CHECK_RANGE=1: check the indices against the vertex view
+    bool vertex_base_ = false;        // GALAXY_GLES_VERTEX_BASE=1: few binding offsets, base vertex per draw
     bool borrow_frame_slot(unsigned slot);
     std::uint64_t frame_index_ = 0;
     bool current_ = false;
