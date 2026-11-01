@@ -430,6 +430,32 @@ Los cinco bloques que se duplican (5, 10, 20, 40, 80 MiB) se pidieron todos con 
   idénticas.
 - La serie corre dos recorridos de 8 galaxias, sin y con el cambio, para ver si el bloque deja de doblarse.
 
+### Con `GALAXY_GLES_VERTEX_BASE=1` (31-oct, dos recorridos de 8 galaxias)
+
+| | 5 MiB | 10 MiB | 20 MiB | 40 MiB |
+|---|---|---|---|---|
+| Sin cambios (`rango`) | frame 3719 | 18 297 | 23 991 | — |
+| Vértices en pocos desplazamientos (`base`) | frame 1150 | 2322 | 20 538 | 26 168 |
+
+- **Con el vértice base, el bloque crece antes, no después.** Lo que guarda el driver no depende del desplazamiento del
+  buffer de vértices.
+  - Con vértice base crece más rápido. Puede ser que el driver lo guarde como un dato más de cada draw.
+  - `GALAXY_GLES_VERTEX_BASE` queda apagado.
+- **Queda el buffer de índices** (el de las constantes, después).
+  - Los drivers de Mali guardan datos por buffer de índices y los invalidan cuando el buffer cambia por la API.
+  - Un buffer mapeado de forma persistente cambia sin que el driver se entere, y lo guardado no se invalida nunca.
+
+**Dos pruebas, una por recorrido:**
+
+- **`GALAXY_GLES_INDEX_COPY=1`:** el anillo de índices con copia en la CPU, como en OpenGL ES 3.0. Cada rango escrito se
+  manda con `glMapBufferRange` + `glUnmapBuffer`, así que el driver ve los cambios.
+  - `tracking_writes()` se activa si hay un buffer así.
+- **`GALAXY_GLES_INDEX_RECYCLE=3000`:** un anillo de índices nuevo cada 3000 frames.
+  - El viejo se borra con la eliminación diferida, después de un fence posterior a todos los frames que lo usaron.
+  - Con él, el driver suelta lo que guardaba.
+- **Probado en la PC** (renderer tests): con copia, con hilo de GL, un anillo nuevo cada frame y cada 2 frames con
+  copia y comprobación de rango. Todo pasa.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |

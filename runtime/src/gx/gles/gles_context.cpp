@@ -428,7 +428,17 @@ std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char* n
     auto buffer = std::make_shared<Buffer>();
     glGenBuffers(1, &buffer->name);
     glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->name);
-    if (!caps_.buffer_storage) {
+    // GALAXY_GLES_INDEX_COPY=1 (a test): the index ring with a CPU copy even with EXT_buffer_storage, sent with a map
+    // per range like OpenGL ES 3.0, so the driver sees each change (docs/GX_ES_MEMORY_GROWTH.md).
+    static const bool index_copy = [] {
+        const char* value = std::getenv("GALAXY_GLES_INDEX_COPY");
+        return value != nullptr && value[0] == '1';
+    }();
+    const bool force_copy = index_copy && caps_.buffer_storage && name != nullptr && std::strcmp(name, "index") == 0;
+    if (force_copy) {
+        copied_buffers_.store(true, std::memory_order_relaxed);
+    }
+    if (!caps_.buffer_storage || force_copy) {
         // OpenGL ES 3.0: the CPU writes a copy; flush_writes sends what changed before the draws that read it.
         // calloc, not new + memset: zero without touching the pages, so the copy costs what is written.
         buffer->copy.reset(static_cast<std::byte*>(std::calloc(static_cast<std::size_t>(size), 1u)));

@@ -141,7 +141,9 @@ public:
     // OpenGL ES 3.0 (no EXT_buffer_storage): the CPU wrote `bytes` at `address` of a buffer's copy; flush_writes
     // (on the owner thread, before a draw) sends every range written since the last one. With the palette in a 2D
     // texture it also counts the buffer's writes. Persistent buffers without that: never called (tracking_writes).
-    [[nodiscard]] bool tracking_writes() const noexcept { return !caps_.buffer_storage || caps_.palette_texture_2d; }
+    [[nodiscard]] bool tracking_writes() const noexcept {
+        return !caps_.buffer_storage || caps_.palette_texture_2d || copied_buffers_.load(std::memory_order_relaxed);
+    }
     void note_write(std::uint64_t address, std::uint64_t bytes) noexcept;
     void flush_writes() {
         if (dirty_pending_.load(std::memory_order_acquire)) {
@@ -212,6 +214,7 @@ private:
     std::vector<Buffer*> dirty_;
     std::atomic<bool> dirty_pending_{false};
     std::uint64_t copied_bytes_ = 0;    // CPU copies made (create_buffer, OpenGL ES 3.0)
+    std::atomic<bool> copied_buffers_{false};  // a buffer with a CPU copy on a driver with buffer storage (below)
     std::uint64_t flushed_ranges_ = 0;  // flush_dirty writes and their bytes (under dirty_mutex_)
     std::uint64_t flushed_bytes_ = 0;
     std::array<std::atomic<Buffer*>, kAddressSlots> address_slots_{};

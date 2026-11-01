@@ -283,6 +283,9 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         if (const char* value = std::getenv("GALAXY_GLES_CHECK_RANGE"); value != nullptr && value[0] == '1') {
             check_range_ = true;
         }
+        if (const char* value = std::getenv("GALAXY_GLES_INDEX_RECYCLE"); value != nullptr && value[0] != '\0') {
+            index_recycle_frames_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));
+        }
         if (const char* value = std::getenv("GALAXY_GLES_VERTEX_BASE"); value != nullptr && value[0] == '1' &&
             caps.vertex_attrib_binding && glDrawRangeElementsBaseVertex != nullptr) {
             vertex_base_ = true;
@@ -858,6 +861,13 @@ void RendererGles::begin_frame(bool) {
     context.collect();
     frame.retired.clear();
     refresh_default_sampler_table();
+    if (index_recycle_frames_ != 0u && frame_index_ != 0u && frame_index_ % index_recycle_frames_ == 0u) {
+        // GALAXY_GLES_INDEX_RECYCLE=n (a test): a new index ring every n frames. The old buffer goes with the deferred
+        // deletion (after a fence past every frame that used it); the driver drops what it kept for it.
+        if (index_ring_.initialize(context.device(), "index", index_ring_.bytes_per_frame(), kFramesInFlight)) {
+            ++window_stats_.index_recycles;
+        }
+    }
     vertex_ring_.begin_frame(frame_slot_);
     index_ring_.begin_frame(frame_slot_);
     constant_ring_.begin_frame(frame_slot_);
@@ -1065,6 +1075,12 @@ void RendererGles::report_stats() {
             std::snprintf(note, sizeof(note), "; %llu draws in the biggest frame (%llu flushes inside frames)",
                           static_cast<unsigned long long>(window_stats_.max_frame_draws),
                           static_cast<unsigned long long>(window_stats_.split_flushes));
+            palette_note += note;
+        }
+        if (index_recycle_frames_ != 0u) {
+            char note[64];
+            std::snprintf(note, sizeof(note), "; %llu new index rings",
+                          static_cast<unsigned long long>(window_stats_.index_recycles));
             palette_note += note;
         }
         if (check_range_) {
