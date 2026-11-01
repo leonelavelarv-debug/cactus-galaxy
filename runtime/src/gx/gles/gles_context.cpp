@@ -428,11 +428,13 @@ std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char* n
     auto buffer = std::make_shared<Buffer>();
     glGenBuffers(1, &buffer->name);
     glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->name);
-    // GALAXY_GLES_INDEX_COPY=1 (a test): the index ring with a CPU copy even with EXT_buffer_storage, sent with a map
-    // per range like OpenGL ES 3.0, so the driver sees each change (docs/GX_ES_MEMORY_GROWTH.md).
+    // The index ring with a CPU copy even with EXT_buffer_storage, sent with a map per range like OpenGL ES 3.0, so the
+    // driver sees each change. Persistently mapped, the Mali's driver kept data for every index range it ever drew
+    // from and its table only grew (5 -> 80 MiB over the galaxies); with the copy it stays put
+    // (docs/GX_ES_MEMORY_GROWTH.md). GALAXY_GLES_INDEX_COPY=0: persistently mapped, as before.
     static const bool index_copy = [] {
         const char* value = std::getenv("GALAXY_GLES_INDEX_COPY");
-        return value != nullptr && value[0] == '1';
+        return value == nullptr || value[0] != '0';
     }();
     const bool force_copy = index_copy && caps_.buffer_storage && name != nullptr && std::strcmp(name, "index") == 0;
     if (force_copy) {

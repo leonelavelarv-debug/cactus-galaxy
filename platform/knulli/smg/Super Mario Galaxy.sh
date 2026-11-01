@@ -192,9 +192,11 @@ fi
 #                                        framebuffer fetch si el driver lo tiene
 #   GALAXY_GLES_FLUSH_DRAWS=n            (prueba) glFlush cada n draws de un mismo frame (una carga llega a ~2100); por
 #                                        defecto no. No cambio el bloque que crece en el driver de la Mali
+#   GALAXY_GLES_INDEX_COPY=0             (prueba) los indices en un buffer mapeado de forma persistente, como antes; por
+#                                        defecto van con copia en la CPU y se mandan por rangos: asi el driver de la Mali
+#                                        ve los cambios (mapeado, guardaba datos de cada rango de indices: hasta 124 MiB)
 #   GALAXY_GLES_DRAW_RANGE=0             (prueba) glDrawElements como antes; por defecto glDrawRangeElements con los
-#                                        vertices del draw: con glDrawElements el driver de la Mali crecia una tabla
-#                                        propia hasta 80 MiB. GALAXY_GLES_CHECK_RANGE=1 comprueba los indices (lento)
+#                                        vertices del draw. GALAXY_GLES_CHECK_RANGE=1 comprueba los indices (lento)
 #   NEBULA_MEMTRACE=1                    (medicion) tras cada [memoria], las pilas que tienen los bloques grandes del
 #                                        monton (NEBULA_MEMTRACE_MIN_KB=256 o mas), como modulo+desplazamiento
 #   GALAXY_GX_MEMORY_LOG=60              cada 60 s una linea [memoria] en log.txt: VmRSS, memoria libre y lo que ocupa

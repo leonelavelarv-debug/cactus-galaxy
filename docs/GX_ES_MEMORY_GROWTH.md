@@ -456,6 +456,25 @@ Los cinco bloques que se duplican (5, 10, 20, 40, 80 MiB) se pidieron todos con 
 - **Probado en la PC** (renderer tests): con copia, con hilo de GL, un anillo nuevo cada frame y cada 2 frames con
   copia y comprobación de rango. Todo pasa.
 
+### Era el buffer de índices (31-oct, dos recorridos de 8 galaxias)
+
+| Recorrido (8 galaxias) | Bloques que se duplican en el driver | malloc al final | Libre al final |
+|---|---|---|---|
+| `rango` (antes, la serie anterior) | 5, 10 y 20 MiB (frames 3719, 18 297, 23 991) | 238 MiB | 160 MiB |
+| **`copia`** (`GALAXY_GLES_INDEX_COPY=1`) | **ninguno** | 215 MiB | 191 MiB |
+| `renueva` (`GALAXY_GLES_INDEX_RECYCLE=3000`, 9 anillos nuevos) | uno de 5 MiB, en el frame 22 809 | 212 MiB | 176 MiB |
+
+- **Con la copia en la CPU, el bloque no aparece nunca.** El driver de la Mali guardaba datos de cada rango del buffer de
+  índices mapeado de forma persistente. Como no veía los cambios, no los soltaba.
+  - Con los cambios mandados por la API, invalida lo que guardó.
+  - Con un buffer nuevo cada 3000 frames, lo suelta al borrarlo.
+- **Rendimiento:** en los cuatro recorridos, el 65 % de los frames saltados. La GPU, 2.5-2.6 ms por frame presentado.
+  El hilo de render, 436-441 ms/s. Sin diferencias medibles.
+- **Queda por defecto la copia** (`GALAXY_GLES_INDEX_COPY=0` vuelve al buffer mapeado).
+  - Los índices son pocos KiB por draw.
+  - La copia en la CPU es `calloc`: ocupa lo que se escribe del anillo de 12 MiB.
+- `GALAXY_GLES_INDEX_RECYCLE` queda como opción, apagada.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
