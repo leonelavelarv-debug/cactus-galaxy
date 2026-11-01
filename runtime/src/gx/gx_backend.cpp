@@ -79,6 +79,12 @@
 #include "galaxy/gx/gles/ultra_gles.h"
 #endif
 
+// NEBULA_MEMTRACE (platform/knulli/game/memtrace_knulli.cpp, only in the console's executable): its report.
+#if defined(__GNUC__) && !defined(_WIN32)
+extern "C" void nebula_memtrace_report() __attribute__((weak));
+#define NEBULA_HAS_MEMTRACE 1
+#endif
+
 namespace galaxy::gx {
 // Why consecutive draws did not merge into one driver call: the first differing field of each failed comparison
 // (render thread only; reset with the frame's counters and printed as batch-break-* in [gx-frame-timing]).
@@ -5525,6 +5531,11 @@ void GxBackend::log_memory_census() {
     }
 #endif
     std::fprintf(stderr, "%s\n", line);
+#if defined(NEBULA_HAS_MEMTRACE)
+    if (nebula_memtrace_report != nullptr) {
+        nebula_memtrace_report();
+    }
+#endif
 }
 
 void GxBackend::release_resident_vertex_buffer() noexcept {

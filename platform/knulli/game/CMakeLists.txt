@@ -200,8 +200,15 @@ if(NEBULA_SDL2_PREFIX)
         "${CMAKE_CURRENT_SOURCE_DIR}/host_window_knulli.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/native_game_host_knulli.cpp"
         "${nebula_root}/platform/sdl/display_clock.cpp"
-        "${nebula_root}/platform/sdl/thread_sampler.cpp")
+        "${nebula_root}/platform/sdl/thread_sampler.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/memtrace_knulli.cpp")
     set_target_properties(nebula_knulli PROPERTIES OUTPUT_NAME nebula)
+    # NEBULA_MEMTRACE (memtrace_knulli.cpp): the executable's malloc family in front of glibc's for every module.
+    target_link_options(nebula_knulli PRIVATE
+        "LINKER:--export-dynamic-symbol=malloc" "LINKER:--export-dynamic-symbol=free"
+        "LINKER:--export-dynamic-symbol=calloc" "LINKER:--export-dynamic-symbol=realloc"
+        "LINKER:--export-dynamic-symbol=memalign" "LINKER:--export-dynamic-symbol=aligned_alloc"
+        "LINKER:--export-dynamic-symbol=posix_memalign" "LINKER:--export-dynamic-symbol=nebula_memtrace_report")
     target_include_directories(nebula_knulli PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include"
         "${nebula_root}/platform/sdl")
     target_compile_definitions(nebula_knulli PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1 NEBULA_HOST_SDL2=1)

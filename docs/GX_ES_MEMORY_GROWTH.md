@@ -305,6 +305,23 @@ de 48 MiB.
   - Esta vez alcanzó, pero el margen es poco.
   - Esos 86 MiB no son de ninguna caché medida. Falta saber qué los pide.
 
+### Quién pide los 86 MiB de OceanRingGalaxy: `NEBULA_MEMTRACE`
+
+`platform/knulli/game/memtrace_knulli.cpp`, solo en el ejecutable de la consola:
+
+- **Qué es:** el `malloc`, `free`, `calloc`, `realloc`, `memalign`, `aligned_alloc` y `posix_memalign` del ejecutable,
+  delante de los de glibc (`__libc_*`), para todo el proceso: el juego, el driver de GL y libstdc++.
+  - Se exportan con `--export-dynamic-symbol`, para que los módulos los usen.
+- **Qué guarda:** con `NEBULA_MEMTRACE=1`, cada bloque de `NEBULA_MEMTRACE_MIN_KB` (256) o más se anota con su pila
+  (`_Unwind_Backtrace`, 10 marcos), en tablas estáticas: 65 536 bloques vivos y 4096 pilas.
+- **Qué informa:** después de cada `[memoria]`, las 12 pilas que más tienen vivo: MiB vivos, pico, bloques, total pedido
+  y los marcos como módulo+desplazamiento.
+  - Con los binarios sin recortar de la misma compilación, llvm-symbolizer los convierte en funciones.
+- **Apagado** (lo normal), cada llamada cuesta una lectura y un salto más que la de glibc.
+- **Probado en la PC** con un programa aparte: bloques de `new`, `malloc`, `calloc` + `realloc` y `posix_memalign`,
+  cuatro hilos liberando y pidiendo a la vez, y la vuelta a 0 al liberar todo. La pila sale bien simbolizada.
+- La serie `[memoria]` lo activa.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
