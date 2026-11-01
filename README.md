@@ -157,7 +157,8 @@ La primera vez que aparece cada efecto se compila su shader y el juego se detien
 | Stick izquierdo | Stick del Nunchuk |
 | A | Saltar |
 | B | Saltar / atrás |
-| X, Y, R2 | Giro |
+| X, R2 | Giro con la sacudida del Nunchuk |
+| Y | Giro con la sacudida del Wiimote |
 | L1 | Botón B del Wiimote (disparar trozos de estrella) |
 | L2 | Z (agacharse) |
 | Stick derecho | Puntero |
@@ -178,6 +179,8 @@ Se ponen al principio de `Super Mario Galaxy.sh`:
 | `NEBULA_FACE_LAYOUT` | `positions` · `labels` | A/B por posición o por etiqueta (si en tu firmware salen cambiados) |
 | `NEBULA_QUIT_COMBO` | `menu` · `select` · `both` | Fuerza la combinación para salir |
 | `NEBULA_PAD_SCHEME` | `xbox` | Cambia A y B de lado |
+| `GALAXY_SHAKE` | `nunchuk` (por defecto) · `remote` · `both` | Qué acelerómetro virtual sacude el giro: X y R2 sacuden el Nunchuk (`nunchuk`), el Wiimote como antes (`remote`) o los dos (`both`); Y siempre sacude el Wiimote en `nunchuk` |
+| `GALAXY_SHAKE_REPORTS` | `4`–`60` (12 por defecto) | Duración de la sacudida del Nunchuk en reportes de 10 ms; súbelo a 20 o 30 si el giro falla a veces |
 | `NEBULA_PAK_DELETE_IMAGE` | `1` | Borra la imagen del disco al terminar de convertir |
 
 ### Diagnóstico

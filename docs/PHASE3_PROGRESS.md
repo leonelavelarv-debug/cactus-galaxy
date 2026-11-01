@@ -3,6 +3,35 @@
 Registro por sesión del trabajo de rendimiento y estabilidad del renderizador GLES en la RG35XX H (KNULLI). Las
 mediciones de la consola las hace el usuario con los paquetes de medición; lo que no se midió allí se dice como tal.
 
+## Sesión 2026-11-01 (controles: sacudida del Nunchuk)
+
+### Trabajo realizado
+- A petición del usuario: el giro con el Nunchuk más fácil. La sacudida del Nunchuk ya existía en el host (`WiiTarget::NunchukShake`)
+  pero no tenía ningún botón en la consola. Ahora, con `GALAXY_SHAKE=nunchuk` (por defecto), X y R2 sacuden el Nunchuk e Y el Wiimote;
+  `remote` deja todo como antes y `both` manda X y R2 a los dos.
+- `GALAXY_SHAKE_REPORTS` (4-60, 12 por defecto) alarga la sacudida del Nunchuk; 12 es lo de siempre, no cambia nada sin tocarlo.
+- Cada sacudida deja `[input-shake] source=nunchuk|remote` en `log.txt`.
+
+### Archivos modificados
+- `platform/knulli/game/native_game_host_knulli.cpp` (solo el host de la consola; las tablas del runtime y Windows no se tocan),
+  `platform/knulli/smg/Super Mario Galaxy.sh` (documentación de las variables), `README.md` (controles y ajustes).
+
+### Pruebas ejecutadas
+- Compila para aarch64 (`nebula_knulli`).
+- La tabla de la consola, extraída y compilada en la PC con el `input_bindings.cpp` real: `nunchuk` pasa X y R2 de Shake a NunchukShake
+  (Switch Pro y Xbox), `remote` no cambia nada y `both` los copia.
+
+### Resultados
+- **No validado en la consola.** No sé si el juego reconoce mejor el giro con la sacudida del Nunchuk; la hipótesis de que a veces falle
+  por el muestreo (reportes a 100 Hz leídos a 60 Hz por el juego) no está medida.
+
+### Errores pendientes
+- Comprobar en la consola: que X y R2 giran, y contar en `log.txt` cuántos `[input-shake]` hay frente a los giros que hizo Mario.
+- Si falla a veces: probar `GALAXY_SHAKE_REPORTS=20` y `30`, y comparar.
+
+### Próximo paso
+- El usuario prueba el paquete nuevo y manda `smg/log.txt`; con eso se decide si hace falta cambiar la forma del pulso (un cambio por experimento).
+
 ## Sesión 2026-10-31 / 2026-11-01
 
 ### Trabajo realizado

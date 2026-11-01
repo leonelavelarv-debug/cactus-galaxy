@@ -262,6 +262,11 @@ export GALAXY_NO_BLUR="${GALAXY_NO_BLUR:-1}"
 #   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado
 export GALAXY_GLES_AA="${GALAXY_GLES_AA:-1}"
 export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
+#   GALAXY_SHAKE=nunchuk|remote|both     que acelerometro virtual sacude el giro: nunchuk (por defecto): X y R2 sacuden el
+#                                        Nunchuk e Y el Wiimote; remote: todo al Wiimote, como antes; both: X y R2 sacuden
+#                                        los dos. Cada sacudida deja [input-shake] source=nunchuk|remote en log.txt
+#   GALAXY_SHAKE_REPORTS=12              cuanto dura la sacudida del Nunchuk (reportes a 100 por segundo, 4-60); si el giro
+#                                        falla a veces, prueba 20 o 30
 #   GALAXY_LANGUAGE=spanish|english|french  idioma del juego (textos y menus; el disco USA trae los tres). Sin fijarlo
 #                                         aqui vale el que se eligio al instalar con Cactus Galaxy Wrapper
 # El idioma elegido en Cactus Galaxy Wrapper (smg/idioma.txt; SELECT mantenido al abrir lo cambia), si no se fija aqui.

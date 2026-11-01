@@ -21,7 +21,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdlib>
 #include <cstring>
+#include <iostream>
 #include <sstream>
 #include <vector>
 
@@ -51,10 +53,22 @@ const in::ControlsConfig& live_controls() {
     return config;
 }
 
+// GALAXY_SHAKE_REPORTS=n: how many reports (100 a second) one press of the Nunchuk shake lasts; 12 as the Wii Remote's
+// pulse (runtime/src/native_input.cpp). A longer pulse is a longer shake for the game to catch; 4..60.
+std::uint8_t nunchuk_shake_reports() {
+    static const std::uint8_t reports = [] {
+        const char* value = std::getenv("GALAXY_SHAKE_REPORTS");
+        if (value == nullptr || *value == '\0') return std::uint8_t{12};
+        const long n = std::strtol(value, nullptr, 10);
+        return static_cast<std::uint8_t>(std::clamp<long>(n, 4, 60));
+    }();
+    return reports;
+}
+
 bool advance_nunchuk_shake_accel(in::WiimoteInputSnapshot& snapshot, bool pressed, bool& previous_pressed,
                                  std::uint8_t& remaining_frames) {
     if (pressed && !previous_pressed) {
-        remaining_frames = 12;
+        remaining_frames = nunchuk_shake_reports();
     }
     previous_pressed = pressed;
     if (remaining_frames == 0) {
@@ -66,6 +80,43 @@ bool advance_nunchuk_shake_accel(in::WiimoteInputSnapshot& snapshot, bool presse
     snapshot.nunchuk.accel.z = phase ? 0x0130u : 0x02d0u;
     --remaining_frames;
     return true;
+}
+
+// GALAXY_SHAKE=nunchuk|remote|both: which virtual accelerometer the spin shakes. nunchuk (default): X (top face button)
+// and the right trigger shake the Nunchuk, Y keeps the Wii Remote's shake; remote: all of them shake the Wii Remote, as
+// before; both: those two shake both. The runtime's default bindings (and Windows) are not touched: this adjusts the
+// console's copy of the table only.
+enum class ShakeMode { Nunchuk, Remote, Both };
+
+ShakeMode shake_mode() {
+    static const ShakeMode mode = [] {
+        const char* value = std::getenv("GALAXY_SHAKE");
+        if (value != nullptr && std::strcmp(value, "remote") == 0) return ShakeMode::Remote;
+        if (value != nullptr && std::strcmp(value, "both") == 0) return ShakeMode::Both;
+        return ShakeMode::Nunchuk;
+    }();
+    return mode;
+}
+
+in::BindingTable console_bindings(const in::BindingTable& base) {
+    const ShakeMode mode = shake_mode();
+    if (mode == ShakeMode::Remote) return base;
+    in::BindingTable table = base;
+    const in::InputSource north{in::SourceKind::Button, static_cast<std::uint8_t>(in::pad::kNorthBit)};
+    const in::InputSource trigger{in::SourceKind::AxisPositive, static_cast<std::uint8_t>(in::PadAxis::RightTrigger)};
+    in::TargetBindings& remote = table[in::WiiTarget::Shake];
+    in::TargetBindings& nunchuk = table[in::WiiTarget::NunchukShake];
+    for (const in::InputSource source : {north, trigger}) {
+        bool had = false;
+        for (in::InputSource& slot : remote) {
+            if (slot == source) {
+                had = true;
+                if (mode == ShakeMode::Nunchuk) slot = in::InputSource{};
+            }
+        }
+        if (had) in::add_binding(nunchuk, source);
+    }
+    return table;
 }
 
 // The on-screen controls as the bindings' output.
@@ -147,7 +198,7 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         sample.axes[2] = right.x;
         sample.axes[3] = right.y;
         in::LogicalInput logic =
-            in::evaluate_pad_bindings(config.table(sample.scheme), sample, kTriggerThreshold, s_previous[i], false);
+            in::evaluate_pad_bindings(console_bindings(config.table(sample.scheme)), sample, kTriggerThreshold, s_previous[i], false);
         s_previous[i] = logic.pressed;
         if (tuning.invert_pointer_y) {
             logic.pointer_y = -logic.pointer_y;
@@ -251,9 +302,12 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
     }
     static bool s_shake = false;
     static std::uint8_t s_shake_frames = 0;
-    (void)in::advance_wiimote_shake_accel(snapshot, held(in::WiiTarget::Shake), s_shake, s_shake_frames);
     static bool s_nunchuk_shake = false;
     static std::uint8_t s_nunchuk_shake_frames = 0;
+    // Each press that starts a shake, by the accelerometer it shakes (the spin's evidence in log.txt).
+    if (held(in::WiiTarget::Shake) && !s_shake) std::cerr << "[input-shake] source=remote\n";
+    if (held(in::WiiTarget::NunchukShake) && !s_nunchuk_shake) std::cerr << "[input-shake] source=nunchuk\n";
+    (void)in::advance_wiimote_shake_accel(snapshot, held(in::WiiTarget::Shake), s_shake, s_shake_frames);
     (void)advance_nunchuk_shake_accel(snapshot, held(in::WiiTarget::NunchukShake), s_nunchuk_shake,
                                       s_nunchuk_shake_frames);
     return snapshot;
