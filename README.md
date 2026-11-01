@@ -172,7 +172,7 @@ Se ponen al principio de `Super Mario Galaxy.sh`:
 
 | Variable | Valores | Qué hace |
 |---|---|---|
-| `NEBULA_PERFIL` | `bajo` (por defecto) · `normal` | Perfil de bajos recursos (salto de frames, cachés pequeñas) o sin saltos |
+| `NEBULA_PERFIL` | `medio` (por defecto) · `bajo` · `normal` | `medio`: resolución interna fija de 75 % (480x396), con salto de frames y cachés pequeñas; `bajo`: igual pero con resolución dinámica 50-100 %; `normal`: 100 % y sin saltos. El medio no está medido en la consola |
 | `GALAXY_FRAMESKIP` | `auto` · `0`–`3` | Salto de frames; `auto` mantiene 60, 30 o 20 imágenes por segundo |
 | `GALAXY_PEEK_MODE` | `async` · `sync` · `off` | Lecturas de la imagen (destellos del sol, puntero) sin esperar, exactas o ninguna |
 | `NEBULA_FACE_LAYOUT` | `positions` · `labels` | A/B por posición o por etiqueta (si en tu firmware salen cambiados) |

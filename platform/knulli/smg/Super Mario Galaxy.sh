@@ -142,10 +142,13 @@ for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ult
     esac
   done < "$cfg"
 done
-#   NEBULA_PERFIL=bajo|normal            bajo (por defecto): pocos recursos -- salta frames cuando el render no llega
-#                                        (el juego mantiene su velocidad), menos memoria para caches; normal: sin saltos
-NEBULA_PERFIL="${NEBULA_PERFIL:-bajo}"
-if [ "$NEBULA_PERFIL" = "bajo" ]; then
+#   NEBULA_PERFIL=bajo|medio|normal      medio (por defecto): graficos medios -- resolucion interna fija de 75 % (480x396,
+#                                        entre el 50-100 % dinamico del bajo y los 640x528 del normal), con el mismo
+#                                        salto de frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion
+#                                        dinamica (baja sola cuando la GPU no llega); normal: 100 % y sin saltos
+#                                        (el perfil medio no esta medido en la consola: es un punto entre los dos)
+NEBULA_PERFIL="${NEBULA_PERFIL:-medio}"
+if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
   #                                      cueste dibujar (GALAXY_FRAMESKIP_MAX=2: 20 como minimo); 1: siempre 30
   export GALAXY_FRAMESKIP="${GALAXY_FRAMESKIP:-auto}"
@@ -158,7 +161,11 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   export GALAXY_PEEK_MODE="${GALAXY_PEEK_MODE:-async}"
   #   GALAXY_GLES_RESOLUTION=auto        (perfil bajo) la resolucion interna dinamica: serie del 29-oct, GPU -48 %, p95 -20 %,
   #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
-  export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
+  if [ "$NEBULA_PERFIL" = "medio" ]; then
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-75}"
+  else
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
+  fi
   #   GALAXY_GLES_PEEK_FIELD=25          esas lecturas a 160x132 (25 %): se copian de la GPU 20 veces menos bytes
   export GALAXY_GLES_PEEK_FIELD="${GALAXY_GLES_PEEK_FIELD:-25}"
   #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=24 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=24  las display lists y los vertices ya
