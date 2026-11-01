@@ -1,5 +1,8 @@
 # Wii Hybrid Input — Fase 1: el sistema de entrada de Nebula
 
+> **Retirado (2026-11-01, a petición del usuario).** El perfil WII HYBRID y la sacudida en X/R2 se quitaron: la consola volvió a los
+> controles originales y solo se conservó mantener el botón de giro para seguir sacudiendo (`wii_shake.h`). Este documento queda como registro del análisis.
+
 Análisis sin cambios de código (2026-11-01). Todo lo que sigue se leyó en el repositorio; los números de línea son de `rg35xxh-arm64` en `3bf6160e`.
 
 ## 1. Cómo llega hoy una pulsación al juego

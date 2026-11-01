@@ -262,17 +262,9 @@ export GALAXY_NO_BLUR="${GALAXY_NO_BLUR:-1}"
 #   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado
 export GALAXY_GLES_AA="${GALAXY_GLES_AA:-1}"
 export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
-#   GALAXY_INPUT_PROFILE=mario_galaxy|default|off  el perfil de mando Wii (WII HYBRID - RG35XX H): smg/config/input/wii/<nombre>.ini,
-#                                        lineas bind.switch_pro.* y tune.switch_pro.* como smg/settings.ini; mario_galaxy
-#                                        (por defecto) y default traen el mapeo de este lanzador; off: los controles de antes
-export GALAXY_INPUT_PROFILE_DIR="${GALAXY_INPUT_PROFILE_DIR:-$GAMEDIR/config/input/wii}"
-#   GALAXY_SHAKE=nunchuk|remote|both     (solo con GALAXY_INPUT_PROFILE=off) que acelerometro virtual sacude el giro: nunchuk (por defecto): X y R2 sacuden el
-#                                        Nunchuk e Y el Wiimote; remote: todo al Wiimote, como antes; both: X y R2 sacuden
-#                                        los dos. Cada sacudida deja [input-shake] source=nunchuk|remote en log.txt
-#   GALAXY_SHAKE_REPORTS=12              cuanto dura una sacudida al tocar el boton (reportes a 100 por segundo, 4-60)
-#   GALAXY_SHAKE_HOLD=1|0                1 (por defecto): mantener el boton de sacudida sigue sacudiendo, y el juego ve la
-#                                        sacudida en todos los frames: Mario sube las enredaderas y los tallos con el boton
-#                                        apretado; 0: una sacudida por pulsacion, como antes
+#   GALAXY_SHAKE_HOLD=1|0                1 (por defecto): mantener un boton de giro (X, Y o R2) sigue sacudiendo y el juego
+#                                        ve la sacudida en todos los frames: Mario sube las enredaderas y los tallos con el
+#                                        boton apretado; tocarlo sigue siendo un giro. 0: una sacudida por pulsacion, como antes
 #   GALAXY_LANGUAGE=spanish|english|french  idioma del juego (textos y menus; el disco USA trae los tres). Sin fijarlo
 #                                         aqui vale el que se eligio al instalar con Cactus Galaxy Wrapper
 # El idioma elegido en Cactus Galaxy Wrapper (smg/idioma.txt; SELECT mantenido al abrir lo cambia), si no se fija aqui.

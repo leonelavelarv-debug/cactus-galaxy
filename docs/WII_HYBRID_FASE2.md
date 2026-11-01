@@ -1,5 +1,8 @@
 # Wii Hybrid Input — Fase 2: arquitectura
 
+> **Retirado (2026-11-01, a petición del usuario).** El perfil WII HYBRID y la sacudida en X/R2 se quitaron: la consola volvió a los
+> controles originales y solo se conservó mantener el botón de giro para seguir sacudiendo (`wii_shake.h`). Este documento queda como registro del análisis.
+
 Decisiones del usuario (2026-11-01): el mapeo de su documento tal cual, y perfiles en archivos `.ini` en vez de JSON.
 Principio: **extender lo que Nebula ya tiene, no reemplazar módulos que funcionan** (reglas 12 del documento).
 

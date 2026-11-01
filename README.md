@@ -150,23 +150,19 @@ y [`docs/PHASE3_PROGRESS.md`](docs/PHASE3_PROGRESS.md).
 La primera vez que aparece cada efecto se compila su shader y el juego se detiene un instante. Se guardan en
 `smg/data/shadercache`, así que la siguiente vez cargan sin parón.
 
-### Controles (perfil WII HYBRID – RG35XX H)
-
-Es el perfil `smg/config/input/wii/mario_galaxy.ini` (se elige con `GALAXY_INPUT_PROFILE`; `off` vuelve a los controles
-de antes). Para cambiar un botón, edita ese archivo: son las mismas líneas `bind.switch_pro.*` y `tune.switch_pro.*` de
-`smg/settings.ini`.
+### Controles (esquema Nintendo)
 
 | Consola | Wii |
 |---|---|
 | Stick izquierdo | Stick del Nunchuk |
-| B (abajo) | A: saltar |
-| A (derecha), R2 | B: trozos de estrella (y volver en los menús) |
-| R1 | Giro: sacude el Nunchuk (pulso sintético). Mantenerlo sigue sacudiendo: así Mario sube las enredaderas |
-| L1 | C (centrar la cámara) |
+| A | Saltar |
+| B | Saltar / atrás |
+| X, Y, R2 | Giro (mantenerlo apretado sigue sacudiendo: así Mario sube las enredaderas) |
+| L1 | Botón B del Wiimote (disparar trozos de estrella) |
 | L2 | Z (agacharse) |
-| X, Y | 1, 2 |
-| Stick derecho | Puntero (solo puntero); su clic lo centra |
-| Cruceta | Cruceta (cámara) |
+| Stick derecho | Puntero |
+| R1 | Centrar el puntero |
+| Cruceta | Cámara |
 | START / SELECT | + / − |
 | **MENU + START** (KNULLI, muOS) · **SELECT + START** (ArkOS, dArkOS) | Salir |
 
@@ -182,10 +178,7 @@ Se ponen al principio de `Super Mario Galaxy.sh`:
 | `NEBULA_FACE_LAYOUT` | `positions` · `labels` | A/B por posición o por etiqueta (si en tu firmware salen cambiados) |
 | `NEBULA_QUIT_COMBO` | `menu` · `select` · `both` | Fuerza la combinación para salir |
 | `NEBULA_PAD_SCHEME` | `xbox` | Cambia A y B de lado |
-| `GALAXY_INPUT_PROFILE` | `mario_galaxy` (por defecto) · `default` · `off` | Perfil de mando Wii: `default` es la base de cualquier juego (R1 sacude el Wiimote, el puntero no se oculta); `mario_galaxy` la ajusta a este juego; `off`: los controles de antes |
-| `GALAXY_SHAKE_HOLD` | `1` (por defecto) · `0` | Mantener el botón de sacudida sigue sacudiendo (enredaderas y tallos con el botón apretado) o solo una sacudida por pulsación |
-| `GALAXY_SHAKE` | `nunchuk` · `remote` · `both` | Solo con `GALAXY_INPUT_PROFILE=off`: qué acelerómetro virtual sacude el giro (X y R2 al Nunchuk, Y al Wiimote) |
-| `GALAXY_SHAKE_REPORTS` | `4`–`60` (12 por defecto) | Duración de la sacudida del Nunchuk en reportes de 10 ms; súbelo a 20 o 30 si el giro falla a veces |
+| `GALAXY_SHAKE_HOLD` | `1` (por defecto) · `0` | Mantener un botón de giro sigue sacudiendo (enredaderas y tallos con el botón apretado) o solo una sacudida por pulsación |
 | `NEBULA_PAK_DELETE_IMAGE` | `1` | Borra la imagen del disco al terminar de convertir |
 
 ### Diagnóstico

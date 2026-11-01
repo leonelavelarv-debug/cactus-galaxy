@@ -186,12 +186,6 @@ add_executable(nebula_nopal_depurar_tests "${CMAKE_CURRENT_SOURCE_DIR}/nopal_dep
 target_include_directories(nebula_nopal_depurar_tests PRIVATE "${nebula_root}/runtime/include")
 target_link_libraries(nebula_nopal_depurar_tests PRIVATE Threads::Threads)
 
-# The WII HYBRID profiles (smg/smg/config/input/wii/*.ini) through the real bindings (no GL, no SDL). Run with the
-# folder of the profiles: nebula_wii_profile_tests <platform/knulli/smg/smg/config/input/wii>.
-add_executable(nebula_wii_profile_tests "${CMAKE_CURRENT_SOURCE_DIR}/wii_profile_tests.cpp"
-    "${nebula_root}/runtime/src/input_bindings.cpp")
-target_include_directories(nebula_wii_profile_tests PRIVATE "${nebula_root}/runtime/include" "${nebula_root}/runtime/src")
-
 # The shake button (wii_shake.h) against a simulation of the game's swing detector (no GL, no SDL).
 add_executable(nebula_wii_shake_tests "${CMAKE_CURRENT_SOURCE_DIR}/wii_shake_tests.cpp"
     "${nebula_root}/runtime/src/native_input.cpp")

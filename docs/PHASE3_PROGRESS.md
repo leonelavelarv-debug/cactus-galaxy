@@ -3,6 +3,29 @@
 Registro por sesión del trabajo de rendimiento y estabilidad del renderizador GLES en la RG35XX H (KNULLI). Las
 mediciones de la consola las hace el usuario con los paquetes de medición; lo que no se midió allí se dice como tal.
 
+## Sesión 2026-11-01 (controles originales + solo mantener para sacudir)
+
+### Trabajo realizado
+- A petición del usuario: vuelta a los controles originales (los de `e5e4c008`: A salta, B salta/atrás, X/Y/R2 giran, L1 trozos de estrella,
+  L2 Z, R1 recentra el puntero, clic del stick izquierdo C). Se quitaron el perfil WII HYBRID (`wii_profile.h`, los `.ini`, `GALAXY_INPUT_PROFILE`),
+  `GALAXY_SHAKE` (X/R2 al Nunchuk) y `GALAXY_SHAKE_REPORTS`.
+- Se conservó solo la función de mantener: `wii_shake.h` en el host; mantener X, Y o R2 sigue sacudiendo (enredaderas y tallos), tocar = el pulso de siempre.
+  `GALAXY_SHAKE_HOLD=0` la apaga.
+
+### Archivos modificados
+Respecto a `e5e4c008`: `native_game_host_knulli.cpp` (la sacudida con `ShakeButton`), `wii_shake.h`, `wii_shake_tests.cpp`, `CMakeLists.txt`,
+el lanzador (documenta `GALAXY_SHAKE_HOLD`) y `README.md` (una fila). Nada más del código cambió. Los documentos WII_HYBRID quedan marcados como retirados.
+
+### Pruebas ejecutadas
+- `nebula_wii_shake_tests`: pasa (tocar = pulso del runtime muestra por muestra; mantener 3 s = sacudida en 179 de 179 frames; antes 13).
+- Compila para aarch64 sin avisos.
+
+### Resultados
+- **No validado en la consola.** Falta subir la enredadera con X, Y o R2 apretado.
+
+### Próximo paso
+- Probar la enredadera del video manteniendo un botón de giro.
+
 ## Sesión 2026-11-01 (enredaderas: mantener R1 para subir)
 
 ### Trabajo realizado

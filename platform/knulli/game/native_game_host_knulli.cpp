@@ -4,9 +4,7 @@
 // same bindings and tuning as Windows), vibration, and the device data the game reads.
 
 #include "sdl_host.h"
-#include "wii_profile.h"
 #include "wii_shake.h"
-#include "wii_profile.h"
 
 #include "galaxy/content_viewport.h"
 #include "galaxy/input_bindings.h"
@@ -24,12 +22,9 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <cstdlib>
 #include <cstring>
-#include <fstream>
-#include <iostream>
+#include <cstdlib>
 #include <sstream>
-#include <string>
 #include <vector>
 
 namespace galaxy::host {
@@ -58,110 +53,14 @@ const in::ControlsConfig& live_controls() {
     return config;
 }
 
-// The Wii input profile (wii_profile.h): GALAXY_INPUT_PROFILE=<name> (mario_galaxy by default; off: none) read from
-// GALAXY_INPUT_PROFILE_DIR/<name>.ini (the launcher sets the folder, smg/config/input/wii). Read once; a missing file or
-// folder leaves the runtime's controls as they are.
-std::string load_wii_profile_text() {
-    const char* name_env = std::getenv("GALAXY_INPUT_PROFILE");
-    const std::string name = name_env != nullptr && *name_env != '\0' ? name_env : "mario_galaxy";
-    const char* dir = std::getenv("GALAXY_INPUT_PROFILE_DIR");
-    if (name == "off" || dir == nullptr || *dir == '\0') {
-        std::cerr << "[input-profile] none (" << (name == "off" ? "GALAXY_INPUT_PROFILE=off" : "no profile folder") << ")\n";
-        return {};
-    }
-    if (name.find_first_of("/\\") != std::string::npos || name.find("..") != std::string::npos) {
-        std::cerr << "[input-profile] bad profile name '" << name << "'\n";
-        return {};
-    }
-    const std::string path = std::string(dir) + "/" + name + ".ini";
-    std::ifstream file(path, std::ios::binary);
-    if (!file) {
-        std::cerr << "[input-profile] not found: " << path << " (the runtime's controls)\n";
-        return {};
-    }
-    std::ostringstream text;
-    text << file.rdbuf();
-    return text.str();
-}
-
-// The runtime's controls with the Wii profile over them, rebuilt when the runtime's change. The profile files only
-// have switch_pro lines (the console's scheme): with NEBULA_PAD_SCHEME=xbox they do nothing, and the log says so.
-const in::ControlsConfig& profiled_controls() {
-    static const std::string profile = load_wii_profile_text();
-    static in::ControlsConfig merged;
-    static std::uint64_t generation = ~std::uint64_t{0};
-    const in::ControlsConfig& live = live_controls();
-    if (const std::uint64_t now = in::controls_config_generation(); now != generation) {
-        merged = live;
-        if (!profile.empty()) {
-            const galaxy::host::ProfileResult result = galaxy::host::apply_wii_profile_text(merged, profile);
-            const char* scheme = std::getenv("NEBULA_PAD_SCHEME");
-            std::cerr << "[input-profile] " << result.name << ": " << result.applied << " lines applied, " << result.ignored
-                      << " ignored" << (scheme != nullptr && std::strcmp(scheme, "xbox") == 0 ? " (NEBULA_PAD_SCHEME=xbox: no effect)" : "")
-                      << "\n";
-        }
-        generation = now;
-    }
-    return merged;
-}
-
-// GALAXY_SHAKE_REPORTS=n: how many reports (100 a second) a tap of a shake button lasts; 12 as the runtime's pulse
-// (runtime/src/native_input.cpp). 4..60.
-std::uint8_t shake_tap_reports() {
-    static const std::uint8_t reports = [] {
-        const char* value = std::getenv("GALAXY_SHAKE_REPORTS");
-        if (value == nullptr || *value == '\0') return std::uint8_t{12};
-        const long n = std::strtol(value, nullptr, 10);
-        return static_cast<std::uint8_t>(std::clamp<long>(n, 4, 60));
-    }();
-    return reports;
-}
-
 // GALAXY_SHAKE_HOLD=1|0: holding a shake button keeps shaking (1, default: the Sproutle vine and the beanstalk climb
-// while the button is held; wii_shake.h) or only shakes once per press (0, as before).
+// while the button is held; wii_shake.h) or shakes once per press (0, as before). A tap is the same pulse either way.
 bool shake_hold_repeats() {
     static const bool repeats = [] {
         const char* value = std::getenv("GALAXY_SHAKE_HOLD");
         return !(value != nullptr && std::strcmp(value, "0") == 0);
     }();
     return repeats;
-}
-
-// GALAXY_SHAKE=nunchuk|remote|both: which virtual accelerometer the spin shakes. nunchuk (default): X (top face button)
-// and the right trigger shake the Nunchuk, Y keeps the Wii Remote's shake; remote: all of them shake the Wii Remote, as
-// before; both: those two shake both. The runtime's default bindings (and Windows) are not touched: this adjusts the
-// console's copy of the table only.
-enum class ShakeMode { Nunchuk, Remote, Both };
-
-ShakeMode shake_mode() {
-    static const ShakeMode mode = [] {
-        const char* value = std::getenv("GALAXY_SHAKE");
-        if (value != nullptr && std::strcmp(value, "remote") == 0) return ShakeMode::Remote;
-        if (value != nullptr && std::strcmp(value, "both") == 0) return ShakeMode::Both;
-        return ShakeMode::Nunchuk;
-    }();
-    return mode;
-}
-
-in::BindingTable console_bindings(const in::BindingTable& base) {
-    const ShakeMode mode = shake_mode();
-    if (mode == ShakeMode::Remote) return base;
-    in::BindingTable table = base;
-    const in::InputSource north{in::SourceKind::Button, static_cast<std::uint8_t>(in::pad::kNorthBit)};
-    const in::InputSource trigger{in::SourceKind::AxisPositive, static_cast<std::uint8_t>(in::PadAxis::RightTrigger)};
-    in::TargetBindings& remote = table[in::WiiTarget::Shake];
-    in::TargetBindings& nunchuk = table[in::WiiTarget::NunchukShake];
-    for (const in::InputSource source : {north, trigger}) {
-        bool had = false;
-        for (in::InputSource& slot : remote) {
-            if (slot == source) {
-                had = true;
-                if (mode == ShakeMode::Nunchuk) slot = in::InputSource{};
-            }
-        }
-        if (had) in::add_binding(nunchuk, source);
-    }
-    return table;
 }
 
 // The on-screen controls as the bindings' output.
@@ -221,7 +120,7 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         : tilt_section == 2u ? in::tilt::Section::Ray
         : in::tilt::Section::None;
     const sdl::InputState state = sdl::input_state();
-    const in::ControlsConfig& config = profiled_controls();
+    const in::ControlsConfig& config = live_controls();
     in::WiimoteInputSnapshot snapshot{};
 
     // Gamepads: the bindings and tuning of each one's scheme, as on Windows.
@@ -243,7 +142,7 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         sample.axes[2] = right.x;
         sample.axes[3] = right.y;
         in::LogicalInput logic =
-            in::evaluate_pad_bindings(console_bindings(config.table(sample.scheme)), sample, kTriggerThreshold, s_previous[i], false);
+            in::evaluate_pad_bindings(config.table(sample.scheme), sample, kTriggerThreshold, s_previous[i], false);
         s_previous[i] = logic.pressed;
         if (tuning.invert_pointer_y) {
             logic.pointer_y = -logic.pointer_y;
@@ -345,25 +244,17 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         snapshot.accel.y = counts.y;
         snapshot.accel.z = counts.z;
     }
-    // The shakes (wii_shake.h): a tap is the runtime's pulse; holding keeps the game's swing on every frame.
+    // The shakes (wii_shake.h): a tap is the runtime's 12-report pulse; holding keeps the game's swing on every frame.
+    constexpr std::uint8_t kShakeTapReports = 12;
     static galaxy::host::ShakeButton s_remote_shake{};
     static galaxy::host::ShakeButton s_nunchuk_shake{};
-    static bool s_remote_held = false;
-    static bool s_nunchuk_held = false;
-    const bool remote_held = held(in::WiiTarget::Shake);
-    const bool nunchuk_held = held(in::WiiTarget::NunchukShake);
-    // Each press that starts a shake, by the accelerometer it shakes (the spin's evidence in log.txt).
-    if (remote_held && !s_remote_held) std::cerr << "[input-shake] source=remote\n";
-    if (nunchuk_held && !s_nunchuk_held) std::cerr << "[input-shake] source=nunchuk\n";
-    s_remote_held = remote_held;
-    s_nunchuk_held = nunchuk_held;
     galaxy::host::ShakeCounts counts{};
-    if (s_remote_shake.advance(remote_held, shake_tap_reports(), shake_hold_repeats(), counts)) {
+    if (s_remote_shake.advance(held(in::WiiTarget::Shake), kShakeTapReports, shake_hold_repeats(), counts)) {
         snapshot.accel.x = counts.x;
         snapshot.accel.y = counts.y;
         snapshot.accel.z = counts.z;
     }
-    if (s_nunchuk_shake.advance(nunchuk_held, shake_tap_reports(), shake_hold_repeats(), counts)) {
+    if (s_nunchuk_shake.advance(held(in::WiiTarget::NunchukShake), kShakeTapReports, shake_hold_repeats(), counts)) {
         snapshot.nunchuk.accel.x = counts.x;
         snapshot.nunchuk.accel.y = counts.y;
         snapshot.nunchuk.accel.z = counts.z;
