@@ -3,6 +3,39 @@
 Registro por sesión del trabajo de rendimiento y estabilidad del renderizador GLES en la RG35XX H (KNULLI). Las
 mediciones de la consola las hace el usuario con los paquetes de medición; lo que no se midió allí se dice como tal.
 
+## Sesión 2026-11-01 (Wii Hybrid Input: fases 1 a 3)
+
+### Trabajo realizado
+- Fase 1 (`docs/WII_HYBRID_FASE1.md`): análisis del sistema de entrada. Lo pedido ya existe en gran parte (tablas de botones,
+  ajustes en `settings.ini`, puntero, sacudida e inclinación sintéticas); faltan perfiles por juego, interfaz y mediciones.
+  Corregí en el mismo informe un error mío: el stick derecho ya es solo puntero en la consola.
+- Fase 2 (`docs/WII_HYBRID_FASE2.md`): arquitectura. Decisiones del usuario: el mapeo de su documento tal cual y perfiles en `.ini`.
+- Fase 3: el perfil WII HYBRID – RG35XX H. `platform/knulli/game/wii_profile.h` (cargador), `profiled_controls()` en el host de la
+  consola, `smg/config/input/wii/{default,mario_galaxy}.ini`, `GALAXY_INPUT_PROFILE` (`mario_galaxy` por defecto, `off` = como antes).
+  Mapeo: B→Wii A, A y R2→Wii B, R1→sacudida (Nunchuk en Galaxy), L1→C, L2→Z, X/Y→1/2, stick derecho→puntero (clic: recentrar).
+
+### Archivos modificados
+`platform/knulli/game/{native_game_host_knulli.cpp,wii_profile.h,wii_profile_tests.cpp,CMakeLists.txt}`,
+`platform/knulli/smg/Super Mario Galaxy.sh`, `platform/knulli/smg/smg/config/input/wii/*.ini`, `README.md` y los dos documentos nuevos.
+`runtime/` (y con él Windows) no se tocó.
+
+### Pruebas ejecutadas
+- `nebula_wii_profile_tests` (PC, con el `input_bindings.cpp` real): ambos perfiles, 30 líneas entendidas y 0 ignoradas, cada
+  botón/gatillo/stick llega a su destino, y mover + apuntar + saltar + disparar + agacharse + girar a la vez no pierde ninguno. 36 comprobaciones, todas pasan.
+- El cargador de archivos en la PC: carpeta ausente, `off`, nombre con `..` y archivo inexistente (el host sigue con los controles de antes).
+- Compila para aarch64 (`nebula_knulli`).
+
+### Resultados
+- **No validado en la consola.** Falta ver que cada botón hace lo esperado jugando y que `log.txt` muestra `[input-profile]`.
+- La interfaz de configuración (fase 7), la medición de latencia y CPU (fase 8) y el paquete probado en la consola (fase 9) siguen pendientes.
+
+### Errores pendientes
+- Mi prueba esperaba al principio `pressed == 0` en los sticks; el runtime marca el propio destino del stick como pulsado. Era un error de la prueba, no del código; corregido.
+- R1 ya no recentra el puntero (pasó al clic del stick derecho). Si no te gusta, es una línea del `.ini`.
+
+### Próximo paso
+- Que pruebes el paquete en la consola y mandes `smg/log.txt`. Después, fases 4 y 5 (ajustes del pulso, centrado y suavizado del puntero) y la 7 (pantalla de configuración).
+
 ## Sesión 2026-11-01 (controles: sacudida del Nunchuk)
 
 ### Trabajo realizado

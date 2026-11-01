@@ -4,6 +4,8 @@
 // same bindings and tuning as Windows), vibration, and the device data the game reads.
 
 #include "sdl_host.h"
+#include "wii_profile.h"
+#include "wii_profile.h"
 
 #include "galaxy/content_viewport.h"
 #include "galaxy/input_bindings.h"
@@ -23,8 +25,10 @@
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string>
 #include <vector>
 
 namespace galaxy::host {
@@ -51,6 +55,53 @@ const in::ControlsConfig& live_controls() {
         generation = now;
     }
     return config;
+}
+
+// The Wii input profile (wii_profile.h): GALAXY_INPUT_PROFILE=<name> (mario_galaxy by default; off: none) read from
+// GALAXY_INPUT_PROFILE_DIR/<name>.ini (the launcher sets the folder, smg/config/input/wii). Read once; a missing file or
+// folder leaves the runtime's controls as they are.
+std::string load_wii_profile_text() {
+    const char* name_env = std::getenv("GALAXY_INPUT_PROFILE");
+    const std::string name = name_env != nullptr && *name_env != '\0' ? name_env : "mario_galaxy";
+    const char* dir = std::getenv("GALAXY_INPUT_PROFILE_DIR");
+    if (name == "off" || dir == nullptr || *dir == '\0') {
+        std::cerr << "[input-profile] none (" << (name == "off" ? "GALAXY_INPUT_PROFILE=off" : "no profile folder") << ")\n";
+        return {};
+    }
+    if (name.find_first_of("/\\") != std::string::npos || name.find("..") != std::string::npos) {
+        std::cerr << "[input-profile] bad profile name '" << name << "'\n";
+        return {};
+    }
+    const std::string path = std::string(dir) + "/" + name + ".ini";
+    std::ifstream file(path, std::ios::binary);
+    if (!file) {
+        std::cerr << "[input-profile] not found: " << path << " (the runtime's controls)\n";
+        return {};
+    }
+    std::ostringstream text;
+    text << file.rdbuf();
+    return text.str();
+}
+
+// The runtime's controls with the Wii profile over them, rebuilt when the runtime's change. The profile files only
+// have switch_pro lines (the console's scheme): with NEBULA_PAD_SCHEME=xbox they do nothing, and the log says so.
+const in::ControlsConfig& profiled_controls() {
+    static const std::string profile = load_wii_profile_text();
+    static in::ControlsConfig merged;
+    static std::uint64_t generation = ~std::uint64_t{0};
+    const in::ControlsConfig& live = live_controls();
+    if (const std::uint64_t now = in::controls_config_generation(); now != generation) {
+        merged = live;
+        if (!profile.empty()) {
+            const galaxy::host::ProfileResult result = galaxy::host::apply_wii_profile_text(merged, profile);
+            const char* scheme = std::getenv("NEBULA_PAD_SCHEME");
+            std::cerr << "[input-profile] " << result.name << ": " << result.applied << " lines applied, " << result.ignored
+                      << " ignored" << (scheme != nullptr && std::strcmp(scheme, "xbox") == 0 ? " (NEBULA_PAD_SCHEME=xbox: no effect)" : "")
+                      << "\n";
+        }
+        generation = now;
+    }
+    return merged;
 }
 
 // GALAXY_SHAKE_REPORTS=n: how many reports (100 a second) one press of the Nunchuk shake lasts; 12 as the Wii Remote's
@@ -176,7 +227,7 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         : tilt_section == 2u ? in::tilt::Section::Ray
         : in::tilt::Section::None;
     const sdl::InputState state = sdl::input_state();
-    const in::ControlsConfig& config = live_controls();
+    const in::ControlsConfig& config = profiled_controls();
     in::WiimoteInputSnapshot snapshot{};
 
     // Gamepads: the bindings and tuning of each one's scheme, as on Windows.

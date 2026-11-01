@@ -262,7 +262,11 @@ export GALAXY_NO_BLUR="${GALAXY_NO_BLUR:-1}"
 #   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado
 export GALAXY_GLES_AA="${GALAXY_GLES_AA:-1}"
 export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
-#   GALAXY_SHAKE=nunchuk|remote|both     que acelerometro virtual sacude el giro: nunchuk (por defecto): X y R2 sacuden el
+#   GALAXY_INPUT_PROFILE=mario_galaxy|default|off  el perfil de mando Wii (WII HYBRID - RG35XX H): smg/config/input/wii/<nombre>.ini,
+#                                        lineas bind.switch_pro.* y tune.switch_pro.* como smg/settings.ini; mario_galaxy
+#                                        (por defecto) y default traen el mapeo de este lanzador; off: los controles de antes
+export GALAXY_INPUT_PROFILE_DIR="${GALAXY_INPUT_PROFILE_DIR:-$GAMEDIR/config/input/wii}"
+#   GALAXY_SHAKE=nunchuk|remote|both     (solo con GALAXY_INPUT_PROFILE=off) que acelerometro virtual sacude el giro: nunchuk (por defecto): X y R2 sacuden el
 #                                        Nunchuk e Y el Wiimote; remote: todo al Wiimote, como antes; both: X y R2 sacuden
 #                                        los dos. Cada sacudida deja [input-shake] source=nunchuk|remote en log.txt
 #   GALAXY_SHAKE_REPORTS=12              cuanto dura la sacudida del Nunchuk (reportes a 100 por segundo, 4-60); si el giro

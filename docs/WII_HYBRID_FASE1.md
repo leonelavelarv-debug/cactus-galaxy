@@ -25,7 +25,7 @@ Mapeo actual en la consola (SwitchPro, posiciones Nintendo), tal como lo imprime
 | Z | L2 |
 | C | clic del stick izquierdo |
 | Stick del Nunchuk | stick izquierdo |
-| Puntero IR | stick derecho (también mueve la cruceta virtual = cámara) |
+| Puntero IR | stick derecho (solo puntero: con `gyro_pointer` apagado, como en la consola, `evaluate_pad_bindings` no lo deja mover la cruceta aunque la tabla también lo liste) |
 | Recentrar puntero | R1 |
 | Sacudida del Nunchuk | X (arriba) y R2 |
 | Sacudida del Wiimote | Y (izquierda) |
@@ -59,7 +59,7 @@ Mapeo actual en la consola (SwitchPro, posiciones Nintendo), tal como lo imprime
 | L1 = Nunchuk C | L1 = Wii B (trozos de estrella); C va en el clic del stick | Los trozos de estrella pasarían a otro botón (pedido: R2 "configurable") |
 | X = Wii 1, Y = Wii 2 | X e Y hacen el giro (nuevo mapeo de hoy) | 1 y 2 no se usan en el juego; el giro quedaría solo en R1 |
 | B = Wii A, A = Wii B | A (derecha) salta y B (abajo) también salta | Con el pedido, el botón derecho dispararía trozos de estrella y el de abajo saltaría |
-| Stick derecho = puntero sin interferir con Mario | El stick derecho también mueve la cámara (cruceta virtual) | Para apuntar sin mover la cámara hay que quitar `RX±/RY±` de `dpad_*` y dar otra forma a la cámara |
+| Stick derecho = puntero sin interferir con Mario | Ya es así (comprobado con el código: sin giroscopio el stick derecho es solo puntero) | Ninguno. *Corrección de la primera versión de este informe, que decía lo contrario* |
 
 Ninguno es un error: son decisiones de diseño que cambian cómo se juega y deben elegirse antes de la Fase 3.
 
