@@ -288,6 +288,23 @@ de 48 MiB.
 - La línea `[memoria]` trae ahora `subida`: lo que suman esos bloques.
 - Con eso, los vértices decodificados vuelven a 24 MiB (la velocidad de antes). Las display lists siguen en 24.
 
+### Con los bloques de subida corregidos (31-oct, séptimo recorrido)
+
+**Las 44 galaxias, a la velocidad normal** (`tour: done`, estado 0, 1342 s):
+
+- en total, 34.1 FPS mostrados y 13.2 dibujados; la CPU del hilo de render, 10.9 ms por frame; 0 errores de GL;
+- AstroGalaxy, 9.8 FPS dibujados con 18.1 ms de CPU (como con 24/24 antes);
+- OceanRingGalaxy, 12.3; PeachCastleFinalGalaxy, 11.5. En las corridas anteriores ahí moría.
+
+**Memoria:**
+
+- Los bloques de subida se quedaron en 16 MiB todo el recorrido (4 slots × 4 MiB). Antes crecían en cada carga.
+- malloc: 107 MiB al abrir (antes 148), 197-283 hasta la 27.ª galaxia, y la memoria libre bajó a 89-122 MiB.
+- **Lo que queda:** en la carga de OceanRingGalaxy, malloc vuelve a subir de 247 a 333 MiB y no baja hasta la 39.ª
+  galaxia. La memoria libre mínima fue de 36 MiB (informe).
+  - Esta vez alcanzó, pero el margen es poco.
+  - Esos 86 MiB no son de ninguna caché medida. Falta saber qué los pide.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
