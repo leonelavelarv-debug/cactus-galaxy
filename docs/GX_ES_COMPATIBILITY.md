@@ -79,7 +79,7 @@ Pendiente en 3.0: nada del núcleo GX. La consola usa 3.2 y no pasa por ahí.
 | Z temprana con alpha test que descarta | `layout(early_fragment_tests)` en GLSL ES 3.10/3.20 | 28 programas con Z temprana y descarte, 2 de ellos con escritura de profundidad | Con 3.2 no hay diferencia; en 3.0, framebuffer fetch (GX-ES.md) |
 
 
-**Corrección del paso 2** ([GX_ES_BLEND_ANALYSIS.md](GX_ES_BLEND_ANALYSIS.md)): de los 241, solo 35 (`GXSetDstAlpha`) mezclan con la alfa constante; los otros 206 mezclan con la alfa del TEV recortada a 6 bits (error de 1-3 niveles). Resuelto con framebuffer fetch; falta la consola.
+**Corrección del paso 2** ([GX_ES_BLEND_ANALYSIS.md](GX_ES_BLEND_ANALYSIS.md)): de los 241, solo 35 (`GXSetDstAlpha`) mezclan con la alfa constante; los otros 206 mezclan con la alfa del TEV recortada a 6 bits (error de 1-3 niveles). Resuelto con framebuffer fetch y verificado en la consola: 0 píxeles con diferencia mayor a 1 contra la mezcla de la CPU ([GX_ES_STEP2_RESULTS.md](GX_ES_STEP2_RESULTS.md)).
 
 ## E. Operaciones con riesgo de precisión
 
