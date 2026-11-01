@@ -3,6 +3,35 @@
 Registro por sesión del trabajo de rendimiento y estabilidad del renderizador GLES en la RG35XX H (KNULLI). Las
 mediciones de la consola las hace el usuario con los paquetes de medición; lo que no se midió allí se dice como tal.
 
+## Sesión 2026-11-01 (enredaderas: mantener R1 para subir)
+
+### Trabajo realizado
+- Investigación en el código del juego (Petari): la enredadera (`Ride/Creeper.cpp`) y el tallo (`Ride/Plant.cpp`) suben a Mario mientras
+  `MR::isPadSwing` sea verdadero (`exeHangUp`: +5 de velocidad por frame, tope 15), y `isPadSwing` es la sacudida del Wiimote o la del Nunchuk
+  (`GamePadUtil.cpp`). El detector (`System/WPadHVSwing.cpp`, `updateSwing`) compara cada frame la muestra más nueva del acelerómetro con
+  la de 20 muestras atrás (una por reporte, 100 por segundo) y da sacudida si están a 1 g o más.
+- Causa de que costara subir: R1 daba un solo pulso de 12 reportes por pulsación; el juego veía sacudida unos 13 frames y se acababa. Había que machacar.
+- Cambio: `platform/knulli/game/wii_shake.h` (`ShakeButton`). Tocar = el mismo pulso de antes, muestra por muestra. Mantener = 20 reportes
+  alternando y 20 en reposo, repetido: con ese periodo cada muestra está a más de 1 g de la de 20 atrás y el juego ve sacudida en todos los frames.
+  Vale para el Wiimote y el Nunchuk. `GALAXY_SHAKE_HOLD=0` vuelve a una sacudida por pulsación.
+
+### Archivos modificados
+`platform/knulli/game/{wii_shake.h,wii_shake_tests.cpp,native_game_host_knulli.cpp,CMakeLists.txt}`, el lanzador, `mario_galaxy.ini`, `README.md`.
+`runtime/` no se tocó.
+
+### Pruebas ejecutadas
+- `nebula_wii_shake_tests` (PC): tocar o mantener sin repetir da exactamente el pulso del runtime (`advance_wiimote_shake_accel`), muestra por muestra;
+  con una simulación del detector del juego (reportes a 100 Hz, frames a 60 Hz, calibraciones virtuales del Wiimote, 100 cuentas por g, y del
+  Nunchuk, ~208): mantener 3 s daba sacudida en 13 de 179 frames antes y en 179 de 179 ahora, para los dos; un toque sigue dando 14 frames; al soltar no queda sacudida.
+- `nebula_wii_profile_tests` sigue pasando; compila para aarch64 sin avisos.
+
+### Resultados
+- **No validado en la consola.** La simulación modela el detector del juego, no el juego entero: falta ver a Mario subir la enredadera con R1 apretado.
+- Efecto colateral posible: mantener R1 fuera de una enredadera son giros seguidos (como sacudir sin parar un Wiimote real).
+
+### Próximo paso
+- Probar en la consola la enredadera del video y el tallo, con R1 mantenido; mandar `log.txt`.
+
 ## Sesión 2026-11-01 (Wii Hybrid Input: fases 1 a 3)
 
 ### Trabajo realizado

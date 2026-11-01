@@ -5,6 +5,7 @@
 
 #include "sdl_host.h"
 #include "wii_profile.h"
+#include "wii_shake.h"
 #include "wii_profile.h"
 
 #include "galaxy/content_viewport.h"
@@ -104,9 +105,9 @@ const in::ControlsConfig& profiled_controls() {
     return merged;
 }
 
-// GALAXY_SHAKE_REPORTS=n: how many reports (100 a second) one press of the Nunchuk shake lasts; 12 as the Wii Remote's
-// pulse (runtime/src/native_input.cpp). A longer pulse is a longer shake for the game to catch; 4..60.
-std::uint8_t nunchuk_shake_reports() {
+// GALAXY_SHAKE_REPORTS=n: how many reports (100 a second) a tap of a shake button lasts; 12 as the runtime's pulse
+// (runtime/src/native_input.cpp). 4..60.
+std::uint8_t shake_tap_reports() {
     static const std::uint8_t reports = [] {
         const char* value = std::getenv("GALAXY_SHAKE_REPORTS");
         if (value == nullptr || *value == '\0') return std::uint8_t{12};
@@ -116,21 +117,14 @@ std::uint8_t nunchuk_shake_reports() {
     return reports;
 }
 
-bool advance_nunchuk_shake_accel(in::WiimoteInputSnapshot& snapshot, bool pressed, bool& previous_pressed,
-                                 std::uint8_t& remaining_frames) {
-    if (pressed && !previous_pressed) {
-        remaining_frames = nunchuk_shake_reports();
-    }
-    previous_pressed = pressed;
-    if (remaining_frames == 0) {
-        return false;
-    }
-    const bool phase = (remaining_frames & 1u) != 0u;
-    snapshot.nunchuk.accel.x = phase ? 0x02f0u : 0x0110u;
-    snapshot.nunchuk.accel.y = 0x0200u;
-    snapshot.nunchuk.accel.z = phase ? 0x0130u : 0x02d0u;
-    --remaining_frames;
-    return true;
+// GALAXY_SHAKE_HOLD=1|0: holding a shake button keeps shaking (1, default: the Sproutle vine and the beanstalk climb
+// while the button is held; wii_shake.h) or only shakes once per press (0, as before).
+bool shake_hold_repeats() {
+    static const bool repeats = [] {
+        const char* value = std::getenv("GALAXY_SHAKE_HOLD");
+        return !(value != nullptr && std::strcmp(value, "0") == 0);
+    }();
+    return repeats;
 }
 
 // GALAXY_SHAKE=nunchuk|remote|both: which virtual accelerometer the spin shakes. nunchuk (default): X (top face button)
@@ -351,16 +345,29 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         snapshot.accel.y = counts.y;
         snapshot.accel.z = counts.z;
     }
-    static bool s_shake = false;
-    static std::uint8_t s_shake_frames = 0;
-    static bool s_nunchuk_shake = false;
-    static std::uint8_t s_nunchuk_shake_frames = 0;
+    // The shakes (wii_shake.h): a tap is the runtime's pulse; holding keeps the game's swing on every frame.
+    static galaxy::host::ShakeButton s_remote_shake{};
+    static galaxy::host::ShakeButton s_nunchuk_shake{};
+    static bool s_remote_held = false;
+    static bool s_nunchuk_held = false;
+    const bool remote_held = held(in::WiiTarget::Shake);
+    const bool nunchuk_held = held(in::WiiTarget::NunchukShake);
     // Each press that starts a shake, by the accelerometer it shakes (the spin's evidence in log.txt).
-    if (held(in::WiiTarget::Shake) && !s_shake) std::cerr << "[input-shake] source=remote\n";
-    if (held(in::WiiTarget::NunchukShake) && !s_nunchuk_shake) std::cerr << "[input-shake] source=nunchuk\n";
-    (void)in::advance_wiimote_shake_accel(snapshot, held(in::WiiTarget::Shake), s_shake, s_shake_frames);
-    (void)advance_nunchuk_shake_accel(snapshot, held(in::WiiTarget::NunchukShake), s_nunchuk_shake,
-                                      s_nunchuk_shake_frames);
+    if (remote_held && !s_remote_held) std::cerr << "[input-shake] source=remote\n";
+    if (nunchuk_held && !s_nunchuk_held) std::cerr << "[input-shake] source=nunchuk\n";
+    s_remote_held = remote_held;
+    s_nunchuk_held = nunchuk_held;
+    galaxy::host::ShakeCounts counts{};
+    if (s_remote_shake.advance(remote_held, shake_tap_reports(), shake_hold_repeats(), counts)) {
+        snapshot.accel.x = counts.x;
+        snapshot.accel.y = counts.y;
+        snapshot.accel.z = counts.z;
+    }
+    if (s_nunchuk_shake.advance(nunchuk_held, shake_tap_reports(), shake_hold_repeats(), counts)) {
+        snapshot.nunchuk.accel.x = counts.x;
+        snapshot.nunchuk.accel.y = counts.y;
+        snapshot.nunchuk.accel.z = counts.z;
+    }
     return snapshot;
 }
 

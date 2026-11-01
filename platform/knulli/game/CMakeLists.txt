@@ -192,6 +192,11 @@ add_executable(nebula_wii_profile_tests "${CMAKE_CURRENT_SOURCE_DIR}/wii_profile
     "${nebula_root}/runtime/src/input_bindings.cpp")
 target_include_directories(nebula_wii_profile_tests PRIVATE "${nebula_root}/runtime/include" "${nebula_root}/runtime/src")
 
+# The shake button (wii_shake.h) against a simulation of the game's swing detector (no GL, no SDL).
+add_executable(nebula_wii_shake_tests "${CMAKE_CURRENT_SOURCE_DIR}/wii_shake_tests.cpp"
+    "${nebula_root}/runtime/src/native_input.cpp")
+target_include_directories(nebula_wii_shake_tests PRIVATE "${nebula_root}/runtime/include" "${nebula_root}/runtime/src")
+
 # The display-list cache's byte check once per batch of guest writes (FifoParser::advance_memory_generation).
 add_executable(nebula_fifo_display_list_tests "${CMAKE_CURRENT_SOURCE_DIR}/fifo_display_list_tests.cpp")
 target_link_libraries(nebula_fifo_display_list_tests PRIVATE galaxy_gx_gles)

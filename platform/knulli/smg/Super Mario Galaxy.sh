@@ -269,8 +269,10 @@ export GALAXY_INPUT_PROFILE_DIR="${GALAXY_INPUT_PROFILE_DIR:-$GAMEDIR/config/inp
 #   GALAXY_SHAKE=nunchuk|remote|both     (solo con GALAXY_INPUT_PROFILE=off) que acelerometro virtual sacude el giro: nunchuk (por defecto): X y R2 sacuden el
 #                                        Nunchuk e Y el Wiimote; remote: todo al Wiimote, como antes; both: X y R2 sacuden
 #                                        los dos. Cada sacudida deja [input-shake] source=nunchuk|remote en log.txt
-#   GALAXY_SHAKE_REPORTS=12              cuanto dura la sacudida del Nunchuk (reportes a 100 por segundo, 4-60); si el giro
-#                                        falla a veces, prueba 20 o 30
+#   GALAXY_SHAKE_REPORTS=12              cuanto dura una sacudida al tocar el boton (reportes a 100 por segundo, 4-60)
+#   GALAXY_SHAKE_HOLD=1|0                1 (por defecto): mantener el boton de sacudida sigue sacudiendo, y el juego ve la
+#                                        sacudida en todos los frames: Mario sube las enredaderas y los tallos con el boton
+#                                        apretado; 0: una sacudida por pulsacion, como antes
 #   GALAXY_LANGUAGE=spanish|english|french  idioma del juego (textos y menus; el disco USA trae los tres). Sin fijarlo
 #                                         aqui vale el que se eligio al instalar con Cactus Galaxy Wrapper
 # El idioma elegido en Cactus Galaxy Wrapper (smg/idioma.txt; SELECT mantenido al abrir lo cambia), si no se fija aqui.
