@@ -276,7 +276,7 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         for (UploadRing* ring : {&vertex_ring_, &index_ring_, &constant_ring_, &matrix_ring_}) {
             ring->set_overflow([this](unsigned slot) { return borrow_frame_slot(slot); });
         }
-        flush_draws_ = 1000u;
+        flush_draws_ = 0u;  // off: the Mali's growing heap block was not the draws (docs/GX_ES_MEMORY_GROWTH.md)
         if (const char* value = std::getenv("GALAXY_GLES_FLUSH_DRAWS"); value != nullptr && value[0] != '\0') {
             flush_draws_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));  // 0: never
         }
@@ -1386,9 +1386,8 @@ void RendererGles::draw(const DrawCall& call) {
         nebula_memtrace_note(frame_index_, static_cast<std::uint32_t>(frame_draws_));
     }
 #endif
-    // A frame with thousands of draws (a galaxy's load): the driver's command memory for one submission grows with
-    // them and stays at its peak (the Mali's heap, NEBULA_MEMTRACE). A flush every GALAXY_GLES_FLUSH_DRAWS draws keeps
-    // that peak small; ordinary frames (150-450 draws) never reach it.
+    // GALAXY_GLES_FLUSH_DRAWS=n (off by default): glFlush every n draws of one frame (a galaxy's load has up to ~2100;
+    // ordinary frames 150-450). Tried against the Mali's growing heap block: it did not change it.
     if (flush_draws_ != 0u && frame_draws_ % flush_draws_ == 0u) {
         glFlush();
         ++window_stats_.split_flushes;

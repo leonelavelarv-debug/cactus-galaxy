@@ -23,6 +23,15 @@
 #include <pthread.h>
 #endif
 
+// The record the GL thread is running (its runner's address), for NEBULA_MEMTRACE: which GL call made a driver's
+// heap block (platform/knulli/game/memtrace_knulli.cpp). 0 between records.
+namespace {
+std::atomic<std::uintptr_t> g_running_record{0};
+}
+extern "C" std::uintptr_t nebula_gl_thread_running() noexcept {
+    return g_running_record.load(std::memory_order_relaxed);
+}
+
 namespace galaxy::gx::gles::glthread {
 
 namespace real {
@@ -96,7 +105,9 @@ public:
         auto* header = reinterpret_cast<Header*>(data_ + head_ % kCapacity);
         const std::uint32_t size = header->size;
         if (header->run != nullptr) {
+            g_running_record.store(reinterpret_cast<std::uintptr_t>(header->run), std::memory_order_relaxed);
             header->run(header);
+            g_running_record.store(0u, std::memory_order_relaxed);
         }
         head_ += size;
         head_published_.store(head_, std::memory_order_seq_cst);  // ordered before the waiting check below

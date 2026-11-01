@@ -19,6 +19,8 @@
 #include <unwind.h>
 
 extern "C" {
+// gl_thread.cpp: the GL thread's current record (its runner), or 0.
+std::uintptr_t nebula_gl_thread_running() noexcept __attribute__((weak));
 void* __libc_malloc(std::size_t);
 void __libc_free(void*);
 void* __libc_calloc(std::size_t, std::size_t);
@@ -68,6 +70,7 @@ struct Event {
     std::uint64_t frame = 0;
     std::uint32_t draws = 0;
     std::uint32_t tid = 0;
+    std::uintptr_t gl_record = 0;  // on the GL thread: the record that was running
     std::uintptr_t pcs[6]{};
 };
 Event g_events[kEvents];
@@ -168,6 +171,7 @@ void record(void* ptr, std::size_t size) {
                     event.frame = g_note_frame.load(std::memory_order_relaxed);
                     event.draws = g_note_draws.load(std::memory_order_relaxed);
                     event.tid = static_cast<std::uint32_t>(syscall(SYS_gettid));
+                    event.gl_record = nebula_gl_thread_running != nullptr ? nebula_gl_thread_running() : 0u;
                     for (unsigned i = 0; i < 6u; ++i) event.pcs[i] = pcs[i];
                 } else {
                     ++g_events_lost;
@@ -331,9 +335,21 @@ void nebula_memtrace_report() {
             if (std::fgets(thread, sizeof(thread), comm) != nullptr) thread[std::strcspn(thread, "\n")] = '\0';
             std::fclose(comm);
         }
-        std::fprintf(stderr, "[memtrace] bloque de %.1f MiB a los %llu ms, hilo %u (%s), frame %llu tras %u draws:%s\n",
+        char gl[96] = "";
+        if (events[e].gl_record != 0u) {
+            Dl_info info{};
+            if (dladdr(reinterpret_cast<void*>(events[e].gl_record), &info) != 0 && info.dli_fname != nullptr) {
+                const char* module = std::strrchr(info.dli_fname, '/') != nullptr ? std::strrchr(info.dli_fname, '/') + 1
+                                                                                    : info.dli_fname;
+                std::snprintf(gl, sizeof(gl), " (llamada de GL en curso: %s+0x%lx)", module,
+                              static_cast<unsigned long>(events[e].gl_record -
+                                                         reinterpret_cast<std::uintptr_t>(info.dli_fbase)));
+            }
+        }
+        std::fprintf(stderr, "[memtrace] bloque de %.1f MiB a los %llu ms, hilo %u (%s), frame %llu tras %u draws%s:%s\n",
                      static_cast<double>(events[e].size) / 1048576.0, static_cast<unsigned long long>(events[e].ms),
-                     events[e].tid, thread, static_cast<unsigned long long>(events[e].frame), events[e].draws, frames);
+                     events[e].tid, thread, static_cast<unsigned long long>(events[e].frame), events[e].draws, gl,
+                     frames);
     }
     if (events_lost != 0u) {
         std::fprintf(stderr, "[memtrace] y %llu bloques grandes mas sin anotar\n",

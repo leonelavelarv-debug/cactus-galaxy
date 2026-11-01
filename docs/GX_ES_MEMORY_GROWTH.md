@@ -362,6 +362,22 @@ Una carga de galaxia dibuja miles de draws sin presentar, así que esa memoria s
   - con sus primeros marcos.
 - **Si el desenrollador se detiene,** memtrace sigue la cadena de registros de marco (x29) dentro de la pila.
 
+### Con el flush cada 1000 draws (31-oct, noveno recorrido)
+
+- **El flush no cambió nada:** el bloque del driver creció igual.
+  - Hubo frames de hasta 2137 draws, con decenas de flushes por ventana.
+  - El bloque siguió en 5 → 10 → 20 → 40 → 80 MiB, con 123.6 MiB vivos tras OceanRing.
+- **Los bloques grandes nuevos se piden en el hilo de GL** (`Nebula GL`), en frames que llevaban solo 7, 26, 186 o 386
+  draws.
+  - No dependen de los draws de un frame: la hipótesis queda descartada.
+  - Los pide el driver desde una llamada de GL. Después de libmali la pila sigue en el inicio del hilo, porque el driver no
+    deja registros de marco.
+- **`GALAXY_GLES_FLUSH_DRAWS` queda apagado por defecto** (se puede encender con un número). La línea de estadísticas
+  sigue diciendo el frame con más draws.
+- **Para saber qué llamada es:** el hilo de GL anota qué registro está ejecutando (`nebula_gl_thread_running`, en
+  `gl_thread.cpp`), y memtrace lo agrega a cada bloque grande. Es la dirección de la función que ejecuta ese registro, y
+  el simbolizador la convierte en el `w_gl…` de origen.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |
