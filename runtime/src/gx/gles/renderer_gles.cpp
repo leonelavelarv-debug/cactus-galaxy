@@ -30,6 +30,13 @@
 #include <stdexcept>
 #include <thread>
 
+// NEBULA_MEMTRACE (platform/knulli/game/memtrace_knulli.cpp, only in the console's executable): the frame and its draws
+// so far, so the driver's big heap blocks can be told apart by when they come.
+#if defined(__GNUC__) && !defined(_WIN32)
+extern "C" void nebula_memtrace_note(std::uint64_t frame, std::uint32_t draws) __attribute__((weak));
+#define NEBULA_HAS_MEMTRACE_NOTE 1
+#endif
+
 namespace galaxy::gx {
 
 using namespace gles::gl;
@@ -269,6 +276,10 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         for (UploadRing* ring : {&vertex_ring_, &index_ring_, &constant_ring_, &matrix_ring_}) {
             ring->set_overflow([this](unsigned slot) { return borrow_frame_slot(slot); });
         }
+        flush_draws_ = 1000u;
+        if (const char* value = std::getenv("GALAXY_GLES_FLUSH_DRAWS"); value != nullptr && value[0] != '\0') {
+            flush_draws_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));  // 0: never
+        }
         timer_queries_ = caps.timer_query && glGenQueries != nullptr && glBeginQuery != nullptr &&
             glGetQueryObjectui64vEXT != nullptr && glGetQueryObjectuiv != nullptr;
         refresh_default_sampler_table();
@@ -420,7 +431,7 @@ std::uint64_t RendererGles::completed_fence_value() const {
     return gles::Context::get().completed_value();
 }
 
-bool RendererGles::borrow_frame_slot(unsigned slot) {
+bool RendererGles::borrow_frame_slot(unsigned slot) {  // (UploadRing overflow)
     if (slot >= kFramesInFlight || slot == frame_slot_ || !gpu_in_frame_) {
         return false;
     }
@@ -820,6 +831,7 @@ void RendererGles::begin_frame(bool) {
     }
     gles::Context& context = gles::Context::get();
     frame_slot_ = static_cast<unsigned>(frame_index_ % kFramesInFlight);
+    frame_draws_ = 0u;
     Frame& frame = frames_[frame_slot_];
     const auto wait_start = std::chrono::steady_clock::now();
     if (frame.fence != 0u) {
@@ -1034,6 +1046,13 @@ void RendererGles::report_stats() {
             char note[64];
             std::snprintf(note, sizeof(note), "; %.1f palette uploads",
                           static_cast<double>(window_stats_.palette_uploads) / frames);
+            palette_note += note;
+        }
+        {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %llu draws in the biggest frame (%llu flushes inside frames)",
+                          static_cast<unsigned long long>(window_stats_.max_frame_draws),
+                          static_cast<unsigned long long>(window_stats_.split_flushes));
             palette_note += note;
         }
         if (window_stats_.borrowed_slots != 0u) {
@@ -1360,6 +1379,20 @@ void RendererGles::draw(const DrawCall& call) {
         return;
     }
     ++window_stats_.draws;
+    ++frame_draws_;
+    window_stats_.max_frame_draws = std::max<std::uint64_t>(window_stats_.max_frame_draws, frame_draws_);
+#if defined(NEBULA_HAS_MEMTRACE_NOTE)
+    if (nebula_memtrace_note != nullptr) {
+        nebula_memtrace_note(frame_index_, static_cast<std::uint32_t>(frame_draws_));
+    }
+#endif
+    // A frame with thousands of draws (a galaxy's load): the driver's command memory for one submission grows with
+    // them and stays at its peak (the Mali's heap, NEBULA_MEMTRACE). A flush every GALAXY_GLES_FLUSH_DRAWS draws keeps
+    // that peak small; ordinary frames (150-450 draws) never reach it.
+    if (flush_draws_ != 0u && frame_draws_ % flush_draws_ == 0u) {
+        glFlush();
+        ++window_stats_.split_flushes;
+    }
     const std::int64_t start = monotonic_ns();
     struct Timed {
         std::int64_t start;

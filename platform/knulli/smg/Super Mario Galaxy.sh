@@ -190,6 +190,8 @@ fi
 #   GALAXY_GLES_BLEND_FETCH=0            (prueba) la mezcla de GX con la alfa del TEV en blending fijo, como antes del
 #                                        paso 2 (docs/GX_ES_FRAMEBUFFER_FETCH.md); por defecto el shader la hace con
 #                                        framebuffer fetch si el driver lo tiene
+#   GALAXY_GLES_FLUSH_DRAWS=1000         glFlush cada 1000 draws de un mismo frame (las cargas de galaxia): el driver de
+#                                        la Mali guardaba la memoria de comandos de su frame mas grande (hasta 124 MiB); 0: no
 #   NEBULA_MEMTRACE=1                    (medicion) tras cada [memoria], las pilas que tienen los bloques grandes del
 #                                        monton (NEBULA_MEMTRACE_MIN_KB=256 o mas), como modulo+desplazamiento
 #   GALAXY_GX_MEMORY_LOG=60              cada 60 s una linea [memoria] en log.txt: VmRSS, memoria libre y lo que ocupa

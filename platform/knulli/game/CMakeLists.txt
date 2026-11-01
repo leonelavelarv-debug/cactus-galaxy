@@ -208,7 +208,8 @@ if(NEBULA_SDL2_PREFIX)
         "LINKER:--export-dynamic-symbol=malloc" "LINKER:--export-dynamic-symbol=free"
         "LINKER:--export-dynamic-symbol=calloc" "LINKER:--export-dynamic-symbol=realloc"
         "LINKER:--export-dynamic-symbol=memalign" "LINKER:--export-dynamic-symbol=aligned_alloc"
-        "LINKER:--export-dynamic-symbol=posix_memalign" "LINKER:--export-dynamic-symbol=nebula_memtrace_report")
+        "LINKER:--export-dynamic-symbol=posix_memalign" "LINKER:--export-dynamic-symbol=nebula_memtrace_report"
+        "LINKER:--export-dynamic-symbol=nebula_memtrace_note")
     target_include_directories(nebula_knulli PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include"
         "${nebula_root}/platform/sdl")
     target_compile_definitions(nebula_knulli PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1 NEBULA_HOST_SDL2=1)

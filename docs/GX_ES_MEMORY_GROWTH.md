@@ -322,6 +322,46 @@ de 48 MiB.
   cuatro hilos liberando y pidiendo a la vez, y la vuelta a 0 al liberar todo. La pila sale bien simbolizada.
 - La serie `[memoria]` lo activa.
 
+### Lo que encontró `NEBULA_MEMTRACE` (31-oct, octavo recorrido)
+
+Las 44 galaxias otra vez (estado 0). **Quien tiene los bloques grandes es el driver de la Mali**:
+`libmali.so.0+0x53335b`.
+
+| Galaxia | Vivo en ese sitio | Bloques |
+|---|---|---|
+| Al abrir | 6.7 MiB | 9 |
+| CannonFleet (5.ª) | 22.7 | 15 |
+| CosmosGarden (7.ª) | 42.7 | 16 |
+| Factory (12.ª) | 83.4 | 20 |
+| OceanPhantomCave (27.ª) | 44.0 | 14 |
+| **OceanRing (28.ª)** | **124.0** | 15 |
+| ReverseKingdom (32.ª) al final | 84.0 | 14 |
+
+- **El salto de OceanRing es el driver:** +80 MiB en ese sitio, el mismo que el malloc de 247 → 333 MiB.
+- **Los saltos casi se duplican** (+10, +20, +40, +80 MiB), como un buffer que crece al doble cuando no le alcanza y se
+  queda en su pico.
+- **Coinciden con frames de carga grandes:** en CosmosGarden y Factory el anillo de vértices se pasó de 24 MiB
+  en ese mismo momento.
+- **Lo segundo:** nuestras cosas, de 8 a 20 MiB cada una (los bloques de subida de texturas, 16; las display lists; un
+  bloque de 8 MiB al inicio).
+- **El sitio del driver no trae pila:** el desenrollador se detiene en libmali, que no tiene tablas.
+
+**Hipótesis:** el driver arma en el montón la memoria de comandos de cada envío, y crece con los draws de un solo frame.
+Una carga de galaxia dibuja miles de draws sin presentar, así que esa memoria sube a su pico y se queda ahí.
+
+**Cambios:**
+
+- **`GALAXY_GLES_FLUSH_DRAWS` (1000 por defecto, 0 lo apaga):** `glFlush` cada 1000 draws dentro de un frame. Los frames
+  normales tienen 150-450 draws, así que nunca llegan.
+  - La línea `[gles] … frames/s` dice cuántos draws tuvo el frame más grande y cuántos flushes hubo.
+  - Probado en la PC con un flush cada 1, 2 y 3 draws (con y sin hilo de GL): las pruebas del renderer y las de mezcla
+    dan lo mismo.
+- **`NEBULA_MEMTRACE` anota cada bloque de 4 MiB o más al momento:**
+  - cuándo, de qué tamaño y en qué hilo;
+  - en qué frame y tras cuántos draws (`nebula_memtrace_note`, desde `RendererGles::draw`);
+  - con sus primeros marcos.
+- **Si el desenrollador se detiene,** memtrace sigue la cadena de registros de marco (x29) dentro de la pila.
+
 ## Pruebas (PC, Mesa)
 
 | Prueba | Resultado |

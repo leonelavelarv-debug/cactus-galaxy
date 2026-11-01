@@ -405,6 +405,8 @@ private:
     unsigned frame_slot_ = 0;
     // UploadRing overflow: the slots the current frame's rings continued into (bit per slot).
     unsigned borrowed_slots_ = 0;
+    std::uint64_t frame_draws_ = 0;   // draws in the current frame
+    std::uint32_t flush_draws_ = 0;   // GALAXY_GLES_FLUSH_DRAWS: glFlush every that many draws in a frame (0: never)
     bool borrow_frame_slot(unsigned slot);
     std::uint64_t frame_index_ = 0;
     bool current_ = false;
@@ -573,6 +575,8 @@ private:
         std::uint64_t depth_discards = 0;
         std::uint64_t xfb_repeats = 0;
         std::uint64_t borrowed_slots = 0;  // ring segments a frame continued into (borrow_frame_slot)
+        std::uint64_t max_frame_draws = 0;  // the most draws one frame had
+        std::uint64_t split_flushes = 0;    // glFlush inside a frame (GALAXY_GLES_FLUSH_DRAWS)
     } window_stats_;
     gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.

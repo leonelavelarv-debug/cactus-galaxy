@@ -13,6 +13,9 @@
 #include <cstring>
 #include <dlfcn.h>
 #include <malloc.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
 #include <unwind.h>
 
 extern "C" {
@@ -52,6 +55,24 @@ std::size_t g_min = 256u << 10;
 std::atomic_flag g_lock = ATOMIC_FLAG_INIT;
 std::uint64_t g_dropped = 0;
 thread_local bool t_inside = false;
+
+// The renderer's frame and its draws so far (nebula_memtrace_note), and the blocks of 4 MiB or more as they come:
+// when, how big, on which thread, in which frame after how many draws.
+std::atomic<std::uint64_t> g_note_frame{0};
+std::atomic<std::uint32_t> g_note_draws{0};
+constexpr std::size_t kBigEvent = 4u << 20;
+constexpr unsigned kEvents = 64;
+struct Event {
+    std::uint64_t ms = 0;
+    std::uint64_t size = 0;
+    std::uint64_t frame = 0;
+    std::uint32_t draws = 0;
+    std::uint32_t tid = 0;
+    std::uintptr_t pcs[6]{};
+};
+Event g_events[kEvents];
+unsigned g_event_count = 0;   // since the last report
+std::uint64_t g_events_lost = 0;
 
 bool enabled() {
     int state = g_state.load(std::memory_order_relaxed);
@@ -100,6 +121,26 @@ void record(void* ptr, std::size_t size) {
     std::uintptr_t pcs[kDepth]{};
     Walk walk{pcs, 0u, kSkip};
     _Unwind_Backtrace(walk_frame, &walk);
+    if (walk.count <= 1u) {
+        // The unwinder stops in modules without unwind tables (the Mali driver): follow the frame records instead
+        // (x29 chain), inside this thread's stack and only upwards.
+        const auto* fp = static_cast<const std::uintptr_t*>(__builtin_frame_address(0));
+        const auto top = reinterpret_cast<std::uintptr_t>(fp) + (8u << 20);
+        unsigned skip = kSkip;
+        walk.count = 0u;
+        while (fp != nullptr && walk.count < kDepth) {
+            const std::uintptr_t next = fp[0];
+            const std::uintptr_t lr = fp[1];
+            if (lr < 4096u) break;
+            if (skip != 0u) {
+                --skip;
+            } else {
+                pcs[walk.count++] = lr;
+            }
+            if (next <= reinterpret_cast<std::uintptr_t>(fp) || next >= top || (next & 15u) != 0u) break;
+            fp = reinterpret_cast<const std::uintptr_t*>(next);
+        }
+    }
     std::uint64_t hash = 1469598103934665603ull;
     for (unsigned i = 0; i < walk.count; ++i) hash = (hash ^ pcs[i]) * 1099511628211ull;
     {
@@ -115,6 +156,22 @@ void record(void* ptr, std::size_t size) {
             if (site.hash == 0u) {
                 site.hash = hash;
                 std::memcpy(site.pcs, pcs, sizeof(pcs));
+            }
+            if (size >= kBigEvent) {
+                if (g_event_count < kEvents) {
+                    timespec now{};
+                    clock_gettime(CLOCK_MONOTONIC, &now);
+                    Event& event = g_events[g_event_count++];
+                    event.ms = static_cast<std::uint64_t>(now.tv_sec) * 1000u +
+                               static_cast<std::uint64_t>(now.tv_nsec) / 1000000u;
+                    event.size = size;
+                    event.frame = g_note_frame.load(std::memory_order_relaxed);
+                    event.draws = g_note_draws.load(std::memory_order_relaxed);
+                    event.tid = static_cast<std::uint32_t>(syscall(SYS_gettid));
+                    for (unsigned i = 0; i < 6u; ++i) event.pcs[i] = pcs[i];
+                } else {
+                    ++g_events_lost;
+                }
             }
             std::size_t l = live_slot(reinterpret_cast<std::uintptr_t>(ptr));
             for (std::size_t n = 0; n < kLive; ++n, l = (l + 1u) & (kLive - 1u)) {
@@ -201,7 +258,9 @@ void nebula_memtrace_report() {
     // A copy of the biggest holders, so dladdr and printf run without the lock.
     constexpr unsigned kTop = 12;
     Site top[kTop]{};
-    std::uint64_t total = 0, blocks = 0, dropped = 0;
+    std::uint64_t total = 0, blocks = 0, dropped = 0, events_lost = 0;
+    static Event events[kEvents];  // the report runs on one thread (the census)
+    unsigned event_count = 0;
     {
         Lock lock;
         for (const Site& site : g_sites) {
@@ -217,6 +276,11 @@ void nebula_memtrace_report() {
             }
         }
         dropped = g_dropped;
+        event_count = g_event_count;
+        std::memcpy(events, g_events, sizeof(Event) * event_count);
+        events_lost = g_events_lost;
+        g_event_count = 0;
+        g_events_lost = 0;
     }
     t_inside = true;
     std::fprintf(stderr, "[memtrace] bloques de %zu KiB o mas: %.1f MiB en %llu bloques%s\n", g_min >> 10,
@@ -244,7 +308,44 @@ void nebula_memtrace_report() {
                      static_cast<unsigned long long>(top[i].live_blocks),
                      static_cast<double>(top[i].allocated_bytes) / 1048576.0, frames);
     }
+    for (unsigned e = 0; e < event_count; ++e) {
+        char frames[400];
+        int used = 0;
+        for (unsigned f = 0; f < 6u && events[e].pcs[f] != 0u && used < static_cast<int>(sizeof(frames)) - 64; ++f) {
+            Dl_info info{};
+            const std::uintptr_t pc = events[e].pcs[f] - 1u;
+            const char* module = "?";
+            std::uintptr_t offset = pc;
+            if (dladdr(reinterpret_cast<void*>(pc), &info) != 0 && info.dli_fname != nullptr) {
+                module = std::strrchr(info.dli_fname, '/') != nullptr ? std::strrchr(info.dli_fname, '/') + 1
+                                                                       : info.dli_fname;
+                offset = pc - reinterpret_cast<std::uintptr_t>(info.dli_fbase);
+            }
+            used += std::snprintf(frames + used, sizeof(frames) - static_cast<std::size_t>(used), " %s+0x%lx", module,
+                                  static_cast<unsigned long>(offset));
+        }
+        char thread[32] = "?";
+        char comm_path[64];
+        std::snprintf(comm_path, sizeof(comm_path), "/proc/self/task/%u/comm", events[e].tid);
+        if (std::FILE* comm = std::fopen(comm_path, "r")) {
+            if (std::fgets(thread, sizeof(thread), comm) != nullptr) thread[std::strcspn(thread, "\n")] = '\0';
+            std::fclose(comm);
+        }
+        std::fprintf(stderr, "[memtrace] bloque de %.1f MiB a los %llu ms, hilo %u (%s), frame %llu tras %u draws:%s\n",
+                     static_cast<double>(events[e].size) / 1048576.0, static_cast<unsigned long long>(events[e].ms),
+                     events[e].tid, thread, static_cast<unsigned long long>(events[e].frame), events[e].draws, frames);
+    }
+    if (events_lost != 0u) {
+        std::fprintf(stderr, "[memtrace] y %llu bloques grandes mas sin anotar\n",
+                     static_cast<unsigned long long>(events_lost));
+    }
     t_inside = false;
+}
+
+// The renderer (RendererGles::draw): its frame and the draws so far in it.
+void nebula_memtrace_note(std::uint64_t frame, std::uint32_t draws) {
+    g_note_frame.store(frame, std::memory_order_relaxed);
+    g_note_draws.store(draws, std::memory_order_relaxed);
 }
 
 }  // extern "C"
