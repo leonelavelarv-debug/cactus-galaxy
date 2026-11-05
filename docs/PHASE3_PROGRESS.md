@@ -169,3 +169,9 @@ el lanzador (documenta `GALAXY_SHAKE_HOLD`) y `README.md` (una fila). Nada más 
 Medir dónde se va el tiempo por frame (CPU del hilo de render, CPU del hilo GL, espera de GPU y espera de presentación,
 por separado) con la serie de ULTRA sobre el paquete actual, y con eso elegir un único cambio acotado. No se tocan
 cachés sin medición ni blending/TEV/iluminación sin pruebas de equivalencia.
+
+## Versión estable
+
+La última versión entregada (commit `234dd7e7`, paquete `u104`, nebula md5 `f2beda6cfca7`) es la **estable**:
+etiqueta Git `estable`, copia en `deliver/estable/`. Incluye perfil `medio` por defecto, controles originales y
+mantener X/Y/R2 para seguir sacudiendo. Sin validar en la consola: sacudida mantenida y perfil `medio`.
