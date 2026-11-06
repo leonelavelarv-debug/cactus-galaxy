@@ -293,6 +293,16 @@ public:
     [[nodiscard]] UploadRing& constant_ring() noexcept { return constant_ring_; }
     [[nodiscard]] UploadRing& matrix_ring() noexcept { return matrix_ring_; }
     [[nodiscard]] unsigned frame_slot() const noexcept { return frame_slot_; }
+    // Whether the last begin_frame took a new slot (always, unless GALAXY_GLES_SLOT_POR_IMAGEN): per-slot recycling
+    // elsewhere (GxBackend) advances only then.
+    static constexpr unsigned kMaxStretchesPerSlot = 8u;  // GALAXY_GLES_SLOT_POR_IMAGEN: stretches a slot takes
+    [[nodiscard]] bool slot_rotated() const noexcept { return slot_rotated_; }
+    // Tests: GALAXY_GLES_SLOT_POR_IMAGEN switched on or off between frames (the next begin_frame takes a new slot).
+    void set_slot_per_present_for_tests(bool on) noexcept {
+        slot_per_present_ = on;
+        rotate_next_ = true;
+        slot_sequence_ = frame_index_;
+    }
     [[nodiscard]] std::uint64_t efb_copy_dest_bytes() const noexcept { return efb_copy_dests_bytes_; }
     [[nodiscard]] static std::uint64_t efb_copy_dest_budget_bytes() { return gx::efb_copy_dest_budget_bytes(); }
     [[nodiscard]] std::uint64_t last_latency_wait_us() const noexcept { return 0u; }
@@ -311,8 +321,10 @@ public:
 private:
     struct Frame {
         std::uint64_t fence = 0;
+        std::int64_t submit_ns = 0;  // ULTRA-GLES: when end_frame submitted that fence (steady_clock)
         std::vector<gpu::TextureRef> retired;
     };
+    void note_slot_wait(const Frame& frame, std::int64_t start_ns, std::int64_t end_ns);
     struct EfbCopyDest {
         gpu::TextureRef texture;
         unsigned width = 0;
@@ -411,6 +423,17 @@ private:
     bool check_range_ = false;        // GALAXY_GLES_CHECK_RANGE=1: check the indices against the vertex view
     bool vertex_base_ = false;        // GALAXY_GLES_VERTEX_BASE=1: few binding offsets, base vertex per draw
     std::uint32_t index_recycle_frames_ = 0;  // GALAXY_GLES_INDEX_RECYCLE=n: a new index ring every n frames
+    // GALAXY_GLES_SLOT_POR_IMAGEN=1 (an experiment, off by default): the frame slot changes after a present, not at
+    // every begin_frame. The game hands the renderer ~3.6 stretches per picture and ~78 % of them draw nothing
+    // (copies, reads, the present, empty ones), yet each took a slot and waited for the stretch two back (Fase 1,
+    // u105-u109). While the slot stays, nothing of it is rewound (rings, texture tables, retired lists, the GPU timer
+    // queries, and GxBackend's per-slot recycling: slot_rotated()); every stretch leaves its fence as the slot's
+    // last, so coming back to the slot still waits for all of it. At most kMaxStretchesPerSlot stretches share a slot.
+    bool slot_per_present_ = false;
+    bool rotate_next_ = true;        // the next begin_frame takes a new slot (a present happened, or the first one)
+    bool slot_rotated_ = true;       // this begin_frame took a new slot
+    unsigned stretches_in_slot_ = 0;
+    std::uint64_t slot_sequence_ = 0;  // slots taken (frame_slot_ = slot_sequence_ % kFramesInFlight)
     bool borrow_frame_slot(unsigned slot);
     std::uint64_t frame_index_ = 0;
     bool current_ = false;
@@ -569,6 +592,19 @@ private:
         std::int64_t sync_peek_ns = 0;
         std::int64_t present_wait_ns = 0;
         std::int64_t frame_wait_ns = 0;
+        // ULTRA-GLES (GL thread): frame_wait_ns split by where the waited fence was -- not yet inserted by the GL
+        // thread (its queue behind) or inserted and not yet published (the GPU, or the GL thread unable to poll);
+        // and per fence checked at a frame's start, submit->insert and insert->publish, summed with their count.
+        std::int64_t slot_wait_queue_ns = 0;
+        std::int64_t slot_wait_gpu_ns = 0;
+        std::int64_t fence_queue_ns = 0;
+        std::int64_t fence_gpu_ns = 0;
+        std::uint64_t fences_timed = 0;
+        // Of those, split by the GPU timestamp before the fence (GALAXY_ULTRA): insert->GPU there, GPU->publish.
+        std::int64_t fence_gpu_end_ns = 0;
+        std::int64_t fence_publish_ns = 0;
+        std::uint64_t fences_gpu_timed = 0;
+        std::uint64_t fences_gpu_bad = 0;  // a timestamp outside the fence's life (not used)
         std::int64_t readback_ns = 0;
         std::uint64_t readbacks = 0;
         double gpu_ms = 0.0;
@@ -587,6 +623,7 @@ private:
     gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.
     Window ultra_prev_{};
+    Window tag_prev_{};  // fences.csv: the stats at the previous fence's submit
     std::int64_t ultra_cpu_prev_ = 0;
     std::int64_t ultra_swap_ns_ = 0;
     std::uint32_t ultra_gl_errors_ = 0;

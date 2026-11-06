@@ -12636,7 +12636,14 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
         // Interpolation replays a game frame's draws until its ring segment
         // comes round again (after its fence): resident blocks and texture
         // resources then retire per game frame, over the segment count.
-        {
+#if defined(NEBULA_GPU_GLES)
+        // GALAXY_GLES_SLOT_POR_IMAGEN: a stretch that continues the renderer's slot recycles nothing of it (the
+        // GPU may still read what this slot's earlier stretches left).
+        const bool slot_rotated = renderer_.slot_rotated();
+#else
+        const bool slot_rotated = true;
+#endif
+        if (slot_rotated) {
             static_assert(kInterpSegments <= TextureCache::kMaxHoldSegments &&
                           kInterpSegments >= kFramesInFlight);
             const unsigned hold = renderer_.replay_hold_segment();
@@ -12654,8 +12661,10 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
                 resident_vertices_.advance_frame();
             }
         }
-        efb_copies_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
-        texture_cache_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
+        if (slot_rotated) {
+            efb_copies_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
+            texture_cache_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
+        }
         const auto retirement_revision = texture_cache_.retirement_revision();
         if (retirement_revision != seen_texture_retirement_revision_) {
             // No descriptor allocation has happened yet this frame. Reclaimed

@@ -163,6 +163,11 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
   if [ "$NEBULA_PERFIL" = "medio" ]; then
     export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-75}"
+    #   GALAXY_GLES_SLOT_POR_IMAGEN=1|0  (perfil medio) el renderer cambia de slot al presentar una imagen y no en cada
+    #                                    trozo que manda el juego (el 78 % no dibuja nada y cada uno esperaba a la GPU):
+    #                                    44 galaxias x2 (5-nov), +21-23 % FPS mostrados, +16-21 % dibujados, p95 -17 %,
+    #                                    12-35 MiB menos de memoria libre; 0: como antes (docs/PHASE3_PROGRESS.md)
+    export GALAXY_GLES_SLOT_POR_IMAGEN="${GALAXY_GLES_SLOT_POR_IMAGEN:-1}"
   else
     export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   fi
@@ -400,7 +405,7 @@ pm_platform_helper "$GAMEDIR/nebula"
 ( while sleep 60; do
     pid=$(pidof nebula 2>/dev/null | cut -d' ' -f1); [ -n "$pid" ] || continue
     gpu=""; for f in /sys/class/devfreq/*/cur_freq; do case "$f" in *gpu*|*mali*|*1800000*) gpu="$(cat "$f" 2>/dev/null)";; esac; done
-    echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz"
+    echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz; temp $(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | tr '\n' ' ')mC"
   done ) &
 MEMLOG_PID=$!
 # NEBULA_CPU_MAX=1: el tope de frecuencia de la CPU al maximo del chip (cpuinfo_max_freq; en la RG35XX H 1,7 GHz frente a

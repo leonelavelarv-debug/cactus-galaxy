@@ -356,6 +356,72 @@ int main() {
         renderer.end_frame(true);
     }
 
+    // GALAXY_GLES_SLOT_POR_IMAGEN: stretches without a present share the slot (nothing rewound, no wait), a present
+    // or kMaxStretchesPerSlot stretches move to the next slot, and what earlier stretches wrote is left alone.
+    {
+        renderer.set_slot_per_present_for_tests(true);
+        UploadRing& constants = renderer.constant_ring();
+        renderer.begin_frame(true);
+        expect(renderer.slot_rotated(), "slot per picture: the first stretch takes a slot", 0u, 1u);
+        const unsigned first_slot = renderer.frame_slot();
+        const UploadRing::Allocation a = constants.allocate(256u, 16u);
+        std::memset(a.cpu, 0x5A, 256u);
+        draw_triangle(CullMode::Front);
+        renderer.end_frame(true);  // no present
+        renderer.begin_frame(true);
+        expect(!renderer.slot_rotated(), "a stretch without a present before it keeps the slot", 1u, 0u);
+        expect(renderer.frame_slot() == first_slot, "the same slot", renderer.frame_slot(), first_slot);
+        const UploadRing::Allocation b = constants.allocate(256u, 16u);
+        expect(b.offset >= a.offset + 256u, "its uploads go after the earlier stretch's (no rewind)",
+               static_cast<std::uint32_t>(b.offset - a.offset), 256u);
+        bool kept = true;
+        for (unsigned i = 0; i < 256u; ++i) {
+            kept &= a.cpu[i] == std::byte{0x5A};
+        }
+        expect(kept, "the earlier stretch's upload is intact", kept ? 1u : 0u, 1u);
+        draw_triangle(CullMode::Front);
+        (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+        expect(value == 0xC00000u, "a continued stretch draws", value, 0xC00000u);
+        XfbTexture out{};
+        out.texture = galaxy::gx::gpu::create_render_texture(renderer.device(), 640u, 528u);
+        out.width = 640u;
+        out.height = 528u;
+        renderer.copy_efb_to_xfb(copy_params(0, 0, 640, 528, true), out);
+        renderer.present(&out, false, false);
+        renderer.end_frame(true);
+        renderer.begin_frame(true);
+        expect(renderer.slot_rotated(), "after a present the next stretch takes a new slot", 0u, 1u);
+        expect(renderer.frame_slot() != first_slot, "a different slot", renderer.frame_slot(), (first_slot + 1u) % kFramesInFlight);
+        draw_triangle(CullMode::Front);
+        (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+        expect(value == 0xC00000u, "and draws", value, 0xC00000u);
+        renderer.end_frame(true);
+        unsigned rotations = 0;
+        for (unsigned i = 0; i < RendererGles::kMaxStretchesPerSlot; ++i) {
+            renderer.begin_frame(true);
+            rotations += renderer.slot_rotated() ? 1u : 0u;
+            renderer.end_frame(true);
+        }
+        expect(rotations == 1u, "without presents a slot takes at most kMaxStretchesPerSlot stretches", rotations, 1u);
+        // Every slot used and come round again (each wait passes; GL errors are checked below by the context).
+        for (unsigned i = 0; i < 3u * kFramesInFlight; ++i) {
+            renderer.begin_frame(true);
+            draw_triangle(CullMode::Front);
+            if (i % 2u == 1u) {
+                renderer.copy_efb_to_xfb(copy_params(0, 0, 640, 528, true), out);
+                renderer.present(&out, false, false);
+            }
+            renderer.end_frame(true);
+        }
+        renderer.begin_frame(true);
+        draw_triangle(CullMode::Front);
+        (void)renderer.peek_efb(10, 10, EfbPeekKind::Depth, value);
+        expect(value == 0xC00000u, "slots per picture: later frames draw", value, 0xC00000u);
+        expect(glGetError() == GL_NO_ERROR, "slots per picture: no GL error", 0u, 0u);
+        renderer.end_frame(true);
+        renderer.set_slot_per_present_for_tests(false);
+    }
+
     // GLES_TEST_EDGE_PPM=<file>: a white diagonal on black through the display copy and present, the window saved
     // (to look at the upscale's filters by eye).
     if (const char* edge_ppm = std::getenv("GLES_TEST_EDGE_PPM"); edge_ppm != nullptr) {

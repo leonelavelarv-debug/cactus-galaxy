@@ -172,12 +172,13 @@ Se ponen al principio de `Super Mario Galaxy.sh`:
 
 | Variable | Valores | Qué hace |
 |---|---|---|
-| `NEBULA_PERFIL` | `medio` (por defecto) · `bajo` · `normal` | `medio`: resolución interna fija de 75 % (480x396), con salto de frames y cachés pequeñas; `bajo`: igual pero con resolución dinámica 50-100 %; `normal`: 100 % y sin saltos. El medio no está medido en la consola |
+| `NEBULA_PERFIL` | `medio` (por defecto) · `bajo` · `normal` | `medio`: resolución interna fija de 75 % (480x396), con salto de frames y cachés pequeñas; `bajo`: igual pero con resolución dinámica 50-100 %; `normal`: 100 % y sin saltos. Medido en la consola (44 galaxias, 5-nov): unos 39 FPS mostrados y 15 dibujados con el slot por imagen |
 | `GALAXY_FRAMESKIP` | `auto` · `0`–`3` | Salto de frames; `auto` mantiene 60, 30 o 20 imágenes por segundo |
 | `GALAXY_PEEK_MODE` | `async` · `sync` · `off` | Lecturas de la imagen (destellos del sol, puntero) sin esperar, exactas o ninguna |
 | `NEBULA_FACE_LAYOUT` | `positions` · `labels` | A/B por posición o por etiqueta (si en tu firmware salen cambiados) |
 | `NEBULA_QUIT_COMBO` | `menu` · `select` · `both` | Fuerza la combinación para salir |
 | `NEBULA_PAD_SCHEME` | `xbox` | Cambia A y B de lado |
+| `GALAXY_GLES_SLOT_POR_IMAGEN` | `1` (por defecto en `medio`) · `0` | El renderer cambia de slot al presentar cada imagen, no en cada trozo que manda el juego: +21-23 % FPS mostrados, +16-21 % dibujados, p95 −17 %, a cambio de 12-35 MiB menos de memoria libre |
 | `GALAXY_SHAKE_HOLD` | `1` (por defecto) · `0` | Mantener un botón de giro sigue sacudiendo (enredaderas y tallos con el botón apretado) o solo una sacudida por pulsación |
 | `NEBULA_PAK_DELETE_IMAGE` | `1` | Borra la imagen del disco al terminar de convertir |
 

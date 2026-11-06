@@ -283,6 +283,11 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         if (const char* value = std::getenv("GALAXY_GLES_CHECK_RANGE"); value != nullptr && value[0] == '1') {
             check_range_ = true;
         }
+        if (const char* value = std::getenv("GALAXY_GLES_SLOT_POR_IMAGEN"); value != nullptr && value[0] == '1') {
+            slot_per_present_ = true;
+            std::fprintf(stderr, "[gles] frame slots per presented picture (GALAXY_GLES_SLOT_POR_IMAGEN=1, at most %u "
+                                 "stretches a slot)\n", kMaxStretchesPerSlot);
+        }
         if (const char* value = std::getenv("GALAXY_GLES_INDEX_RECYCLE"); value != nullptr && value[0] != '\0') {
             index_recycle_frames_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));
         }
@@ -458,12 +463,53 @@ bool RendererGles::borrow_frame_slot(unsigned slot) {  // (UploadRing overflow)
         if (frame.fence != 0u) {
             wait_for_fence_value(frame.fence);
         }
+        const auto wait_end = std::chrono::steady_clock::now();
         window_stats_.frame_wait_ns +=
-            std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - wait_start).count();
+            std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end - wait_start).count();
+        note_slot_wait(frame, std::chrono::duration_cast<std::chrono::nanoseconds>(wait_start.time_since_epoch()).count(),
+                       std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end.time_since_epoch()).count());
         borrowed_slots_ |= 1u << slot;
         ++window_stats_.borrowed_slots;
     }
     return true;
+}
+
+// ULTRA-GLES: where a frame-slot wait went (the GL thread's fence times; nothing without the GL thread). The wait is
+// split at the moment the GL thread inserted the fence: before it, its queue had not reached the fence; after it, the
+// fence was in the GPU's hands or passed and not yet seen (the GL thread polls between commands, not in a swap).
+void RendererGles::note_slot_wait(const Frame& frame, std::int64_t start_ns, std::int64_t end_ns) {
+    if (frame.fence == 0u || !gles::glthread::active()) {
+        return;
+    }
+    std::int64_t inserted = 0;
+    std::int64_t published = 0;
+    std::int64_t gpu_done = 0;
+    gles::glthread::fence_times(frame.fence, inserted, published, gpu_done);
+    if (inserted == 0) {
+        return;  // too old to be kept: counted in frame_wait_ns only
+    }
+    const std::int64_t wait = end_ns - start_ns;
+    if (wait > 0) {
+        const std::int64_t queue = std::clamp<std::int64_t>(inserted - start_ns, 0, wait);
+        window_stats_.slot_wait_queue_ns += queue;
+        window_stats_.slot_wait_gpu_ns += wait - queue;
+    }
+    if (published != 0 && frame.submit_ns != 0) {
+        window_stats_.fence_queue_ns += std::max<std::int64_t>(inserted - frame.submit_ns, 0);
+        window_stats_.fence_gpu_ns += std::max<std::int64_t>(published - inserted, 0);
+        ++window_stats_.fences_timed;
+        // The GPU's own timestamp before the fence splits insert->publish in two: the GPU reaching that point,
+        // then the GL thread noticing. Kept only when it falls inside the fence's life (a calibration off by more
+        // than 1 ms, or a GPU clock jump, is counted as unusable instead).
+        if (gpu_done != 0 && gpu_done >= inserted - 1'000'000 && gpu_done <= published + 1'000'000) {
+            const std::int64_t done = std::clamp(gpu_done, inserted, published);
+            window_stats_.fence_gpu_end_ns += done - inserted;
+            window_stats_.fence_publish_ns += published - done;
+            ++window_stats_.fences_gpu_timed;
+        } else if (gpu_done != 0) {
+            ++window_stats_.fences_gpu_bad;
+        }
+    }
 }
 
 void RendererGles::wait_for_fence_value(std::uint64_t fence_value) {
@@ -845,14 +891,49 @@ void RendererGles::begin_frame(bool) {
         throw std::runtime_error("the OpenGL ES context could not be made current on the render thread");
     }
     gles::Context& context = gles::Context::get();
-    frame_slot_ = static_cast<unsigned>(frame_index_ % kFramesInFlight);
     frame_draws_ = 0u;
+    const bool rotate = !slot_per_present_ || rotate_next_ || stretches_in_slot_ >= kMaxStretchesPerSlot;
+    slot_rotated_ = rotate;
+    rotate_next_ = false;
+    if (!rotate) {
+        // GALAXY_GLES_SLOT_POR_IMAGEN: this stretch continues the slot (no present since it was taken). Its rings,
+        // tables and lists keep what the earlier stretches put there; nothing waits.
+        ++stretches_in_slot_;
+        context.collect();
+        refresh_default_sampler_table();
+        reset_gx_bindings();
+        bound_.framebuffer = ~0u;
+        bind_efb_framebuffer();
+        gpu_in_frame_ = true;
+        gpu_part(kGpuScene);
+        {
+            const std::uint64_t resize = host_window::pending_resize_extent.exchange(0u, std::memory_order_acq_rel);
+            if (resize != 0u) {
+                host_window::gles_drawable_size(window_, drawable_width_, drawable_height_);
+            }
+        }
+        last_frame_slot_wait_us_ = 0u;
+        if (context.checking()) {
+            context.check_errors("begin_frame");
+        }
+        return;
+    }
+    stretches_in_slot_ = 1u;
+    if (slot_per_present_) {
+        borrowed_slots_ = 0u;  // the previous slot's stretches all gave their fences to what they borrowed
+        frame_slot_ = static_cast<unsigned>(slot_sequence_++ % kFramesInFlight);
+    } else {
+        frame_slot_ = static_cast<unsigned>(frame_index_ % kFramesInFlight);
+    }
     Frame& frame = frames_[frame_slot_];
     const auto wait_start = std::chrono::steady_clock::now();
     if (frame.fence != 0u) {
         wait_for_fence_value(frame.fence);
     }
-    const auto waited = std::chrono::steady_clock::now() - wait_start;
+    const auto wait_end = std::chrono::steady_clock::now();
+    const auto waited = wait_end - wait_start;
+    note_slot_wait(frame, std::chrono::duration_cast<std::chrono::nanoseconds>(wait_start.time_since_epoch()).count(),
+                   std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end.time_since_epoch()).count());
     last_frame_slot_wait_us_ =
         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(waited).count());
     window_stats_.frame_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(waited).count();
@@ -912,15 +993,33 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
             }
         }
     }
+    if (ultra::enabled() && gles::glthread::active()) {
+        // fences.csv (u109): what this stretch held, from the window stats since the previous fence.
+        const auto delta = [](std::uint64_t a, std::uint64_t b) {
+            return static_cast<std::uint32_t>(a >= b ? a - b : a);
+        };
+        const Window& now = window_stats_;
+        gles::glthread::tag_fence(context.submitted_value() + 1u, delta(now.draws, tag_prev_.draws),
+                                  delta(now.copies, tag_prev_.copies), delta(now.clears, tag_prev_.clears),
+                                  delta(now.peeks + now.sync_peeks + now.readbacks,
+                                        tag_prev_.peeks + tag_prev_.sync_peeks + tag_prev_.readbacks),
+                                  present_swap_chain && presented_this_frame_);
+        tag_prev_ = window_stats_;
+    }
     const std::uint64_t fence = context.submit();
+    const std::int64_t submit_ns = monotonic_ns();
     frames_[frame_slot_].fence = fence;
+    frames_[frame_slot_].submit_ns = submit_ns;
     // Slots this frame's rings continued into (borrow_frame_slot): their next frame waits for this one.
     for (unsigned slot = 0; slot < kFramesInFlight; ++slot) {
         if ((borrowed_slots_ & (1u << slot)) != 0u) {
             frames_[slot].fence = fence;
+            frames_[slot].submit_ns = submit_ns;
         }
     }
-    borrowed_slots_ = 0u;
+    if (!slot_per_present_) {
+        borrowed_slots_ = 0u;  // (per present: kept until the slot changes, every stretch's fence goes to them)
+    }
     if (pointer_depth_in_frame_) {
         pointer_depth_fence_ = fence;
         pointer_depth_in_frame_ = false;
@@ -977,6 +1076,9 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
         }
     }
     const bool presented = present_swap_chain && presented_this_frame_;
+    if (presented) {
+        rotate_next_ = true;  // GALAXY_GLES_SLOT_POR_IMAGEN: the next stretch starts the next picture's slot
+    }
     presented_this_frame_ = false;
     // ULTRA-GLES and Nopal's debug channel (nopal_depurar.h) take the same frame sample.
     if (presented && (ultra::enabled() || nopal_depurar::active())) {
@@ -1014,6 +1116,15 @@ void RendererGles::ultra_frame() {
     sample.cpu_ns = ultra_cpu_prev_ != 0 ? cpu - ultra_cpu_prev_ : 0;
     sample.draw_ns = span(now.draw_ns, was.draw_ns);
     sample.slot_wait_ns = span(now.frame_wait_ns, was.frame_wait_ns);
+    sample.slot_wait_queue_ns = span(now.slot_wait_queue_ns, was.slot_wait_queue_ns);
+    sample.slot_wait_gpu_ns = span(now.slot_wait_gpu_ns, was.slot_wait_gpu_ns);
+    sample.fence_queue_ns = span(now.fence_queue_ns, was.fence_queue_ns);
+    sample.fence_gpu_ns = span(now.fence_gpu_ns, was.fence_gpu_ns);
+    sample.fences_timed = count(now.fences_timed, was.fences_timed);
+    sample.fence_gpu_end_ns = span(now.fence_gpu_end_ns, was.fence_gpu_end_ns);
+    sample.fence_publish_ns = span(now.fence_publish_ns, was.fence_publish_ns);
+    sample.fences_gpu_timed = count(now.fences_gpu_timed, was.fences_gpu_timed);
+    sample.fences_gpu_bad = count(now.fences_gpu_bad, was.fences_gpu_bad);
     sample.swap_wait_ns = ultra_swap_ns_;
     sample.readback_ns = span(now.readback_ns, was.readback_ns);
     sample.sync_peek_ns = span(now.sync_peek_ns, was.sync_peek_ns);
@@ -1036,6 +1147,7 @@ void RendererGles::ultra_frame() {
                                                            gl.full_wait_ns - ultra_gl_prev_.full_wait_ns);
         sample.gl_syncs = static_cast<std::uint32_t>(gl.syncs - ultra_gl_prev_.syncs);
         sample.gl_commands = static_cast<std::uint32_t>(gl.commands - ultra_gl_prev_.commands);
+        sample.gl_swap_pending_ns = static_cast<std::int64_t>(gl.swap_pending_ns - ultra_gl_prev_.swap_pending_ns);
         ultra_gl_prev_ = gl;
     }
     ultra::frame(sample);

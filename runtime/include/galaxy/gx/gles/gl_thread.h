@@ -72,6 +72,17 @@ void submit_fence(std::uint64_t value);
 bool wait_fence(std::uint64_t value, std::uint64_t timeout_ns);
 // `run` on the GL thread once the GPU has passed `value`, before completed() reports it (a readback's copy).
 void after_fence(std::uint64_t value, std::function<void()> run);
+// ULTRA-GLES: when the GL thread reached fence `value` (inserted it), when it saw it passed (published it) and, with
+// GALAXY_ULTRA, when the GPU reached it (a GL_TIMESTAMP_EXT query issued before the fence, on steady_clock);
+// steady_clock ns; 0 when not known (or when the value is too old: the last 16 fences are kept).
+void fence_times(std::uint64_t value, std::int64_t& inserted_ns, std::int64_t& published_ns,
+                 std::int64_t& gpu_done_ns) noexcept;
+// Fences published before their GPU timestamp was available (counted, not timed).
+[[nodiscard]] std::uint64_t timestamp_misses() noexcept;
+// ULTRA-GLES (u109): what the stretch of commands ending at fence `value` held -- draws, EFB copies, clears, EFB
+// reads and whether it presented -- for fences.csv. The render thread, before it submits that fence.
+void tag_fence(std::uint64_t value, std::uint32_t draws, std::uint32_t copies, std::uint32_t clears,
+               std::uint32_t reads, bool present) noexcept;
 
 // What the render thread waited for (ULTRA-GLES): calls that needed an answer, the time spent waiting for them and
 // for room in the queue, and the GL thread's CPU time and its time in the swap (vsync).
@@ -81,6 +92,7 @@ struct Stats {
     std::uint64_t full_wait_ns = 0;
     std::uint64_t gl_cpu_ns = 0;
     std::uint64_t swap_ns = 0;
+    std::uint64_t swap_pending_ns = 0;  // of swap_ns, with fences still unpublished (they cannot be polled then)
     std::uint64_t commands = 0;
     std::uint64_t pool_misses = 0;  // names that had to be made at once (an empty pool)
 };
