@@ -292,24 +292,26 @@ export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
 # El idioma elegido en Cactus Galaxy Wrapper (smg/idioma.txt; SELECT mantenido al abrir lo cambia), si no se fija aqui.
 game_variant=
 if [ -z "${GALAXY_LANGUAGE:-}" ] && [ -f "$GAMEDIR/idioma.txt" ]; then
-  # "english", "english ptbr" o "english ru" (la traduccion del parche PT-BR o RU va en ese idioma del juego)
+  # "english", "english ptbr" o "english ru" (la traduccion PT-BR o RU va en ese idioma del juego, como mod)
   read -r GALAXY_LANGUAGE game_variant < "$GAMEDIR/idioma.txt"
   [ "${game_variant:-}" = ptbr ] && echo "idioma del juego: portugues de Brasil (parche PT-BR)"
   [ "${game_variant:-}" = ru ] && echo "idioma del juego: ruso (parche RU)"
 fi
 case "${GALAXY_LANGUAGE:-}" in spanish|english|french) ;; *) GALAXY_LANGUAGE=spanish ;; esac
 export GALAXY_LANGUAGE
-# Ruso desde el .zip de la traduccion de Switch: cactus-ruso deja un mod del texto ingles y las letras en
-# smg/patches/ruso-switch; va en smg/mods (donde el juego busca mods) solo con ese idioma, y sale con cualquier otro.
-ru_mod_off="$GAMEDIR/patches/ruso-switch"
-ru_mod_on="$GAMEDIR/mods/ruso-switch"
-if [ "${game_variant:-}" = ru ] && [ "$GALAXY_LANGUAGE" = english ]; then
-  if [ -d "$ru_mod_off" ]; then
-    mkdir -p "$GAMEDIR/mods" && rm -rf "$ru_mod_on" && mv "$ru_mod_off" "$ru_mod_on" && echo "mod ruso activado"
+# Traducciones como mods (Cactus Galaxy Wrapper las deja en smg/patches/idioma-<clave>: lo que cambia el .xdelta del
+# PT-BR, o el ruso que hace cactus-ruso): la del idioma elegido va a smg/mods (donde el juego busca mods) y las demas
+# salen de ahi. Con un idioma propio del juego ("english", sin variante) no queda ninguna: el juego tal cual.
+mkdir -p "$GAMEDIR/mods"
+for idioma_mod in ptbr ru; do
+  mod_off="$GAMEDIR/patches/idioma-$idioma_mod"
+  mod_on="$GAMEDIR/mods/idioma-$idioma_mod"
+  if [ "${game_variant:-}" = "$idioma_mod" ]; then
+    if [ -d "$mod_off" ]; then rm -rf "$mod_on" && mv "$mod_off" "$mod_on" && echo "parche de idioma $idioma_mod activado"; fi
+  elif [ -d "$mod_on" ]; then
+    rm -rf "$mod_off" && mv "$mod_on" "$mod_off" && echo "parche de idioma $idioma_mod desactivado"
   fi
-elif [ -d "$ru_mod_on" ]; then
-  rm -rf "$ru_mod_off" && mv "$ru_mod_on" "$ru_mod_off" && echo "mod ruso guardado (otro idioma)"
-fi
+done
 echo "idioma del juego: $GALAXY_LANGUAGE"
 #   GALAXY_EXPERIMENTAL_NATIVE_4_3=1     el modo 4:3 del propio juego (la pantalla es 4:3); 0: 16:9 con franjas
 export GALAXY_EXPERIMENTAL_NATIVE_4_3="${GALAXY_EXPERIMENTAL_NATIVE_4_3:-1}"

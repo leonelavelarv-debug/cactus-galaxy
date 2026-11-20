@@ -735,7 +735,7 @@ struct Job {
   std::string error, last_line;
   double started = 0;
   int language = 0, patch_slot = -1;
-  bool ruso = false;  // cactus-ruso making the Russian mod (not nebula-pak)
+  bool mod = false;  // making a translation's mod (nebula-pak --patch-mod or cactus-ruso), not game.pak
 };
 
 double now_seconds() {
@@ -849,17 +849,47 @@ struct App {
   int language = 0, language_choice = 0;
   std::string language_file, pak_language_file;
   std::string patch_files[kPatchedCount];  // the translations' xdelta found (PT-BR, RU), empty if not there
-  // Russian from the Switch release's .zip or its .rusmg (smg/patches/): no game.pak of its own, cactus-ruso makes a mod of the
-  // game's English text and fonts (smg/patches/ruso-switch; the launcher puts it in smg/mods with Russian only).
+  // Russian from the Switch release's .zip or its .rusmg (smg/patches/): cactus-ruso makes its mod from game.pak.
   std::string ru_zip, ruso_tool;
-  int pak_patch = -1;         // the game.pak was made with a translation's patch (kPtBr, kRu)...
+  // Translations are mods over the disc's own game.pak (smg/patches/idioma-<key>, the files they change; the
+  // launcher puts the chosen one in smg/mods and takes the others out), so the game's languages are always there and
+  // a translation is turned on or off at once. An xdelta's mod is made once from the disc (nebula-pak --patch-mod),
+  // Russian's from game.pak (cactus-ruso). A game.pak made before with a patch inside (game.pak.idioma) still works:
+  // its language replaced there needs the disc converted again.
+  int pak_patch = -1;         // that older game.pak's translation (kPtBr, kRu)...
   int pak_patched_slot = -1;  // ...its text in this slot (0-2)
   Image pending;  // the disc waiting for its language
+  std::string chain_image;    // the disc whose translation's mod follows its conversion
+  bool chain_delete = false;  // ...deleted after that
 
   const std::string& patch_file(int which) const { return patch_files[which - kPatchedFirst]; }
   bool have_xdelta(int which) const { return is_patched(which) && !patch_file(which).empty(); }
-  bool ru_mod() const { return !have_xdelta(kRu) && !ru_zip.empty(); }
+  bool ru_mod() const { return !ru_zip.empty(); }  // Russian from the .rusmg/.zip (no disc needed)
   bool have_patch(int which) const { return have_xdelta(which) || (which == kRu && ru_mod()); }
+  // A translation's mod made from the disc (an xdelta), not from game.pak.
+  bool mod_needs_disc(int which) const { return is_patched(which) && !(which == kRu && ru_mod()); }
+  std::string mod_dir(int which) const { return smg + "/patches/idioma-" + kLanguages[which].key; }
+  std::string mod_active(int which) const { return smg + "/mods/idioma-" + kLanguages[which].key; }
+  bool mod_made(int which) const {
+    struct stat st;
+    return is_patched(which) && (stat(mod_dir(which).c_str(), &st) == 0 || stat(mod_active(which).c_str(), &st) == 0);
+  }
+  // The game language whose files a translation's mod changes (english unless its patch said otherwise).
+  int mod_slot(int which) const {
+    const std::vector<std::string> w = words(mod_dir(which) + ".ranura");
+    const int slot = w.empty() ? -1 : slot_of(w[0]);
+    return slot >= 0 ? slot : 1;
+  }
+  void save_mod_slot(int which, int slot) {
+    if (FILE* f = fopen((mod_dir(which) + ".ranura").c_str(), "w")) {
+      fprintf(f, "%s\n", kLanguages[slot >= 0 ? slot : 1].key);
+      fclose(f);
+    }
+  }
+  bool any_translation() const {
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) if (have_patch(i) || mod_made(i)) return true;
+    return pak_patch >= 0;
+  }
 
   static std::vector<std::string> words(const std::string& path) {
     std::vector<std::string> out;
@@ -878,19 +908,19 @@ struct App {
     // Not chosen yet: the menu's language for a new install (spanish, english, french; Portuguese when the patch is
     // there), Spanish if game.pak is already there (what the launcher uses without smg/idioma.txt).
     language = have_pak ? 0 : (g_ui == UI_ES ? 0 : g_ui == UI_FR ? 2 : (g_ui == UI_PT && have_patch(kPtBr)) ? kPtBr : 1);
-    const std::vector<std::string> pak = words(pak_language_file);  // "ptbr english" or "ru english"
+    const std::vector<std::string> pak = words(pak_language_file);  // an older game.pak with a patch: "ptbr english"
     pak_patch = pak.size() >= 2 && have_pak ? patched_of(pak[0]) : -1;
     pak_patched_slot = pak_patch >= 0 ? slot_of(pak[1]) : -1;
     if (pak_patched_slot < 0) pak_patch = -1;
     const std::vector<std::string> chosen = words(language_file);   // "english", "english ptbr" or "english ru"
     if (!chosen.empty() && slot_of(chosen[0]) >= 0) language = slot_of(chosen[0]);
-    if (chosen.size() >= 2 && pak_patch >= 0 && chosen[1] == kLanguages[pak_patch].key) language = pak_patch;
-    else if (chosen.size() >= 2 && chosen[1] == kLanguages[kRu].key && ru_mod() && have_pak) language = kRu;
+    const int patched = chosen.size() >= 2 ? patched_of(chosen[1]) : -1;
+    if (patched >= 0 && have_pak && (patched == pak_patch || mod_made(patched))) language = patched;
   }
   void save_language(int which) {
     language = which;
     const bool patched = is_patched(which);
-    const int slot = !patched ? which : (which == kRu && ru_mod() && pak_patch != kRu) ? 1 : std::max(0, pak_patched_slot);
+    const int slot = !patched ? which : which == pak_patch ? std::max(0, pak_patched_slot) : mod_slot(which);
     const std::string temporary = language_file + ".tmp";
     if (FILE* f = fopen(temporary.c_str(), "w")) {
       fprintf(f, "%s%s%s\n", kLanguages[slot].key, patched ? " " : "", patched ? kLanguages[which].key : "");
@@ -898,21 +928,23 @@ struct App {
       rename(temporary.c_str(), language_file.c_str());
     }
     printf("[cactus] idioma del juego: %s%s%s%s\n", kLanguages[slot].key, patched ? " (" : "",
-           patched ? kLanguages[which].tag : "", patched ? ")" : "");
+           patched ? kLanguages[which].tag : "", patched ? ")" : " (sin parches)");
     fflush(stdout);
   }
-  // The languages the menu's left/right cycle through: those this game.pak has (a translation replaced a slot).
+  // The languages that need nothing made (the menu's left/right cycle through them): the game's own (but the one an
+  // older game.pak's patch replaced) and the translations whose mod is made.
   std::vector<int> menu_languages() const {
     std::vector<int> out;
     if (pak_patched_slot >= 0) out.push_back(pak_patch);
     for (int i = 0; i < 3; ++i) if (i != pak_patched_slot) out.push_back(i);
-    if (ru_mod() && have_pak && pak_patch != kRu) out.push_back(kRu);  // a mod over this game.pak, no new one
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i)
+      if (i != pak_patch && have_pak && mod_made(i)) out.push_back(i);
     return out;
   }
   // The languages a new install can have.
   std::vector<int> install_languages() const {
     std::vector<int> out = {0, 1, 2};
-    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) if (have_patch(i)) out.push_back(i);
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) if (have_patch(i) || mod_made(i)) out.push_back(i);
     return out;
   }
   static int step(const std::vector<int>& list, int current, int delta) {
@@ -933,22 +965,27 @@ struct App {
     for (const Image& im : images) if (im.status == 0) return &im;
     return nullptr;
   }
+  // With game.pak there: the languages ready, plus what can be made: a translation's mod (Russian's from game.pak;
+  // an xdelta's from the disc, if there is one) and the language an older game.pak's patch replaced (the disc
+  // converted again).
   std::vector<int> language_options() {
     if (!pak_mode()) return install_languages();
     std::vector<int> out = menu_languages();
     std::lock_guard<std::mutex> lock(images_mutex);
-    if (valid_disc() != nullptr) {
-      if (pak_patched_slot >= 0) out.push_back(pak_patched_slot);
-      for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i)
-        if (have_patch(i) && i != pak_patch && std::find(out.begin(), out.end(), i) == out.end()) out.push_back(i);
+    const bool disc = valid_disc() != nullptr;
+    if (disc && pak_patched_slot >= 0) out.push_back(pak_patched_slot);
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) {
+      if (std::find(out.begin(), out.end(), i) != out.end()) continue;
+      if ((i == kRu && ru_mod()) || (have_xdelta(i) && disc)) out.push_back(i);
     }
     return out;
   }
   bool needs_reinstall(int which) const {
-    if (!pak_mode()) return false;
+    if (!pak_mode() || is_patched(which)) return false;
     const std::vector<int> have = menu_languages();
     return std::find(have.begin(), have.end(), which) == have.end();
   }
+  bool needs_mod(int which) const { return pak_mode() && is_patched(which) && which != pak_patch && !mod_made(which); }
   void show_installed_languages() {
     pending = Image();
     language_choice = language;
@@ -1030,29 +1067,30 @@ struct App {
     });
   }
 
+  // game.pak, always the disc's own (a translation is a mod over it: made next, from this disc or game.pak).
   void start_conversion(const Image& im, int chosen) {
-    std::vector<std::string> args = {tool};
-    if (have_xdelta(chosen)) { args.push_back("--patch"); args.push_back(patch_file(chosen)); }
-    args.push_back(im.path);
-    args.push_back(output);
+    const bool then_mod = is_patched(chosen);
+    chain_image = then_mod ? im.path : std::string();
+    chain_delete = then_mod && delete_after && mod_needs_disc(chosen);
     printf("[cactus] convirtiendo %s -> %s\n", im.path.c_str(), output.c_str());
-    start_job(args, chosen, im.name, false, im.path, delete_after);
+    start_job({tool, im.path, output}, chosen, im.name, false, im.path, delete_after && !chain_delete);
   }
-  // Russian from the Switch release's .zip: cactus-ruso makes the mod over the game.pak there is.
-  std::string ruso_dir() const { return smg + "/patches/ruso-switch"; }
-  bool ruso_made() const {
-    struct stat st;
-    return stat(ruso_dir().c_str(), &st) == 0 || stat((smg + "/mods/ruso-switch").c_str(), &st) == 0;
+  // A translation's mod: Russian's from game.pak (cactus-ruso), an xdelta's from the disc (nebula-pak --patch-mod).
+  void start_mod(int which, const std::string& disc, bool remove_disc) {
+    if (which == kRu && ru_mod()) {
+      printf("[cactus] traducción rusa -> %s\n", mod_dir(kRu).c_str());
+      start_job({ruso_tool, ru_zip, output, mod_dir(kRu)}, kRu, ru_zip.substr(ru_zip.rfind('/') + 1), true, "", false);
+    } else {
+      printf("[cactus] parche %s como mod -> %s\n", kLanguages[which].tag, mod_dir(which).c_str());
+      start_job({tool, "--patch-mod", patch_file(which), disc, mod_dir(which)}, which,
+                disc.substr(disc.rfind('/') + 1), true, disc, remove_disc);
+    }
   }
-  void start_ruso() {
-    printf("[cactus] traducción rusa de Switch -> %s\n", ruso_dir().c_str());
-    start_job({ruso_tool, ru_zip, output, ruso_dir()}, kRu, ru_zip.substr(ru_zip.rfind('/') + 1), true, "", false);
-  }
-  void start_job(const std::vector<std::string>& args, int chosen, const std::string& name, bool ruso,
+  void start_job(const std::vector<std::string>& args, int chosen, const std::string& name, bool mod,
                  const std::string& image_path, bool remove_image) {
     job = std::make_unique<Job>();
     job->language = chosen;
-    job->ruso = ruso;
+    job->mod = mod;
     job->started = now_seconds();
     converted_name = name;
     speed = 0; speed_mib = 0; speed_at = job->started;
@@ -1092,29 +1130,23 @@ struct App {
     took = now_seconds() - job->started;
     refresh_disk();
     if (job->exit_code == 0 && have_pak) {
-      // The language goes with the game.pak just made; a translated one remembers which slot holds its text.
-      // Russian from the Switch .zip: the game.pak stays the disc's, and the mod is made next.
-      const bool then_ruso = !job->ruso && job->language == kRu && ru_mod();
-      if (job->ruso) {
-        // The mod over the game.pak there is: that one's languages stay as they are.
-      } else if (is_patched(job->language) && !then_ruso) {
-        pak_patch = job->language;
-        pak_patched_slot = job->patch_slot >= 0 ? job->patch_slot : 1;
-        if (FILE* f = fopen(pak_language_file.c_str(), "w")) {
-          fprintf(f, "%s %s\n", kLanguages[pak_patch].key, kLanguages[pak_patched_slot].key);
-          fclose(f);
-        }
+      if (job->mod) {
+        // The translation's mod: which game language its files are (an xdelta's says it; Russian's is English).
+        save_mod_slot(job->language, job->patch_slot);
       } else {
+        // game.pak just made from the disc: its own languages, no older patch inside any more.
         pak_patch = -1;
         pak_patched_slot = -1;
         unlink(pak_language_file.c_str());
-      }
-      if (then_ruso) {
-        const double started = job->started;
-        job.reset();
-        start_ruso();
-        if (job) job->started = started;  // the time is the whole install's
-        return;
+        if (is_patched(job->language) && have_patch(job->language)) {  // (a mod made before, with no source: kept)
+          const double started = job->started;
+          const int which = job->language;
+          const std::string disc = chain_image;
+          job.reset();
+          start_mod(which, disc, chain_delete);
+          if (job) job->started = started;  // the time is the whole install's
+          return;
+        }
       }
       screen = Screen::Done;
       result = 0;
@@ -1127,7 +1159,6 @@ struct App {
     }
     job.reset();
   }
-
   // Buttons: confirm (A/START), back (B/SELECT), toggle (X), up, down.
   enum Key { kConfirm, kBack, kToggle, kUp, kDown, kPrev, kNext };
   void press(Key key) {
@@ -1139,10 +1170,7 @@ struct App {
         if (key == kToggle) delete_after = !delete_after;
         if (key == kBack) quit = true;
         if (key == kPrev || key == kNext) {  // the game's language, even with game.pak already made
-          // Russian from the Switch .zip only once its mod is made (choosing it on the language screen makes it).
-          std::vector<int> list = menu_languages();
-          if (ru_mod() && !ruso_made()) list.erase(std::remove(list.begin(), list.end(), kRu), list.end());
-          save_language(step(list, language, key == kNext ? 1 : -1));
+          save_language(step(menu_languages(), language, key == kNext ? 1 : -1));
         }
         if (key == kConfirm && selected < int(images.size()) && images[selected].status == 0) ask_language(images[selected]);
         break;
@@ -1158,8 +1186,13 @@ struct App {
         if (key == kConfirm) {
           if (!pak_mode()) {
             start_conversion(pending, language_choice);
-          } else if (language_choice == kRu && ru_mod() && pak_patch != kRu) {
-            start_ruso();  // the Russian mod over this game.pak (a few seconds), then the game
+          } else if (needs_mod(language_choice)) {
+            // The translation's mod over this game.pak (Russian's in seconds; an xdelta's reads the disc), then the game.
+            images_mutex.lock();
+            const Image* disc = valid_disc();
+            const std::string path = disc ? disc->path : std::string();
+            images_mutex.unlock();
+            if (!mod_needs_disc(language_choice) || !path.empty()) start_mod(language_choice, path, false);
           } else if (!needs_reinstall(language_choice)) {
             save_language(language_choice);  // the game starts in it
             result = 0;
@@ -1377,9 +1410,11 @@ struct App {
       text(cv, kLeft + 50, y, kLanguages[i].name, 3, sel ? kWhite : kMuted);
       if (!compact) text(cv, kLeft + 50, y + 24, kLanguages[i].note, 2, sel ? kGreen : 0x8f82a8);
     }
+    // A game language with translations at hand: no patch, the game's own text.
+    const bool native = !is_patched(language_choice) && any_translation();
     if (!pak_mode()) {
       text_center(cv, kCenter, 364, fit(pending.name, 22), 2, kMuted);
-      text_center(cv, kCenter, 384, fit(T(S_CHANGE_LATER), 22), 2, 0x8f82a8);
+      text_center(cv, kCenter, 384, fit(T(native ? S_NO_PATCHES : S_CHANGE_LATER), 22), 2, native ? kGold : 0x8f82a8);
       hints(cv, 430, {{"A", T(S_INSTALL)}, {"B", T(S_BACK)}});
     } else if (needs_reinstall(language_choice)) {
       std::string disc;
@@ -1391,8 +1426,9 @@ struct App {
       text_center(cv, kCenter, 384, fit(disc, 22), 2, kMuted);
       hints(cv, 430, {{"A", T(S_INSTALL)}, {"B", T(S_EXIT)}});
     } else {
-      text_center(cv, kCenter, 364, fit(T(S_PAK_READY), 22), 2, kGreen);
-      text_center(cv, kCenter, 384, fit(T(S_CHANGE_LATER), 22), 2, 0x8f82a8);
+      text_center(cv, kCenter, 364, fit(T(needs_mod(language_choice) ? S_MAKE_MOD : S_PAK_READY), 22), 2,
+                  needs_mod(language_choice) ? kGold : kGreen);
+      text_center(cv, kCenter, 384, fit(T(native ? S_NO_PATCHES : S_CHANGE_LATER), 22), 2, native ? kGold : 0x8f82a8);
       hints(cv, 430, {{"A", T(S_PLAY)}, {"B", T(S_EXIT)}});
     }
   }

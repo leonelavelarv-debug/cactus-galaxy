@@ -24,8 +24,8 @@ de Nebula y su renderer GX en OpenGL ES 3.2 (Mali-G31). Primera versión de prue
 2. Ejecuta **Super Mario Galaxy** desde Ports. La primera vez se abre **Cactus Galaxy Wrapper** (va dentro del port):
    - Sin el juego, te pide el disco: copia tu ISO o RVZ (también WIA, WBFS, GCZ o CISO) de Super Mario Galaxy USA
      (RMGE01) a `smg/gamedata/` (o a `roms/wii/`) y aparece solo. Eliges el idioma del juego (Español, English,
-     Français y, con la traducción en `smg/patches/`, Português do Brasil, que se aplica al convertir, o Russkiy,
-     con el .xdelta o el .zip de la traducción de Switch, que `smg/cactus-ruso` vuelve un mod)
+     Français y, con la traducción en `smg/patches/`, Português do Brasil o Russkiy, que van como mods: elegir
+     un idioma propio del juego los desactiva al instante)
      y lo convierte ahí mismo en `smg/gamedata/game.pak` con `smg/nebula-pak` (sin Termux ni otro equipo). Tarda lo
      que la tarjeta en escribir ~4 GB; hacen falta ~3.4 GB libres (ext4) o ~4.3 GB (exFAT; FAT32 no sirve).
    - Con el juego ya en `smg/gamedata/`, te ofrece los idiomas del juego.
