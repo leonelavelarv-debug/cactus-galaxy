@@ -2071,8 +2071,60 @@ bool RendererGles::copy_efb_to_texture(const EfbCopyParams& params, TextureCache
         is_effect_copy(policy, params, is_depth_copy, dw_unscaled, dh_unscaled);
     const ScaledEfbCopyExtent extent = compute_scaled_efb_copy_extent(
         static_cast<std::uint16_t>(dw_unscaled), static_cast<std::uint16_t>(dh_unscaled), native ? 1u : efb_scale_);
-    const unsigned w = extent.width;
-    const unsigned h = extent.height;
+    unsigned w = extent.width;
+    unsigned h = extent.height;
+    // GALAXY_GLES_COPIA_REDUCIDA=1 (experiment, off by default): with a divided EFB at 1x (3/4, 1/2...), a colour
+    // copy to a texture is written at the physical size the EFB holds it (480x342 for 640x456 at 3/4) instead of the
+    // logical one: no texel more than the source has. Only when both sides divide exactly, so each destination
+    // texel is one physical EFB texel. The game's view of it does not change: the alias keeps the logical width,
+    // height and format (TextureCache::register_efb_copy) and GLES samples it with normalised coordinates; the
+    // sampling geometry below is computed from these sizes, and the copy filter's taps stay one logical row apart
+    // (to_physical). Not for depth copies, the copy that takes the shown picture (copy_output_efb_to_texture),
+    // native effect copies or a 2x+ EFB. GALAXY_GLES_COPIA_REDUCIDA_FORMATOS=4,7 limits it to those copy formats.
+    static const bool reduce = [] {
+        const char* value = std::getenv("GALAXY_GLES_COPIA_REDUCIDA");
+        return value != nullptr && value[0] == '1';
+    }();
+    static const std::uint32_t reduce_formats = [] {
+        const char* value = std::getenv("GALAXY_GLES_COPIA_REDUCIDA_FORMATOS");
+        if (value == nullptr || *value == '\0') {
+            return 0xffffffffu;
+        }
+        std::uint32_t mask = 0u;
+        for (const char* p = value; *p != '\0';) {
+            char* end = nullptr;
+            const unsigned long format = std::strtoul(p, &end, 10);
+            if (end == p) {
+                ++p;
+                continue;
+            }
+            if (format < 32u) {
+                mask |= 1u << format;
+            }
+            p = end;
+        }
+        return mask;
+    }();
+    // GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640: only copies at least that wide (logical), to tell full-screen copies
+    // from the small effect ones.
+    static const unsigned reduce_min_width = [] {
+        const char* value = std::getenv("GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO");
+        return value != nullptr ? static_cast<unsigned>(std::strtoul(value, nullptr, 10)) : 0u;
+    }();
+    if (reduce && !is_depth_copy && !copying_output_ && !native && efb_scale_ == 1u && efb_divided() &&
+        dw_unscaled >= reduce_min_width &&
+        params.target_format < 32u && (reduce_formats & (1u << params.target_format)) != 0u &&
+        w * efb_num_ % efb_den_ == 0u && h * efb_num_ % efb_den_ == 0u) {
+        static std::uint64_t reduced_total = 0u;  // render thread only
+        if (reduced_total++ % 20000u == 0u) {
+            std::fprintf(stderr, "[gles] copia reducida (GALAXY_GLES_COPIA_REDUCIDA=1): %llu copias de color a %u/%u; "
+                         "esta %ux%u -> %ux%u, formato %u\n",
+                         static_cast<unsigned long long>(reduced_total), efb_num_, efb_den_, w, h,
+                         w * efb_num_ / efb_den_, h * efb_num_ / efb_den_, static_cast<unsigned>(params.target_format));
+        }
+        w = w * efb_num_ / efb_den_;
+        h = h * efb_num_ / efb_den_;
+    }
     if (w == 0u || h == 0u) {
         return false;
     }
@@ -2147,6 +2199,11 @@ bool RendererGles::copy_efb_to_texture(const EfbCopyParams& params, TextureCache
 }
 
 bool RendererGles::copy_output_efb_to_texture(const EfbCopyParams& params, TextureCache& textures) {
+    copying_output_ = true;
+    struct Reset {
+        bool& flag;
+        ~Reset() { flag = false; }
+    } reset{copying_output_};
     return copy_efb_to_texture(params, textures, false);
 }
 

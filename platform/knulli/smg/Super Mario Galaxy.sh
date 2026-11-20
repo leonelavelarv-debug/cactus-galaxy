@@ -178,6 +178,13 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
     #                                    juego (comparaba siempre: 8-9 % del hilo). AstroGalaxy (2 pares, 20-nov): escena
     #                                    -7 a -9 %, +5 a +10 % imagenes nuevas; 44 galaxias verificadas con =2, 0 avisos
     export GALAXY_GX_DL_MARCAR_TODAS="${GALAXY_GX_DL_MARCAR_TODAS:-1}"
+    #   GALAXY_GLES_COPIA_REDUCIDA=1|0   (perfil medio) con el EFB al 75 %, las copias de color a textura de pantalla
+    #   GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640  completa se escriben a 480x342 (el tamano real del EFB) y no a 640x456;
+    #                                    las chicas de efectos y las de profundidad se quedan igual. 12 galaxias x2
+    #                                    (19-nov): GPU por imagen -2,2 ms (-7,6 %), capturas iguales bit a bit, sin
+    #                                    cambio en imagenes nuevas/s; 0: como antes
+    export GALAXY_GLES_COPIA_REDUCIDA="${GALAXY_GLES_COPIA_REDUCIDA:-1}"
+    export GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO="${GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO:-640}"
   else
     export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   fi

@@ -454,6 +454,28 @@ int main() {
         }
         renderer.end_frame(true);
     }
+    // GALAXY_GLES_COPIA_REDUCIDA: a 640x456 colour copy written at 3/4 (480x342) samples one logical source pixel
+    // per 3/4 of a destination texel, so one physical EFB texel per destination texel (step 1.0 after to_physical),
+    // from the same origin; the copy filter's taps stay one logical row apart (0.75 physical texels).
+    {
+        EfbCopyParams p = copy_params(0, 0, 640, 456, false);
+        p.src_x = 32;
+        p.src_y = 16;
+        const auto full = galaxy::gx::compute_efb_copy_sampling_geometry(p, 640u, 456u, 1u);
+        const auto reduced = galaxy::gx::compute_efb_copy_sampling_geometry(p, 480u, 342u, 1u);
+        const auto bits = [](float v) {
+            std::uint32_t b = 0;
+            std::memcpy(&b, &v, sizeof(b));
+            return b;
+        };
+        expect(reduced.src_x == full.src_x && reduced.src_y == full.src_y, "reduced copy origin", bits(reduced.src_x),
+               bits(full.src_x));
+        expect(reduced.step_x * 0.75f == 1.0f && reduced.step_y * 0.75f == 1.0f, "reduced copy one texel a texel",
+               bits(reduced.step_x * 0.75f), bits(1.0f));
+        expect(full.step_x * 0.75f == 0.75f, "full copy 3/4 texel a texel", bits(full.step_x * 0.75f), bits(0.75f));
+        expect(reduced.filter_row_offset == full.filter_row_offset && reduced.filter_row_offset == 1.0f,
+               "reduced copy filter taps one logical row", bits(reduced.filter_row_offset), bits(1.0f));
+    }
     pipelines.shutdown();
     renderer.shutdown();
     std::printf("gles renderer tests: %d failed\n", g_failures);

@@ -623,6 +623,10 @@ private:
     gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.
     Window ultra_prev_{};
+    // GALAXY_GLES_COPIA_REDUCIDA (experiment, off by default): with a divided EFB (3/4...), colour copies to
+    // textures are written at the EFB's physical size instead of the logical one. copy_output_efb_to_texture sets
+    // this so the copy that takes the shown picture keeps the logical size.
+    bool copying_output_ = false;
     Window tag_prev_{};  // fences.csv: the stats at the previous fence's submit
     std::int64_t ultra_cpu_prev_ = 0;
     std::int64_t ultra_swap_ns_ = 0;
