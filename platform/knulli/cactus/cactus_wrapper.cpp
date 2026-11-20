@@ -865,6 +865,7 @@ struct App {
   int opt_resolution = 2;  // kResolutions: auto, 50, 75 (the medium profile's), 100
   bool opt_vibration = true;
   int settings_row = 0;
+  bool failed_mod = false;  // the failure shown is a translation's mod's (game.pak is fine)
   std::string chain_image;    // the disc whose translation's mod follows its conversion
   bool chain_delete = false;  // ...deleted after that
 
@@ -1191,6 +1192,12 @@ struct App {
     } else {
       error = job->error.empty() ? (cancelling ? std::string(T(S_ERR_CANCELLED)) : job->last_line) : translate_error(job->error);
       if (error.empty()) error = format(T(S_ERR_EXIT), job->exit_code);
+      // A translation's mod that failed for a reason with no text of its own: said in the interface's language (the
+      // tools' detail, in Spanish, stays in log.txt and is added in Spanish).
+      failed_mod = job->mod;
+      if (job->mod && !cancelling && (job->error.empty() || error == job->error)) {
+        error = std::string(T(S_ERR_MOD)) + (g_ui == UI_ES && !job->error.empty() ? " " + job->error : std::string());
+      }
       screen = Screen::Failed;
     }
     job.reset();
@@ -1461,7 +1468,9 @@ struct App {
         cv.star(float(kLeft + 30), float(y + 8), 9.0f, 0xffe066, 1.0f, time * 2.0f);
       }
       text(cv, kLeft + 50, y, rows[row].label, 2, sel ? kGreen : kMuted);
-      text_center(cv, kCenter, y + 24, "\xE2\x97\x84 " + rows[row].value + " \xE2\x96\xBA", 3, sel ? kWhite : kMuted);
+      const std::string value = "\xE2\x97\x84 " + rows[row].value + " \xE2\x96\xBA";
+      const int scale = text_width(value, 3) <= kPanelW - 40 ? 3 : 2;  // "Auto (dynamique)" does not fit large
+      text_center(cv, kCenter, y + 24 + (scale == 2 ? 4 : 0), fit(value, scale == 3 ? 15 : 22), scale, sel ? kWhite : kMuted);
       if (!rows[row].note.empty()) text_center(cv, kCenter, y + 52, fit(rows[row].note, 22), 2, sel ? kGold : 0x8f82a8);
     }
     text_center(cv, kCenter, 384, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
@@ -1576,8 +1585,10 @@ struct App {
 
   void draw_failed(Canvas& cv) {
     text_center(cv, kCenter, 132, T(S_OUCH), 5, kRed);
-    text_center(cv, kCenter, 184, fit(T(S_COULD_NOT), 22), 2, kWhite);
-    text_center(cv, kCenter, 204, "game.pak", 2, kWhite);
+    if (!failed_mod) {  // game.pak itself (a translation's mod failing leaves game.pak as it was)
+      text_center(cv, kCenter, 184, fit(T(S_COULD_NOT), 22), 2, kWhite);
+      text_center(cv, kCenter, 204, "game.pak", 2, kWhite);
+    }
     int y = 240;
     std::vector<std::string> lines = wrap(error, 22);
     if (lines.size() > 7) { lines.resize(7); lines.back() = fit(lines.back() + " xx", 21); }
@@ -1651,6 +1662,13 @@ int demo(const std::string& out) {
   app.settings_row = 0;
   app.draw(cv, scene, 2.5f);
   save_png(cv, out + "/1g-ajustes.png");
+  app.opt_resolution = 0;
+  app.draw(cv, scene, 2.52f);
+  save_png(cv, out + "/1g2-ajustes-auto.png");
+  app.opt_resolution = 3;
+  app.draw(cv, scene, 2.53f);
+  save_png(cv, out + "/1g3-ajustes-100.png");
+  app.opt_resolution = 2;
   app.settings_row = 1; app.opt_vibration = false;
   app.draw(cv, scene, 2.55f);
   save_png(cv, out + "/1h-ajustes-vibracion.png");
@@ -1704,6 +1722,11 @@ int demo(const std::string& out) {
   app.demo_growth = 0.45f; app.demo_bloom = 0; app.demo_wilt = 1.0f;
   app.draw(cv, scene, 5.0f);
   save_png(cv, out + "/5-error.png");
+  app.error = T(S_ERR_MOD);
+  app.failed_mod = true;
+  app.draw(cv, scene, 5.1f);
+  app.failed_mod = false;
+  save_png(cv, out + "/5b-error-parche.png");
   // The growing cactus, frame by frame (for an animation).
   app.screen = Screen::Converting; app.demo_wilt = 0;
   for (int f = 0; f <= 90; ++f) {

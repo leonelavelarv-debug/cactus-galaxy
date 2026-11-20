@@ -9,7 +9,7 @@ enum Str {
   S_DONE, S_PAK_CREATED, S_IN, S_DISC_DELETED, S_BLOOMED, S_STARTS_IN, S_PLAY_NOW, S_OUCH, S_COULD_NOT,
   S_ERR_RUN, S_ERR_EXIT, S_ERR_SPACE, S_ERR_SPACE_SHORT, S_ERR_FAT32, S_ERR_INCOMPLETE, S_ERR_DOL, S_ERR_CANCELLED,
   S_ERR_PATCH, S_NEED_DISC, S_NEED_DISC_HELP, S_SEARCHING, S_PLAY, S_REINSTALL, S_PAK_READY, S_NO_PATCHES, S_MAKE_MOD,
-  S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_COUNT
+  S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_ERR_MOD, S_COUNT
 };
 
 enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_COUNT };
@@ -35,6 +35,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Falta el juego", "Copia tu disco de Super Mario Galaxy (USA), en ISO o RVZ, a la carpeta:\nports/smg/gamedata\n(o a roms/wii). Aparecerá aquí solo.", "Buscando el disco…", "Jugar", "Se reinstala desde:", "game.pak listo ✓",
         "Sin parches: original", "Se prepara el parche",
         "Ajustes", "Resolución", "Vibración", "Auto (dinámica)", "recomendada", "Se aplica al jugar",
+        "No se pudo preparar el parche de idioma. Detalles en log.txt.",
     },
     {  // English
         "Choose your disc:", "No disc found",
@@ -53,6 +54,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Game missing", "Copy your Super Mario Galaxy (USA) disc, as ISO or RVZ, to the folder:\nports/smg/gamedata\n(or roms/wii). It will show up here.", "Looking for the disc…", "Play", "Reinstalls from:", "game.pak ready ✓",
         "No patches: original", "Patch will be prepared",
         "Settings", "Resolution", "Vibration", "Auto (dynamic)", "recommended", "Applies when you play",
+        "The language patch could not be prepared. Details in log.txt.",
     },
     {  // Français
         "Choisis ton disque :", "Aucun disque trouvé",
@@ -71,6 +73,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Jeu manquant", "Copie ton disque de Super Mario Galaxy (USA), en ISO ou RVZ, dans le dossier :\nports/smg/gamedata\n(ou roms/wii). Il apparaîtra ici.", "Recherche du disque…", "Jouer", "Réinstallé depuis :", "game.pak prêt ✓",
         "Sans patch : original", "Le patch sera préparé",
         "Réglages", "Résolution", "Vibration", "Auto (dynamique)", "recommandée", "S'applique en jeu",
+        "Le patch de langue n'a pas pu être préparé. Détails dans log.txt.",
     },
     {  // Português
         "Escolha seu disco:", "Nenhum disco encontrado",
@@ -89,6 +92,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Falta o jogo", "Copie seu disco de Super Mario Galaxy (USA), em ISO ou RVZ, para a pasta:\nports/smg/gamedata\n(ou roms/wii). Ele aparece aqui.", "Procurando o disco…", "Jogar", "Reinstala a partir de:", "game.pak pronto ✓",
         "Sem patches: original", "O patch será preparado",
         "Ajustes", "Resolução", "Vibração", "Auto (dinâmica)", "recomendada", "Vale ao jogar",
+        "Não foi possível preparar o patch de idioma. Detalhes no log.txt.",
     },
     {  // Italiano
         "Scegli il disco:", "Nessun disco trovato",
@@ -107,6 +111,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Manca il gioco", "Copia il disco di Super Mario Galaxy (USA), in ISO o RVZ, nella cartella:\nports/smg/gamedata\n(o roms/wii). Apparirà qui.", "Ricerca del disco…", "Gioca", "Si reinstalla da:", "game.pak pronto ✓",
         "Senza patch: originale", "La patch sarà creata",
         "Impostazioni", "Risoluzione", "Vibrazione", "Auto (dinamica)", "consigliata", "Vale in gioco",
+        "Impossibile preparare la patch della lingua. Dettagli in log.txt.",
     },
     {  // Deutsch
         "Wähle deine Disc:", "Keine Disc gefunden",
@@ -125,5 +130,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Spiel fehlt", "Kopiere deine Disc von Super Mario Galaxy (USA) als ISO oder RVZ in den Ordner:\nports/smg/gamedata\n(oder roms/wii). Sie erscheint dann hier.", "Suche nach der Disc…", "Spielen", "Neu installiert aus:", "game.pak bereit ✓",
         "Ohne Patch: Original", "Patch wird erstellt",
         "Einstellungen", "Auflösung", "Vibration", "Auto (dynamisch)", "empfohlen", "Gilt beim Spielen",
+        "Der Sprachpatch konnte nicht erstellt werden. Details in log.txt.",
     },
 };
