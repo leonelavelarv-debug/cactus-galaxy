@@ -2859,7 +2859,85 @@ int run_mods_tool() {
 }  // namespace
 #endif
 
+#if defined(__linux__) && defined(__aarch64__)
+#include <dlfcn.h>
+#include <execinfo.h>
+#include <signal.h>
+#include <sys/prctl.h>
+#include <sys/syscall.h>
+#include <ucontext.h>
+#include <unistd.h>
+namespace {
+// NEBULA_CRASH_LOG=1 (diagnostic, off by default): on SIGSEGV/SIGBUS/SIGILL/SIGFPE/SIGABRT write to stderr the
+// signal, the faulting address, the thread, pc/lr/sp with their module and offset, and the stack the unwinder sees,
+// then die with the same signal (the launcher still sees 139 and so on). Offsets are for addr2line/llvm-symbolizer
+// against the unstripped binary of that build.
+void crash_log_where(const char* what, const void* address) {
+    Dl_info info{};
+    if (address != nullptr && dladdr(address, &info) != 0 && info.dli_fname != nullptr) {
+        const char* slash = std::strrchr(info.dli_fname, '/');
+        std::fprintf(stderr, "[crash] %s %p = %s+0x%lx (%s)\n", what, address, slash ? slash + 1 : info.dli_fname,
+                     static_cast<unsigned long>(reinterpret_cast<std::uintptr_t>(address) -
+                                                reinterpret_cast<std::uintptr_t>(info.dli_fbase)),
+                     info.dli_sname != nullptr ? info.dli_sname : "?");
+    } else {
+        std::fprintf(stderr, "[crash] %s %p\n", what, address);
+    }
+}
+
+void crash_log_handler(int sig, siginfo_t* info, void* context) {
+    char thread[17] = {};
+    (void)prctl(PR_GET_NAME, thread, 0, 0, 0);
+    std::fprintf(stderr, "[crash] signal %d (code %d), address %p, thread \"%s\" (tid %ld)\n", sig,
+                 info != nullptr ? info->si_code : 0, info != nullptr ? info->si_addr : nullptr, thread,
+                 static_cast<long>(syscall(SYS_gettid)));
+    if (context != nullptr) {
+        const auto* uc = static_cast<const ucontext_t*>(context);
+        crash_log_where("pc", reinterpret_cast<const void*>(uc->uc_mcontext.pc));
+        crash_log_where("lr", reinterpret_cast<const void*>(uc->uc_mcontext.regs[30]));
+        std::fprintf(stderr, "[crash] sp %p fp %p\n", reinterpret_cast<const void*>(uc->uc_mcontext.sp),
+                     reinterpret_cast<const void*>(uc->uc_mcontext.regs[29]));
+    }
+    void* frames[48];
+    const int count = backtrace(frames, 48);
+    for (int i = 0; i < count; ++i) {
+        char label[16];
+        std::snprintf(label, sizeof(label), "#%02d", i);
+        crash_log_where(label, frames[i]);
+    }
+    std::fflush(stderr);
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+
+void install_crash_log() {
+    const char* value = std::getenv("NEBULA_CRASH_LOG");
+    if (value == nullptr || value[0] != '1') {
+        return;
+    }
+    static std::vector<char> alternate(1u << 16u);  // a stack overflow still gets its report
+    stack_t stack{};
+    stack.ss_sp = alternate.data();
+    stack.ss_size = alternate.size();
+    (void)sigaltstack(&stack, nullptr);
+    struct sigaction action {};
+    action.sa_sigaction = crash_log_handler;
+    action.sa_flags = SA_SIGINFO | SA_ONSTACK | SA_RESETHAND;
+    sigemptyset(&action.sa_mask);
+    for (const int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) {
+        (void)sigaction(sig, &action, nullptr);
+    }
+    void* warm[1];
+    (void)backtrace(warm, 1);  // loads libgcc_s now, not inside the handler
+    std::fprintf(stderr, "[crash] NEBULA_CRASH_LOG=1: informe de cierres activado\n");
+}
+}  // namespace
+#endif
+
 int main(int argc, char** argv) {
+#if defined(__linux__) && defined(__aarch64__)
+    install_crash_log();
+#endif
 #if defined(NEBULA_HOST_RENDERER) && defined(_WIN32)
     if (argc >= 3 && std::strcmp(argv[1], "--crash-report") == 0) {
         return show_crash_report_dialog();

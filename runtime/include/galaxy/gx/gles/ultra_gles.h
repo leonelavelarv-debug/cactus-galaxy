@@ -52,6 +52,8 @@ struct FrameSample {
     std::uint32_t peeks = 0;
     std::uint32_t sync_peeks = 0;
     std::uint32_t vertices = 0;
+    std::uint32_t view_vertices = 0;  // the draws' vertex views: vertices (upper bound of distinct ones) and KiB
+    std::uint32_t view_kib = 0;
     std::uint32_t repeats = 0;       // display copies repeated: a frame the frame skip left undrawn
     std::uint32_t efb_width = 0;     // the EFB's size this frame (dynamic resolution)
     std::uint32_t efb_height = 0;
@@ -77,6 +79,13 @@ struct FrameSample {
     std::int64_t fence_publish_ns = 0;
     std::uint32_t fences_gpu_timed = 0;
     std::uint32_t fences_gpu_bad = 0;
+    // EFB copies to textures in the frame: depth ones, EFB pixels read and destination pixels written (thousands),
+    // copies followed by a whole-EFB clear before any draw, and the GPU's copies part that came back meanwhile.
+    std::uint32_t copies_depth = 0;
+    std::uint32_t copy_src_kpx = 0;
+    std::uint32_t copy_dst_kpx = 0;
+    std::uint32_t copies_then_clear = 0;
+    double gpu_copies_ms = 0.0;
     std::int64_t gl_swap_pending_ns = 0;
 };
 

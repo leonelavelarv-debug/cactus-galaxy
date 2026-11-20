@@ -297,6 +297,10 @@ public:
     // elsewhere (GxBackend) advances only then.
     static constexpr unsigned kMaxStretchesPerSlot = 8u;  // GALAXY_GLES_SLOT_POR_IMAGEN: stretches a slot takes
     [[nodiscard]] bool slot_rotated() const noexcept { return slot_rotated_; }
+    // GALAXY_FRAMESKIP_GPU: the measured GPU time of a drawn picture lately (0 while unknown).
+    [[nodiscard]] double recent_drawn_gpu_ms() const noexcept {
+        return drawn_gpu_ms_ema_.load(std::memory_order_relaxed);
+    }
     // Tests: GALAXY_GLES_SLOT_POR_IMAGEN switched on or off between frames (the next begin_frame takes a new slot).
     void set_slot_per_present_for_tests(bool on) noexcept {
         slot_per_present_ = on;
@@ -454,6 +458,9 @@ private:
     std::int64_t dynamic_backoff_ns_ = 0;
     std::int64_t dynamic_wait_ns_ = 0;
     double dynamic_gpu_ms_ = 0.0;
+    // GALAXY_FRAMESKIP_GPU: the GPU's measured time per picture with real work (results of 3 ms or more), an
+    // average of the last ones (0.9 / 0.1). A lower bound: the Mali's timers miss part of its work (Fase 1).
+    std::atomic<double> drawn_gpu_ms_ema_{0.0};
     void update_dynamic_resolution();
     bool resize_efb(unsigned percent);
     unsigned peek_field_num_ = 1;  // GALAXY_GLES_PEEK_FIELD: the async peek fields' size, num/den of the Wii's
@@ -611,8 +618,19 @@ private:
         double gpu_max_ms = 0.0;
         unsigned gpu_frames = 0;
         std::array<double, 5> gpu_part_ms{};  // GpuPart order
-        std::uint64_t vertices = 0;
+        std::uint64_t vertices = 0;  // indices drawn (index_count per draw; glDrawArrays: its vertex count)
+        // ULTRA-GLES (u117): per draw, the vertices its vertex view holds (SizeInBytes / stride: what the indices can
+        // reach, an upper bound of the vertex shader's distinct inputs) and those bytes.
+        std::uint64_t view_vertices = 0;
+        std::uint64_t view_bytes = 0;
         std::uint64_t depth_discards = 0;
+        // ULTRA-GLES (u114): EFB copies to textures by kind and size (EFB pixels read, destination pixels written),
+        // and how many were followed by a whole-EFB clear before any draw (the EFB the pass reloads after the copy
+        // is then thrown away).
+        std::uint64_t copies_depth = 0;
+        std::uint64_t copy_src_px = 0;
+        std::uint64_t copy_dst_px = 0;
+        std::uint64_t copies_then_clear = 0;
         std::uint64_t xfb_repeats = 0;
         std::uint64_t borrowed_slots = 0;  // ring segments a frame continued into (borrow_frame_slot)
         std::uint64_t max_frame_draws = 0;  // the most draws one frame had
@@ -623,11 +641,12 @@ private:
     gles::Context::CopyStats copy_stats_prev_{};  // OpenGL ES 3.0: at the previous window log
     // ULTRA-GLES (ultra_gles.h): the stats and the thread's CPU time at the previous present, and GL error polling.
     Window ultra_prev_{};
+    Window tag_prev_{};  // fences.csv: the stats at the previous fence's submit
+    bool copy_awaits_clear_ = false;  // ULTRA-GLES: a texture copy happened and no draw since
     // GALAXY_GLES_COPIA_REDUCIDA (experiment, off by default): with a divided EFB (3/4...), colour copies to
     // textures are written at the EFB's physical size instead of the logical one. copy_output_efb_to_texture sets
     // this so the copy that takes the shown picture keeps the logical size.
     bool copying_output_ = false;
-    Window tag_prev_{};  // fences.csv: the stats at the previous fence's submit
     std::int64_t ultra_cpu_prev_ = 0;
     std::int64_t ultra_swap_ns_ = 0;
     std::uint32_t ultra_gl_errors_ = 0;
@@ -638,6 +657,7 @@ private:
     struct GpuSegments {
         std::vector<GLuint> queries;
         std::vector<std::uint8_t> parts;
+        std::vector<std::uint32_t> tags;  // ULTRA-GLES (u115): a copy segment's entry in copy_infos_ (~0: none)
         std::size_t used = 0;
         bool pending = false;
         std::uint64_t frame = 0;  // frame_index_ of the frame they timed (ULTRA-GLES)
@@ -650,7 +670,29 @@ private:
         std::uint64_t frame = 0;
         std::array<double, 5> parts{};
         double total = 0.0;
+        std::vector<std::pair<std::uint32_t, double>> copies;  // ULTRA-GLES: (copy_infos_ entry, its GPU ms)
     };
+    // ULTRA-GLES (u115): each EFB copy to a texture, written to <GALAXY_ULTRA_DIR>/copias.csv with its own GPU time
+    // when that comes back.
+    struct CopyInfo {
+        std::uint64_t frame = 0;
+        std::uint32_t dest_addr = 0;
+        std::uint16_t src_x = 0, src_y = 0, src_w = 0, src_h = 0;
+        std::uint16_t dst_w = 0, dst_h = 0;
+        std::uint8_t format = 0;
+        bool half = false, clear = false, native = false, intensity = false;
+        std::uint32_t draws_before = 0;   // draws into the EFB since the previous copy to a texture
+        std::uint32_t clears_before = 0;  // EFB clears since then
+    };
+    std::uint32_t draws_since_copy_ = 0;
+    std::uint32_t clears_since_copy_ = 0;
+    static constexpr std::uint32_t kCopyInfos = 4096u;
+    std::vector<CopyInfo> copy_infos_;
+    std::uint32_t copy_info_next_ = 0;
+    std::uint32_t pending_copy_tag_ = ~0u;
+    std::FILE* copy_log_ = nullptr;
+    bool copy_log_tried_ = false;
+    void log_copy_time(std::uint32_t tag, double ms);
     std::mutex gpu_results_mutex_;
     std::vector<GpuResult> gpu_results_;
     gles::glthread::Stats ultra_gl_prev_{};

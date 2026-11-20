@@ -17936,8 +17936,18 @@ void GxBackend::frameskip_after_display_copy() {
             // One vote per drawn frame. A cycle of one drawn and n skipped frames must fit n + 1 game frames.
             constexpr double kFrameMs = 1000.0 / 59.94;
             const double skipped = frameskip_skipped_ms_ != 0.0 ? frameskip_skipped_ms_ : frameskip_drawn_ms_ * 0.3;
+            // GALAXY_FRAMESKIP_GPU=1 (an experiment, off by default): the drawn picture's measured GPU time has to
+            // fit the cycle as well. The render thread's busy time leaves out the GPU work that runs alongside it
+            // (slots per picture), so a cheaper CPU made the cadence draw more than the GPU could keep up with.
+            static const bool gpu_aware = read_env_u64("GALAXY_FRAMESKIP_GPU", 0u) != 0u;
+#if defined(NEBULA_GPU_GLES)
+            const double gpu_ms = gpu_aware ? renderer_.recent_drawn_gpu_ms() : 0.0;
+#else
+            const double gpu_ms = 0.0;
+#endif
             const auto fits = [&](unsigned k, double margin) {
-                return frameskip_drawn_ms_ + k * skipped <= (k + 1u) * kFrameMs * margin;
+                return frameskip_drawn_ms_ + k * skipped <= (k + 1u) * kFrameMs * margin &&
+                    gpu_ms <= (k + 1u) * kFrameMs * margin;
             };
             unsigned wanted = max_n;
             for (unsigned k = 0; k <= max_n; ++k) {
@@ -17968,12 +17978,18 @@ void GxBackend::frameskip_after_display_copy() {
         }
     }
     if (frameskip_frames_ % 600u == 0u) {
+#if defined(NEBULA_GPU_GLES)
+        const double gpu_now = renderer_.recent_drawn_gpu_ms();
+#else
+        const double gpu_now = 0.0;
+#endif
         std::fprintf(stderr,
                      "[frameskip] %s: 1 of %u frames drawn now; %llu of the last 600 skipped (%llu draws); drawn %.1f ms, "
-                     "skipped %.1f ms\n",
+                     "skipped %.1f ms, GPU %.1f ms a drawn picture\n",
                      mode < 0 ? "auto" : "fixed", (mode > 0 ? static_cast<unsigned>(mode) : frameskip_n_) + 1u,
                      static_cast<unsigned long long>(frameskip_skipped_),
-                     static_cast<unsigned long long>(frameskip_draws_), frameskip_drawn_ms_, frameskip_skipped_ms_);
+                     static_cast<unsigned long long>(frameskip_draws_), frameskip_drawn_ms_, frameskip_skipped_ms_,
+                     gpu_now);
         frameskip_skipped_ = 0u;
         frameskip_draws_ = 0u;
     }

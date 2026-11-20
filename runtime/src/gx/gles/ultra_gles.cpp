@@ -206,7 +206,8 @@ public:
                        "lecturas_ms,draws,programas,uber,omitidos,compilados,compilar_ms,texturas,texturas_kib,copias,"
                        "peeks,peeks_sync,vertices,saltado,efb,errores_gl,tiron,espera_slot_cola_ms,espera_slot_gpu_ms,"
                        "fence_cola_ms,fence_gpu_ms,fences,swap_con_fence_ms,gl_cpu_ms,gl_espera_ms,fence_hasta_gpu_ms,"
-                       "fence_publicar_ms,fences_ts,fences_ts_malas\n",
+                       "fence_publicar_ms,fences_ts,fences_ts_malas,copias_prof,copia_origen_kpx,copia_destino_kpx,"
+                       "copias_y_borrado,gpu_copias_ms,vertices_vista,vertices_kib\n",
                        frames_csv_);
         }
         if (memory_csv_ != nullptr) {
@@ -534,7 +535,7 @@ private:
             const std::string scene = scene_name(r.scene);
             std::fprintf(frames_csv_,
                          "%llu,%.3f,%s,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u,%llu,%llu,%llu,%.3f,%llu,%llu,%u,%u,%u,"
-                         "%u,%d,%u,%u,%s,%.3f,%.3f,%.3f,%.3f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u\n",
+                         "%u,%d,%u,%u,%s,%.3f,%.3f,%.3f,%.3f,%u,%.3f,%.3f,%.3f,%.3f,%.3f,%u,%u,%u,%u,%u,%u,%.3f,%u,%u\n",
                          static_cast<unsigned long long>(f.frame_index),
                          static_cast<double>(f.present_ns - start_ns_) / 1e6, scene.c_str(), r.load ? 1 : 0,
                          r.interval_ms, static_cast<double>(f.cpu_ns) / 1e6, r.gpu_ms,
@@ -559,7 +560,8 @@ private:
                                                   : -1.0,
                          f.fences_gpu_timed != 0u ? static_cast<double>(f.fence_publish_ns) / 1e6 / f.fences_gpu_timed
                                                   : -1.0,
-                         f.fences_gpu_timed, f.fences_gpu_bad);
+                         f.fences_gpu_timed, f.fences_gpu_bad, f.copies_depth, f.copy_src_kpx, f.copy_dst_kpx,
+                         f.copies_then_clear, f.gpu_copies_ms, f.view_vertices, f.view_kib);
         }
     }
 

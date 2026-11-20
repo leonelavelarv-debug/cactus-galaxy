@@ -803,11 +803,40 @@ void RendererGles::gpu_part(int part) {
         }
         segments.queries.push_back(query);
         segments.parts.push_back(0u);
+        segments.tags.push_back(~0u);
     }
     glBeginQuery(GL_TIME_ELAPSED_EXT, segments.queries[segments.used]);
     segments.parts[segments.used] = static_cast<std::uint8_t>(part);
+    segments.tags[segments.used] = part == kGpuCopies ? pending_copy_tag_ : ~0u;
+    pending_copy_tag_ = ~0u;
     ++segments.used;
     gpu_part_ = part;
+}
+
+void RendererGles::log_copy_time(std::uint32_t tag, double ms) {
+    if (tag >= copy_infos_.size()) {
+        return;
+    }
+    if (!copy_log_tried_) {
+        copy_log_tried_ = true;
+        if (const char* dir = std::getenv("GALAXY_ULTRA_DIR"); dir != nullptr && dir[0] != '\0') {
+            const std::string path = std::string(dir) + "/copias.csv";
+            copy_log_ = std::fopen(path.c_str(), "w");
+            if (copy_log_ != nullptr) {
+                std::setvbuf(copy_log_, nullptr, _IOFBF, 1u << 16);
+                std::fputs("frame,destino,origen_x,origen_y,origen_w,origen_h,destino_w,destino_h,formato,media,"
+                           "borra,nativa,intensidad,gpu_ms,draws_antes,borrados_antes\n", copy_log_);
+            }
+        }
+    }
+    if (copy_log_ == nullptr) {
+        return;
+    }
+    const CopyInfo& c = copy_infos_[tag];
+    std::fprintf(copy_log_, "%llu,%08x,%u,%u,%u,%u,%u,%u,%u,%d,%d,%d,%d,%.3f,%u,%u\n",
+                 static_cast<unsigned long long>(c.frame), c.dest_addr, c.src_x, c.src_y, c.src_w, c.src_h, c.dst_w,
+                 c.dst_h, c.format, c.half ? 1 : 0, c.clear ? 1 : 0, c.native ? 1 : 0, c.intensity ? 1 : 0, ms,
+                 c.draws_before, c.clears_before);
 }
 
 void RendererGles::apply_gpu_parts(std::uint64_t frame, const std::array<double, 5>& parts, double total) {
@@ -815,6 +844,10 @@ void RendererGles::apply_gpu_parts(std::uint64_t frame, const std::array<double,
         window_stats_.gpu_part_ms[i] += parts[i];
     }
     window_stats_.gpu_ms += total;
+    if (total >= 3.0) {
+        const double was = drawn_gpu_ms_ema_.load(std::memory_order_relaxed);
+        drawn_gpu_ms_ema_.store(was == 0.0 ? total : was * 0.9 + total * 0.1, std::memory_order_relaxed);
+    }
     ultra::gpu(frame, total);
     dynamic_gpu_ms_ += total;
     window_stats_.gpu_max_ms = std::max(window_stats_.gpu_max_ms, total);
@@ -831,7 +864,10 @@ void RendererGles::read_gpu_parts(GpuSegments& segments) {
             std::vector<std::uint8_t> parts(segments.parts.begin(),
                                             segments.parts.begin() + static_cast<std::ptrdiff_t>(segments.used));
             const std::uint64_t frame = segments.frame;
-            gles::glthread::enqueue([this, queries = std::move(queries), parts = std::move(parts), frame] {
+            std::vector<std::uint32_t> tags(segments.tags.begin(),
+                                            segments.tags.begin() + static_cast<std::ptrdiff_t>(segments.used));
+            gles::glthread::enqueue([this, queries = std::move(queries), parts = std::move(parts),
+                                     tags = std::move(tags), frame] {
                 GLuint available = GL_FALSE;
                 glGetQueryObjectuiv(queries.back(), GL_QUERY_RESULT_AVAILABLE, &available);
                 GLint disjoint = 0;
@@ -847,6 +883,9 @@ void RendererGles::read_gpu_parts(GpuSegments& segments) {
                     const double ms = ns < 1'000'000'000ull ? static_cast<double>(ns) / 1e6 : 0.0;
                     result.parts[parts[i]] += ms;
                     result.total += ms;
+                    if (tags[i] != ~0u) {
+                        result.copies.emplace_back(tags[i], ms);
+                    }
                 }
                 std::lock_guard<std::mutex> lock(gpu_results_mutex_);
                 gpu_results_.push_back(result);
@@ -861,6 +900,9 @@ void RendererGles::read_gpu_parts(GpuSegments& segments) {
         }
         for (const GpuResult& result : results) {
             apply_gpu_parts(result.frame, result.parts, result.total);
+            for (const auto& [tag, ms] : result.copies) {
+                log_copy_time(tag, ms);
+            }
         }
         return;
     }
@@ -1132,9 +1174,19 @@ void RendererGles::ultra_frame() {
     sample.program_changes = count(now.pipeline_changes, was.pipeline_changes);
     sample.skipped_draws = count(now.skipped_draws, was.skipped_draws);
     sample.copies = count(now.copies, was.copies);
+    sample.copies_depth = count(now.copies_depth, was.copies_depth);
+    sample.copy_src_kpx = static_cast<std::uint32_t>(span(static_cast<std::int64_t>(now.copy_src_px),
+                                                          static_cast<std::int64_t>(was.copy_src_px)) / 1000);
+    sample.copy_dst_kpx = static_cast<std::uint32_t>(span(static_cast<std::int64_t>(now.copy_dst_px),
+                                                          static_cast<std::int64_t>(was.copy_dst_px)) / 1000);
+    sample.copies_then_clear = count(now.copies_then_clear, was.copies_then_clear);
+    sample.gpu_copies_ms = now.gpu_part_ms[kGpuCopies] >= was.gpu_part_ms[kGpuCopies]
+        ? now.gpu_part_ms[kGpuCopies] - was.gpu_part_ms[kGpuCopies] : now.gpu_part_ms[kGpuCopies];
     sample.peeks = count(now.peeks, was.peeks);
     sample.sync_peeks = count(now.sync_peeks, was.sync_peeks);
     sample.vertices = count(now.vertices, was.vertices);
+    sample.view_vertices = count(now.view_vertices, was.view_vertices);
+    sample.view_kib = count(now.view_bytes, was.view_bytes) / 1024u;
     sample.repeats = count(now.xfb_repeats, was.xfb_repeats);
     sample.efb_width = efb_width();
     sample.efb_height = efb_height();
@@ -1307,6 +1359,7 @@ void RendererGles::clear_efb(std::uint32_t clear_ar, std::uint32_t clear_gb, std
                              bool color_enable, bool alpha_enable, bool depth_enable, unsigned rect_x,
                              unsigned rect_y, unsigned rect_w, unsigned rect_h, std::uint8_t pixel_format) {
     ++window_stats_.clears;
+    ++clears_since_copy_;
     bind_efb_framebuffer();
     const std::int32_t efb_w = static_cast<std::int32_t>(kEfbWidth * efb_scale_);
     const std::int32_t efb_h = static_cast<std::int32_t>(kEfbHeight * efb_scale_);
@@ -1334,6 +1387,10 @@ void RendererGles::clear_efb(std::uint32_t clear_ar, std::uint32_t clear_gb, std
         rect[3] == static_cast<int>(efb_height());
     if (whole) {
         glDisable(GL_SCISSOR_TEST);
+        if (copy_awaits_clear_ && color_enable && alpha_enable && depth_enable) {
+            ++window_stats_.copies_then_clear;
+        }
+        copy_awaits_clear_ = false;
     } else {
         glEnable(GL_SCISSOR_TEST);
         glScissor(rect[0], rect[1], rect[2], rect[3]);
@@ -1526,6 +1583,8 @@ void RendererGles::draw(const DrawCall& call) {
     }
     ++window_stats_.draws;
     ++frame_draws_;
+    copy_awaits_clear_ = false;
+    ++draws_since_copy_;
     window_stats_.max_frame_draws = std::max<std::uint64_t>(window_stats_.max_frame_draws, frame_draws_);
 #if defined(NEBULA_HAS_MEMTRACE_NOTE)
     if (nebula_memtrace_note != nullptr) {
@@ -1634,8 +1693,34 @@ void RendererGles::draw(const DrawCall& call) {
         bound_.samplers_valid = true;
     }
 
+    // GALAXY_GLES_DIAG_RECORTE_1PX (diagnostic only, 0 by default; the picture comes out wrong): EFB draws cut to one
+    // pixel. The Mali still shades every vertex's position and bins the primitives, but almost no fragments run for
+    // them, so what leaves the GPU time per picture is what those draws' pixels cost. Clears, copies, the XFB and the
+    // presentation keep their own rectangles. 1: every draw. 2: only draws of at most 12 indices (full-screen
+    // effect passes, sprites, particles, the HUD). 3: only the others (the scene's geometry).
+    static const int diag_cut = [] {
+        const char* value = std::getenv("GALAXY_GLES_DIAG_RECORTE_1PX");
+        const int mode = value != nullptr ? std::atoi(value) : 0;
+        if (mode >= 1 && mode <= 5) {
+            std::fprintf(stderr, "[gles] GALAXY_GLES_DIAG_RECORTE_1PX=%d: draws del EFB recortados a 1 pixel (%s; "
+                                 "diagnostico, la imagen sale mal)\n",
+                         mode, mode == 1 ? "todos" : mode == 2 ? "de 12 indices o menos"
+                             : mode == 3 ? "de mas de 12 indices"
+                             : mode == 4 ? "de 12 indices o menos con viewport de pantalla completa"
+                                         : "de 12 indices o menos con viewport parcial");
+            return mode;
+        }
+        return 0;
+    }();
+    // 4 and 5 split the effect draws (at most 12 indices) by their GX viewport: 4 cuts those that cover the screen
+    // (2 * xf_viewport[0], the viewport's width, 600 or more: composites and full-screen filters), 5 the ones drawn
+    // into a smaller part of the EFB (the effects' workspace: downsampling and blurring before a copy).
+    const bool effect_draw = call.index_count <= 12u;
+    const bool full_view = !call.has_viewport || 2.0f * call.xf_viewport[0] >= 600.0f;
+    const bool cut_draw = diag_cut == 1 || (diag_cut == 2 && effect_draw) || (diag_cut == 3 && !effect_draw) ||
+        (diag_cut == 4 && effect_draw && full_view) || (diag_cut == 5 && effect_draw && !full_view);
     // The GX scissor, scaled and clamped; an empty one rasterises nothing.
-    if (!bound_.scissor_input_valid || call.scissor.left != bound_.scissor_input.left ||
+    if (diag_cut >= 2 || !bound_.scissor_input_valid || call.scissor.left != bound_.scissor_input.left ||
         call.scissor.top != bound_.scissor_input.top || call.scissor.right != bound_.scissor_input.right ||
         call.scissor.bottom != bound_.scissor_input.bottom) {
         const ScaledEfbRect scaled = compute_scaled_efb_rect(call.scissor.left, call.scissor.top, call.scissor.right,
@@ -1643,8 +1728,11 @@ void RendererGles::draw(const DrawCall& call) {
         if (scaled.empty()) {
             return;
         }
-        const std::array<int, 4> scissor = physical_rect(
+        std::array<int, 4> scissor = physical_rect(
             {scaled.left, scaled.top, scaled.right - scaled.left, scaled.bottom - scaled.top});
+        if (cut_draw) {
+            scissor = {0, 0, 1, 1};
+        }
         if (!bound_.scissor_valid || scissor != bound_.scissor) {
             glEnable(GL_SCISSOR_TEST);
             glScissor(scissor[0], scissor[1], scissor[2], scissor[3]);
@@ -1718,6 +1806,8 @@ void RendererGles::draw(const DrawCall& call) {
         // draw's view holds. With plain glDrawElements the Mali's driver works the range out itself and keeps a heap
         // table for it that only grows (NEBULA_MEMTRACE: 5 -> 80 MiB over the galaxies, in glDrawElements).
         const std::uint32_t vertex_count = call.vertex_view.SizeInBytes / stride;
+        window_stats_.view_vertices += vertex_count;
+        window_stats_.view_bytes += call.vertex_view.SizeInBytes;
         const void* first = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(indices.offset));
         if (draw_range_ && vertex_count != 0u) {
             std::uint32_t last = vertex_count - 1u;
@@ -2059,7 +2149,36 @@ bool RendererGles::resize_efb(unsigned percent) {
 
 bool RendererGles::copy_efb_to_texture(const EfbCopyParams& params, TextureCache& textures, bool is_depth_copy) {
     ++window_stats_.copies;
+    if (is_depth_copy) {
+        ++window_stats_.copies_depth;
+    }
+    window_stats_.copy_src_px += static_cast<std::uint64_t>(params.src_width) * params.src_height;
+    copy_awaits_clear_ = true;
+    CopyInfo* copy_info = nullptr;
+    if (ultra::enabled() && gles::glthread::recording()) {
+        if (copy_infos_.size() < kCopyInfos) {
+            copy_infos_.resize(kCopyInfos);
+        }
+        pending_copy_tag_ = copy_info_next_++ % kCopyInfos;
+        copy_info = &copy_infos_[pending_copy_tag_];
+        *copy_info = CopyInfo{};
+        copy_info->frame = frame_index_;
+        copy_info->dest_addr = params.dest_addr;
+        copy_info->src_x = params.src_x;
+        copy_info->src_y = params.src_y;
+        copy_info->src_w = params.src_width;
+        copy_info->src_h = params.src_height;
+        copy_info->format = params.target_format;
+        copy_info->half = params.half_scale;
+        copy_info->clear = params.clear;
+        copy_info->intensity = params.intensity;
+        copy_info->draws_before = draws_since_copy_;
+        copy_info->clears_before = clears_since_copy_;
+    }
+    draws_since_copy_ = 0u;
+    clears_since_copy_ = 0u;
     gpu_part(kGpuCopies);
+    pending_copy_tag_ = ~0u;  // (taken by the segment it started, if any)
     struct BackToScene {
         RendererGles& r;
         ~BackToScene() { r.gpu_part(kGpuScene); }
@@ -2127,6 +2246,12 @@ bool RendererGles::copy_efb_to_texture(const EfbCopyParams& params, TextureCache
     }
     if (w == 0u || h == 0u) {
         return false;
+    }
+    window_stats_.copy_dst_px += static_cast<std::uint64_t>(w) * h;
+    if (copy_info != nullptr) {
+        copy_info->dst_w = static_cast<std::uint16_t>(w);
+        copy_info->dst_h = static_cast<std::uint16_t>(h);
+        copy_info->native = native;
     }
     const std::uint64_t dest_key = static_cast<std::uint64_t>(params.dest_addr) |
         (static_cast<std::uint64_t>(params.target_format) << 32u) | (is_depth_copy ? (1ull << 40u) : 0ull) |
