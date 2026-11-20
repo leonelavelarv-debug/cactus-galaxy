@@ -1733,7 +1733,7 @@ struct App {
           cv.star(float(kLeft + 22), float(y + 7), 6.0f, 0xffe066, 1.0f, time * 2.0f);
         }
         text(cv, kLeft + 34, y, fit(wii_button_name(i), 11), 2, on ? kWhite : kMuted);  // 11 + 8 fit the row
-        const std::string value = on && capturing ? std::string(T(S_PRESS_BUTTON))
+        const std::string value = on && capturing ? std::string("\xE2\x80\xA6")
                                   : controls_map[i] >= 0 ? std::string(kPhysLabel[controls_map[i]]) : std::string(T(S_AS_BEFORE));
         const std::string shown = fit(value, 8);
         text(cv, kPanelX + kPanelW - 36 - text_width(shown, 2), y, shown, 2,
@@ -1742,7 +1742,11 @@ struct App {
       if (controls_scroll > 0) text_center(cv, kCenter, 176, "\xE2\x86\x91", 1, kMuted);
       if (controls_scroll + kVisible < kWiiButtonCount) text_center(cv, kCenter, 368, "\xE2\x86\x93", 1, kMuted);
     }
-    text_center(cv, kCenter, 384, fit(T(S_STICKS_SAME), 22), 2, 0x8f82a8);
+    if (capturing) {  // the prompt in full, in the interface's language (the row in orange is the Wii button)
+      text_center(cv, kCenter, 384, fit(T(S_PRESS_BUTTON), 22), 2, kGold);
+    } else {
+      text_center(cv, kCenter, 384, fit(T(S_STICKS_SAME), 22), 2, 0x8f82a8);
+    }
     if (capturing) {
       hints(cv, 432, {{"START", T(S_CANCEL)}});
     } else {
