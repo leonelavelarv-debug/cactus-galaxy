@@ -262,8 +262,17 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
     return snapshot;
 }
 
+// NEBULA_VIBRACION=0 (Cactus Galaxy Wrapper's settings, smg/opciones.cfg): no vibration at all.
+static bool vibration_allowed() noexcept {
+    static const bool allowed = [] {
+        const char* value = std::getenv("NEBULA_VIBRACION");
+        return value == nullptr || value[0] != '0';
+    }();
+    return allowed;
+}
+
 void native_game_rumble(bool motor_on, std::int32_t) noexcept {
-    if (g_rumble_pad != 0) {
+    if (g_rumble_pad != 0 && vibration_allowed()) {
         sdl::rumble(g_rumble_pad, motor_on ? g_rumble_strength : 0.0f);
     }
 }

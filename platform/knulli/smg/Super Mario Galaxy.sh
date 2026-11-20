@@ -129,7 +129,9 @@ fi
 # principio, espacios alrededor del =, comentarios con # y una ultima linea sin salto; cada ajuste leido queda en log.txt.
 # Tambien smg/ajustes.cfg (el del port limpio) y smg/ultra/ultra.cfg (el del paquete de medicion), leidos antes:
 # los de smg/ultra.cfg mandan.
-for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
+# Primero smg/opciones.cfg: lo que se elige en Ajustes de Cactus Galaxy Wrapper (X en la pantalla de idiomas):
+# GALAXY_GLES_RESOLUTION=auto|50|75|100 y NEBULA_VIBRACION=1|0 (0: el control no vibra). Los demas mandan sobre el.
+for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
   [ -f "$cfg" ] || continue
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}

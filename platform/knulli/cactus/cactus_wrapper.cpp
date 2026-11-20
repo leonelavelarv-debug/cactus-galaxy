@@ -747,7 +747,7 @@ double now_seconds() {
 // ---------------------------------------------------------------------------------------------------------------
 // The app.
 
-enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed };
+enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Settings };
 
 // The languages of the USA disc, as GALAXY_LANGUAGE names them (the launcher reads smg/idioma.txt), and Brazilian
 // Portuguese and Russian: the disc patched on the way with a translation's xdelta (smg/patches/), into one of those
@@ -859,6 +859,12 @@ struct App {
   int pak_patch = -1;         // that older game.pak's translation (kPtBr, kRu)...
   int pak_patched_slot = -1;  // ...its text in this slot (0-2)
   Image pending;  // the disc waiting for its language
+  // Settings (X on the language screen): the game's internal resolution and vibration, in smg/opciones.cfg (the
+  // launcher reads it before ajustes.cfg and ultra.cfg, which still win).
+  std::string options_file;
+  int opt_resolution = 2;  // kResolutions: auto, 50, 75 (the medium profile's), 100
+  bool opt_vibration = true;
+  int settings_row = 0;
   std::string chain_image;    // the disc whose translation's mod follows its conversion
   bool chain_delete = false;  // ...deleted after that
 
@@ -903,6 +909,36 @@ struct App {
   static int slot_of(const std::string& key) {
     for (int i = 0; i < 3; ++i) if (key == kLanguages[i].key) return i;
     return -1;
+  }
+  static constexpr const char* kResolutions[4] = {"auto", "50", "75", "100"};
+  void load_options() {
+    if (FILE* f = fopen(options_file.c_str(), "r")) {
+      char line[160];
+      while (fgets(line, sizeof(line), f)) {
+        std::string l(line);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        const size_t eq = l.find('=');
+        if (eq == std::string::npos || l[0] == '#') continue;
+        const std::string key = l.substr(0, eq), value = lower(l.substr(eq + 1));
+        if (key == "GALAXY_GLES_RESOLUTION") {
+          for (int i = 0; i < 4; ++i) if (value == kResolutions[i]) opt_resolution = i;
+        } else if (key == "NEBULA_VIBRACION") {
+          opt_vibration = value != "0";
+        }
+      }
+      fclose(f);
+    }
+  }
+  void save_options() {
+    const std::string temporary = options_file + ".tmp";
+    if (FILE* f = fopen(temporary.c_str(), "w")) {
+      fprintf(f, "# Cactus Galaxy Wrapper: Ajustes (X en la pantalla de idiomas). ajustes.cfg y ultra.cfg mandan sobre esto.\n");
+      fprintf(f, "GALAXY_GLES_RESOLUTION=%s\nNEBULA_VIBRACION=%d\n", kResolutions[opt_resolution], opt_vibration ? 1 : 0);
+      fclose(f);
+      rename(temporary.c_str(), options_file.c_str());
+    }
+    printf("[cactus] ajustes: resolucion %s, vibracion %s\n", kResolutions[opt_resolution], opt_vibration ? "si" : "no");
+    fflush(stdout);
   }
   void load_language() {
     // Not chosen yet: the menu's language for a new install (spanish, english, french; Portuguese when the patch is
@@ -1176,6 +1212,11 @@ struct App {
         break;
       }
       case Screen::Language: {
+        if (key == kToggle && pak_mode()) {  // X: the settings
+          settings_row = 0;
+          screen = Screen::Settings;
+          break;
+        }
         const std::vector<int> options = language_options();
         if (key == kUp || key == kPrev) language_choice = step(options, language_choice, -1);
         if (key == kDown || key == kNext) language_choice = step(options, language_choice, 1);
@@ -1212,6 +1253,18 @@ struct App {
         break;
       case Screen::Converting:
         if (key == kBack && job && !cancelling) { cancelling = true; kill(job->pid, SIGTERM); }
+        break;
+      case Screen::Settings:
+        if (key == kUp || key == kDown) settings_row = 1 - settings_row;
+        if (key == kPrev || key == kNext || (key == kToggle)) {
+          const int d = key == kPrev ? -1 : 1;
+          if (settings_row == 0) opt_resolution = (opt_resolution + d + 4) % 4;
+          else opt_vibration = !opt_vibration;
+        }
+        if (key == kConfirm || key == kBack) {
+          save_options();
+          screen = Screen::Language;
+        }
         break;
       case Screen::Done:  // the game starts only on A
         if (key == kConfirm && result == 0 && viva_pending()) show_viva();
@@ -1306,6 +1359,7 @@ struct App {
       case Screen::NeedDisc: draw_need_disc(cv, time); break;
       case Screen::Menu: draw_menu(cv); break;
       case Screen::Language: draw_language(cv, time); break;
+      case Screen::Settings: draw_settings(cv, time); break;
       case Screen::Converting: draw_converting(cv, time); break;
       case Screen::Done: draw_done(cv); break;
       case Screen::Viva: draw_viva(cv); break;
@@ -1389,6 +1443,31 @@ struct App {
     hints(cv, 430, {{"B", T(S_EXIT)}});
   }
 
+  void draw_settings(Canvas& cv, float time) {
+    text_center(cv, kCenter, 128, T(S_SETTINGS), 2, kGold);
+    const std::string res_value = opt_resolution == 0 ? std::string(T(S_AUTO_RES)) : std::string(kResolutions[opt_resolution]) + " %";
+    static const char* const kSizes[4] = {"50-100 %", "320x264", "480x396", "640x528"};
+    const std::string res_note = opt_resolution == 2 ? std::string(kSizes[2]) + " · " + T(S_RECOMMENDED) : kSizes[opt_resolution];
+    const struct { const char* label; std::string value, note; } rows[2] = {
+        {T(S_RESOLUTION), res_value, res_note},
+        {T(S_VIBRATION), T(opt_vibration ? S_YES : S_NO), ""},
+    };
+    for (int row = 0; row < 2; ++row) {
+      const int y = 170 + row * 92;
+      const bool sel = row == settings_row;
+      if (sel) {
+        cv.rrect(kLeft + 10, y - 6, kPanelW - 52, 80, 10, 0x2f7d3e, 0.55f);
+        cv.rrect_outline(kLeft + 10, y - 6, kPanelW - 52, 80, 10, 2, 0x7fd88a, 0.9f);
+        cv.star(float(kLeft + 30), float(y + 8), 9.0f, 0xffe066, 1.0f, time * 2.0f);
+      }
+      text(cv, kLeft + 50, y, rows[row].label, 2, sel ? kGreen : kMuted);
+      text_center(cv, kCenter, y + 24, "\xE2\x97\x84 " + rows[row].value + " \xE2\x96\xBA", 3, sel ? kWhite : kMuted);
+      if (!rows[row].note.empty()) text_center(cv, kCenter, y + 52, fit(rows[row].note, 22), 2, sel ? kGold : 0x8f82a8);
+    }
+    text_center(cv, kCenter, 384, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
+    hints(cv, 430, {{"A", T(S_BACK)}});
+  }
+
   void draw_language(Canvas& cv, float time) {
     text_center(cv, kCenter, 128, T(S_GAME_LANGUAGE), 2, kGold);
     text_center(cv, kCenter, 150, T(S_GAME_LANGUAGE_SUB), 2, kMuted);
@@ -1424,11 +1503,13 @@ struct App {
       }
       text_center(cv, kCenter, 364, fit(T(S_REINSTALL), 22), 2, kGold);
       text_center(cv, kCenter, 384, fit(disc, 22), 2, kMuted);
+      hints(cv, 404, {{"X", T(S_SETTINGS)}});
       hints(cv, 430, {{"A", T(S_INSTALL)}, {"B", T(S_EXIT)}});
     } else {
       text_center(cv, kCenter, 364, fit(T(needs_mod(language_choice) ? S_MAKE_MOD : S_PAK_READY), 22), 2,
                   needs_mod(language_choice) ? kGold : kGreen);
       text_center(cv, kCenter, 384, fit(T(native ? S_NO_PATCHES : S_CHANGE_LATER), 22), 2, native ? kGold : 0x8f82a8);
+      hints(cv, 404, {{"X", T(S_SETTINGS)}});
       hints(cv, 430, {{"A", T(S_PLAY)}, {"B", T(S_EXIT)}});
     }
   }
@@ -1566,6 +1647,15 @@ int demo(const std::string& out) {
   app.language_choice = kPtBr;
   app.draw(cv, scene, 2.4f);
   save_png(cv, out + "/1e-reinstalar-ptbr.png");
+  app.screen = Screen::Settings;  // X: resolution and vibration
+  app.settings_row = 0;
+  app.draw(cv, scene, 2.5f);
+  save_png(cv, out + "/1g-ajustes.png");
+  app.settings_row = 1; app.opt_vibration = false;
+  app.draw(cv, scene, 2.55f);
+  save_png(cv, out + "/1h-ajustes-vibracion.png");
+  app.opt_vibration = true;
+  app.screen = Screen::Language;
   app.pak_patch = kRu; app.pak_patched_slot = 1;  // a game.pak made with the Russian patch, in English's slot
   app.language = kRu;
   app.show_installed_languages();
@@ -1797,6 +1887,8 @@ int main(int argc, char** argv) {
   mkdir(app.gamedata.c_str(), 0755);
   app.output = app.gamedata + "/game.pak";
   app.language_file = app.smg + "/idioma.txt";
+  app.options_file = app.smg + "/opciones.cfg";
+  app.load_options();
   app.pak_language_file = app.output + ".idioma";
   app.viva_file = app.smg + "/.primer-arranque";
   {  // a game.pak made before this version: the game has started already, no send-off

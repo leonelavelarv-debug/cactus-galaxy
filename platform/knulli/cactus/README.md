@@ -34,6 +34,11 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   traducción tiene (por su nombre) en ruso, con sus etiquetas pasadas a Wii, y los demás en inglés; y a cada fuente
   del juego las letras que el ruso usa y le faltan (cirílico, «», …), reducidas a su celda, en hojas nuevas. La
   pantalla de Game Over sigue en inglés. Con las dos traducciones, la lista de idiomas muestra solo los nombres.
+- Ajustes (X en la pantalla de idiomas, con `game.pak` hecho): la resolución interna del juego (Auto: dinámica entre
+  50 y 100 %; 50 %: 320x264; 75 %: 480x396, la recomendada y la de siempre del perfil medio; 100 %: 640x528, la del
+  Wii) y la vibración (Sí/No). ◄► cambia el valor, ▲▼ la fila, A o B vuelve. Se guardan en `smg/opciones.cfg`
+  (`GALAXY_GLES_RESOLUTION`, `NEBULA_VIBRACION`), que el lanzador lee antes que `ajustes.cfg` y `ultra.cfg` (estos
+  mandan si fijan lo mismo); se aplican al jugar.
 - Antes del primer arranque del juego (después de la primera conversión) saluda un cactus con lentes de sol:
   "¡Viva México, Viva Sonora, Cabrones! En breve iniciará el juego." en el idioma elegido para el juego (español,
   inglés, francés, portugués o ruso en letras latinas; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
