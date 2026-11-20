@@ -23,8 +23,10 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
 #include <cstdlib>
 #include <sstream>
+#include <string>
 #include <vector>
 
 namespace galaxy::host {
@@ -43,11 +45,50 @@ constexpr std::uint8_t kTapPressReports = 10;
 constexpr std::uint64_t kTapHoverMs = 200;
 constexpr float kTriggerThreshold = 96.0f / 255.0f;  // as GALAXY_XINPUT_TRIGGER_THRESHOLD's default
 
+// Cactus Galaxy Wrapper's custom controls (NEBULA_MANDOS_ARCHIVO, the launcher's smg/mandos.cfg with the custom
+// profile): `bind.<scheme>.<Wii button>=<one source>` lines over the game's own bindings, in this session's live copy
+// only (settings.ini is never written with them). A source given to a Wii button is taken away from the others, so a
+// remapped button does one thing; Wii buttons the file does not name keep theirs.
+void apply_custom_controls(in::ControlsConfig& config) {
+    const char* path = std::getenv("NEBULA_MANDOS_ARCHIVO");
+    if (path == nullptr || path[0] == '\0') return;
+    FILE* file = std::fopen(path, "r");
+    if (file == nullptr) return;
+    unsigned applied = 0;
+    char line[256];
+    while (std::fgets(line, sizeof(line), file) != nullptr) {
+        std::string text(line);
+        while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
+        const std::size_t eq = text.find('=');
+        if (text.rfind("bind.", 0) != 0 || eq == std::string::npos) continue;
+        const std::string key = text.substr(0, eq), value = text.substr(eq + 1);
+        const std::size_t dot = key.find('.', 5);
+        if (dot == std::string::npos) continue;
+        const auto scheme = in::parse_control_scheme(key.substr(5, dot - 5));
+        const auto target = in::parse_wii_target(key.substr(dot + 1));
+        if (!scheme || !target) continue;
+        const auto source = in::parse_input_source(*scheme, value);
+        if (!source) continue;
+        in::BindingTable& table = config.table(*scheme);
+        for (in::TargetBindings& bindings : table.targets) {
+            for (in::InputSource& slot : bindings) if (slot == *source) slot = {};
+        }
+        if (in::apply_controls_setting(config, key, value)) ++applied;
+    }
+    std::fclose(file);
+    std::fprintf(stderr, "[input] mandos personalizados (%s): %u asignaciones\n", path, applied);
+}
+
 const in::ControlsConfig& live_controls() {
-    static in::ControlsConfig config = in::get_controls_config();
+    static in::ControlsConfig config = [] {
+        in::ControlsConfig c = in::get_controls_config();
+        apply_custom_controls(c);
+        return c;
+    }();
     static std::uint64_t generation = in::controls_config_generation();
     if (const std::uint64_t now = in::controls_config_generation(); now != generation) {
         config = in::get_controls_config();
+        apply_custom_controls(config);
         generation = now;
     }
     return config;

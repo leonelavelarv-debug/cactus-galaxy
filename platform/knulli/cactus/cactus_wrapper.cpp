@@ -179,6 +179,7 @@ const Glyph kExtra[] = {
     {0x2713, {"........", ".......#", "......##", ".....##.", "#...##..", "##.##...", ".###....", "..#....."}},  // check
     {0x2717, {"........", "##....##", ".##..##.", "..####..", "...##...", "..####..", ".##..##.", "##....##"}},  // cross
     {0x2192, {"........", "....#...", "....##..", "#######.", "#######.", "....##..", "....#...", "........"}},  // ->
+    {0x2190, {"........", "...#....", "..##....", ".#######", ".#######", "..##....", "...#....", "........"}},  // <-
     {0x2191, {"...##...", "..####..", ".######.", "...##...", "...##...", "...##...", "...##...", "........"}},  // up
     {0x2193, {"...##...", "...##...", "...##...", "...##...", ".######.", "..####..", "...##...", "........"}},  // down
     {0x25C4, {"........", ".....##.", "...####.", ".######.", ".######.", "...####.", ".....##.", "........"}},  // <
@@ -573,7 +574,16 @@ void panel(Canvas& cv) {
   text_center(cv, kCenter, kPanelY + 90, "ISO · RVZ \xE2\x86\x92 game.pak", 2, kMuted);
 }
 
+int key_width(const char* label) { return utf8(label).size() > 1 ? text_width(label, 2) + 12 : 22; }
+
 void button(Canvas& cv, int x, int y, const char* label, u32 color) {
+  if (utf8(label).size() > 1) {  // START, SELECT: a pill
+    const int w = key_width(label);
+    cv.rrect(x + 1, y - 3, w, 22, 11, 0x05020c, 0.5f);
+    cv.rrect(x, y - 4, w, 22, 11, color);
+    text(cv, x + w / 2 - text_width(label, 2) / 2, y, label, 2, 0x140c2a, 1.0f, false);
+    return;
+  }
   cv.circle(float(x) + 11.0f, float(y) + 8.0f, 11.5f, 0x05020c, 0.5f);
   cv.circle(float(x) + 10.0f, float(y) + 7.0f, 11.0f, color);
   text(cv, x + 10 - text_width(label, 2) / 2, y, label, 2, 0x140c2a, 1.0f, false);
@@ -582,13 +592,13 @@ void button(Canvas& cv, int x, int y, const char* label, u32 color) {
 // "(A) Convertir   (B) Salir" centered in a row.
 void hints(Canvas& cv, int y, const std::vector<std::pair<std::string, std::string>>& items) {
   int total = 0;
-  for (const auto& [key, label] : items) total += 22 + 6 + text_width(label, 2) + 18;
+  for (const auto& [key, label] : items) total += key_width(key.c_str()) + 6 + text_width(label, 2) + 18;
   total -= 18;
   int x = kCenter - total / 2;
   for (const auto& [key, label] : items) {
     const u32 color = key == "A" ? 0xff6b6b : key == "B" ? 0xffcf5a : key == "X" ? 0x6fb8ff : 0xc9c0dc;
     button(cv, x, y, key.c_str(), color);
-    x += 28;
+    x += key_width(key.c_str()) + 6;
     x += text(cv, x, y, label, 2, kWhite) + 18;
   }
 }
@@ -834,7 +844,28 @@ double now_seconds() {
 // ---------------------------------------------------------------------------------------------------------------
 // The app.
 
-enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Settings };
+enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Settings, Controls };
+
+// The custom controls profile: the game's Wii buttons that can be given another button of the handheld (the sticks
+// stay: Mario and the pointer), and the handheld's buttons as the game's bindings name them (Nintendo and Xbox
+// schemes: NEBULA_PAD_SCHEME picks one in the game, both are written). Positions as the game reads SDL's buttons.
+struct WiiButton { const char* id; const char* label; Str text; };  // label, or text when it has words
+const WiiButton kWiiButtons[] = {
+    {"a", "Wii A", S_COUNT}, {"b", "Wii B", S_COUNT}, {"z", "Wii Z", S_COUNT}, {"c", "Wii C", S_COUNT},
+    {"shake", nullptr, S_SHAKE}, {"plus", "Wii +", S_COUNT}, {"minus", "Wii -", S_COUNT},
+    {"one", "Wii 1", S_COUNT}, {"two", "Wii 2", S_COUNT},
+    {"dpad_up", "Wii \xE2\x86\x91", S_COUNT}, {"dpad_down", "Wii \xE2\x86\x93", S_COUNT},
+    {"dpad_left", "Wii \xE2\x86\x90", S_COUNT}, {"dpad_right", "Wii \xE2\x86\x92", S_COUNT},
+    {"pointer_recenter", nullptr, S_RECENTER},
+};
+constexpr int kWiiButtonCount = int(sizeof(kWiiButtons) / sizeof(kWiiButtons[0]));
+enum Phys { kSouth, kEast, kWest, kNorth, kL1, kR1, kL2, kR2, kL3, kR3, kSelectBtn, kDUp, kDDown, kDLeft, kDRight, kPhysCount };
+const char* const kPhysLabel[kPhysCount] = {"B", "A", "Y", "X", "L1", "R1", "L2", "R2", "L3", "R3", "SELECT",
+    "\xE2\x86\x91", "\xE2\x86\x93", "\xE2\x86\x90", "\xE2\x86\x92"};
+const char* const kPhysSwitch[kPhysCount] = {"B", "A", "Y", "X", "L", "R", "ZL", "ZR", "LS", "RS", "Minus",
+    "DpadUp", "DpadDown", "DpadLeft", "DpadRight"};
+const char* const kPhysXbox[kPhysCount] = {"A", "B", "X", "Y", "LB", "RB", "LT", "RT", "LS", "RS", "View",
+    "DpadUp", "DpadDown", "DpadLeft", "DpadRight"};
 
 // The languages of the USA disc, as GALAXY_LANGUAGE names them (the launcher reads smg/idioma.txt), and Brazilian
 // Portuguese and Russian: the disc patched on the way with a translation's xdelta (smg/patches/), into one of those
@@ -953,6 +984,16 @@ struct App {
   bool opt_vibration = true;
   int settings_row = 0;
   bool failed_mod = false;  // the failure shown is a translation's mod's (game.pak is fine)
+  // Controls (SELECT, or the Settings row): the default profile (the game's own) or the custom one, smg/mandos.cfg.
+  std::string controls_file;
+  bool opt_custom_controls = false;
+  int controls_map[kWiiButtonCount];  // the handheld's button for each Wii button (Phys), -1: the game's own
+  int controls_saved[kWiiButtonCount];
+  bool controls_saved_custom = false;
+  int controls_row = 0, controls_scroll = 0;
+  bool capturing = false;
+  Screen controls_from = Screen::Language;
+  double started_at = now_seconds();
   std::string chain_image;    // the disc whose translation's mod follows its conversion
   bool chain_delete = false;  // ...deleted after that
 
@@ -1012,6 +1053,8 @@ struct App {
           for (int i = 0; i < 4; ++i) if (value == kResolutions[i]) opt_resolution = i;
         } else if (key == "NEBULA_VIBRACION") {
           opt_vibration = value != "0";
+        } else if (key == "NEBULA_MANDOS") {
+          opt_custom_controls = value == "personalizado";
         }
       }
       fclose(f);
@@ -1021,13 +1064,79 @@ struct App {
     const std::string temporary = options_file + ".tmp";
     if (FILE* f = fopen(temporary.c_str(), "w")) {
       fprintf(f, "# Cactus Galaxy Wrapper: Ajustes (X en la pantalla de idiomas). ajustes.cfg y ultra.cfg mandan sobre esto.\n");
-      fprintf(f, "GALAXY_GLES_RESOLUTION=%s\nNEBULA_VIBRACION=%d\n", kResolutions[opt_resolution], opt_vibration ? 1 : 0);
+      fprintf(f, "GALAXY_GLES_RESOLUTION=%s\nNEBULA_VIBRACION=%d\nNEBULA_MANDOS=%s\n", kResolutions[opt_resolution],
+              opt_vibration ? 1 : 0, opt_custom_controls ? "personalizado" : "predeterminado");
       fclose(f);
       rename(temporary.c_str(), options_file.c_str());
     }
-    printf("[cactus] ajustes: resolucion %s, vibracion %s\n", kResolutions[opt_resolution], opt_vibration ? "si" : "no");
+    printf("[cactus] ajustes: resolucion %s, vibracion %s, mandos %s\n", kResolutions[opt_resolution],
+           opt_vibration ? "si" : "no", opt_custom_controls ? "personalizados" : "predeterminados");
     fflush(stdout);
   }
+  void load_controls() {
+    for (int& m : controls_map) m = -1;
+    if (FILE* f = fopen(controls_file.c_str(), "r")) {
+      char line[160];
+      while (fgets(line, sizeof(line), f)) {
+        std::string l(line);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        const std::string prefix = "bind.switch_pro.";
+        const size_t eq = l.find('=');
+        if (l.rfind(prefix, 0) != 0 || eq == std::string::npos) continue;
+        const std::string id = l.substr(prefix.size(), eq - prefix.size()), value = l.substr(eq + 1);
+        for (int w = 0; w < kWiiButtonCount; ++w) {
+          if (id != kWiiButtons[w].id) continue;
+          for (int k = 0; k < kPhysCount; ++k) if (value == kPhysSwitch[k]) controls_map[w] = k;
+        }
+      }
+      fclose(f);
+    }
+  }
+  void save_controls() {
+    const std::string temporary = controls_file + ".tmp";
+    if (FILE* f = fopen(temporary.c_str(), "w")) {
+      fprintf(f, "# Cactus Galaxy Wrapper: mandos personalizados (SELECT). bind.<esquema>.<boton del Wii>=<boton>;\n"
+                 "# lo que no aparece queda como en el juego. Se usa con NEBULA_MANDOS=personalizado (smg/opciones.cfg).\n");
+      for (int w = 0; w < kWiiButtonCount; ++w) {
+        if (controls_map[w] < 0) continue;
+        fprintf(f, "bind.switch_pro.%s=%s\nbind.xbox.%s=%s\n", kWiiButtons[w].id, kPhysSwitch[controls_map[w]],
+                kWiiButtons[w].id, kPhysXbox[controls_map[w]]);
+      }
+      fclose(f);
+      rename(temporary.c_str(), controls_file.c_str());
+    }
+  }
+  void open_controls() {
+    controls_from = screen;
+    std::copy(std::begin(controls_map), std::end(controls_map), std::begin(controls_saved));
+    controls_saved_custom = opt_custom_controls;
+    controls_row = 0;
+    controls_scroll = 0;
+    capturing = false;
+    screen = Screen::Controls;
+  }
+  void close_controls(bool keep) {
+    if (keep) {
+      save_controls();
+      save_options();
+    } else {
+      std::copy(std::begin(controls_saved), std::end(controls_saved), std::begin(controls_map));
+      opt_custom_controls = controls_saved_custom;
+    }
+    capturing = false;
+    screen = controls_from;
+  }
+  // A button of the handheld while capturing: given to the Wii button of the row, and taken from any other.
+  void capture(int phys) {
+    if (!capturing || controls_row < 1) return;
+    for (int& m : controls_map) if (m == phys) m = -1;
+    controls_map[controls_row - 1] = phys;
+    capturing = false;
+  }
+  std::string wii_button_name(int w) const {
+    return kWiiButtons[w].label ? std::string(kWiiButtons[w].label) : std::string(T(kWiiButtons[w].text));
+  }
+
   void load_language() {
     // Not chosen yet: the menu's language for a new install (spanish, english, french; Portuguese when the patch is
     // there), Spanish if game.pak is already there (what the launcher uses without smg/idioma.txt).
@@ -1291,8 +1400,17 @@ struct App {
     job.reset();
   }
   // Buttons: confirm (A/START), back (B/SELECT), toggle (X), up, down.
-  enum Key { kConfirm, kBack, kToggle, kUp, kDown, kPrev, kNext };
+  enum Key { kConfirm, kBack, kToggle, kUp, kDown, kPrev, kNext, kStart, kMap };
   void press(Key key) {
+    // SELECT: the controls (anywhere but while converting); START: confirm (on the controls screen, save).
+    if (key == kMap) {
+      if (screen == Screen::Language || screen == Screen::Menu || screen == Screen::Settings ||
+          screen == Screen::NeedDisc || screen == Screen::Done) {
+        if (now_seconds() - started_at > 1.0) open_controls();  // not the SELECT held to open the wrapper
+      }
+      return;
+    }
+    if (key == kStart && screen != Screen::Controls) key = kConfirm;
     switch (screen) {
       case Screen::Menu: {
         std::lock_guard<std::mutex> lock(images_mutex);
@@ -1350,17 +1468,36 @@ struct App {
         if (key == kBack && job && !cancelling) { cancelling = true; kill(job->pid, SIGTERM); }
         break;
       case Screen::Settings:
-        if (key == kUp || key == kDown) settings_row = 1 - settings_row;
+        if (key == kUp) settings_row = (settings_row + 2) % 3;
+        if (key == kDown) settings_row = (settings_row + 1) % 3;
         if (key == kPrev || key == kNext || (key == kToggle)) {
           const int d = key == kPrev ? -1 : 1;
           if (settings_row == 0) opt_resolution = (opt_resolution + d + 4) % 4;
-          else opt_vibration = !opt_vibration;
+          else if (settings_row == 1) opt_vibration = !opt_vibration;
+          else opt_custom_controls = !opt_custom_controls;
+        }
+        if (key == kConfirm && settings_row == 2) {  // the custom mapping
+          save_options();
+          open_controls();
+          break;
         }
         if (key == kConfirm || key == kBack) {
           save_options();
           screen = Screen::Language;
         }
         break;
+      case Screen::Controls: {
+        if (capturing) break;  // the next button goes to the row (main loop)
+        const int rows = opt_custom_controls ? kWiiButtonCount + 1 : 1;
+        if (key == kUp) controls_row = (controls_row + rows - 1) % rows;
+        if (key == kDown) controls_row = (controls_row + 1) % rows;
+        if ((key == kPrev || key == kNext) && controls_row == 0) opt_custom_controls = !opt_custom_controls;
+        if (key == kConfirm && controls_row > 0) capturing = true;
+        if (key == kToggle && controls_row > 0) controls_map[controls_row - 1] = -1;
+        if (key == kStart) close_controls(true);
+        if (key == kBack) close_controls(false);
+        break;
+      }
       case Screen::Done:  // the game starts only on A
         if (key == kConfirm && result == 0 && viva_pending()) show_viva();
         else if (key == kConfirm) quit = true;
@@ -1455,6 +1592,7 @@ struct App {
       case Screen::Menu: draw_menu(cv); break;
       case Screen::Language: draw_language(cv, time); break;
       case Screen::Settings: draw_settings(cv, time); break;
+      case Screen::Controls: draw_controls(cv, time); break;
       case Screen::Converting: draw_converting(cv, time); break;
       case Screen::Done: draw_done(cv); break;
       case Screen::Viva: draw_viva(cv); break;
@@ -1543,16 +1681,17 @@ struct App {
     const std::string res_value = opt_resolution == 0 ? std::string(T(S_AUTO_RES)) : std::string(kResolutions[opt_resolution]) + " %";
     static const char* const kSizes[4] = {"50-100 %", "320x264", "480x396", "640x528"};
     const std::string res_note = opt_resolution == 2 ? std::string(kSizes[2]) + " · " + T(S_RECOMMENDED) : kSizes[opt_resolution];
-    const struct { const char* label; std::string value, note; } rows[2] = {
+    const struct { const char* label; std::string value, note; } rows[3] = {
         {T(S_RESOLUTION), res_value, res_note},
         {T(S_VIBRATION), T(opt_vibration ? S_YES : S_NO), ""},
+        {T(S_CONTROLS), T(opt_custom_controls ? S_PROFILE_CUSTOM : S_PROFILE_DEFAULT), ""},
     };
-    for (int row = 0; row < 2; ++row) {
-      const int y = 170 + row * 92;
+    for (int row = 0; row < 3; ++row) {
+      const int y = 160 + row * 72;
       const bool sel = row == settings_row;
       if (sel) {
-        cv.rrect(kLeft + 10, y - 6, kPanelW - 52, 80, 10, 0x2f7d3e, 0.55f);
-        cv.rrect_outline(kLeft + 10, y - 6, kPanelW - 52, 80, 10, 2, 0x7fd88a, 0.9f);
+        cv.rrect(kLeft + 10, y - 6, kPanelW - 52, row == 0 ? 72 : 52, 10, 0x2f7d3e, 0.55f);
+        cv.rrect_outline(kLeft + 10, y - 6, kPanelW - 52, row == 0 ? 72 : 52, 10, 2, 0x7fd88a, 0.9f);
         cv.star(float(kLeft + 30), float(y + 8), 9.0f, 0xffe066, 1.0f, time * 2.0f);
       }
       text(cv, kLeft + 50, y, rows[row].label, 2, sel ? kGreen : kMuted);
@@ -1562,7 +1701,54 @@ struct App {
       if (!rows[row].note.empty()) text_center(cv, kCenter, y + 52, fit(rows[row].note, 22), 2, sel ? kGold : 0x8f82a8);
     }
     text_center(cv, kCenter, 384, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
-    hints(cv, 430, {{"A", T(S_BACK)}});
+    hints(cv, 406, {{"SELECT", T(S_CONTROLS)}});
+    hints(cv, 432, {{"A", settings_row == 2 ? T(S_ASSIGN) : T(S_BACK)}, {"B", T(S_BACK)}});
+  }
+
+  void draw_controls(Canvas& cv, float time) {
+    text_center(cv, kCenter, 128, T(S_CONTROLS), 2, kGold);
+    {  // the profile
+      const int y = 152;
+      const bool sel = controls_row == 0;
+      if (sel) {
+        cv.rrect(kLeft + 10, y - 5, kPanelW - 52, 28, 10, 0x2f7d3e, 0.55f);
+        cv.rrect_outline(kLeft + 10, y - 5, kPanelW - 52, 28, 10, 2, 0x7fd88a, 0.9f);
+      }
+      const std::string value = "\xE2\x97\x84 " + std::string(T(opt_custom_controls ? S_PROFILE_CUSTOM : S_PROFILE_DEFAULT)) +
+                                " \xE2\x96\xBA";
+      text_center(cv, kCenter, y + 2, fit(value, 22), 2, sel ? kWhite : kMuted);
+    }
+    if (!opt_custom_controls) {
+      text_center(cv, kCenter, 230, fit(T(S_AS_BEFORE), 22), 2, kGreen);
+    } else {
+      constexpr int kVisible = 8;
+      const int sel = controls_row - 1;
+      if (sel >= 0 && sel < controls_scroll) controls_scroll = sel;
+      if (sel >= controls_scroll + kVisible) controls_scroll = sel - kVisible + 1;
+      for (int i = controls_scroll; i < std::min(kWiiButtonCount, controls_scroll + kVisible); ++i) {
+        const int y = 184 + (i - controls_scroll) * 23;
+        const bool on = i == sel;
+        if (on) {
+          cv.rrect(kLeft + 10, y - 4, kPanelW - 52, 22, 8, capturing ? 0x7d5a2f : 0x2f7d3e, 0.55f);
+          cv.star(float(kLeft + 22), float(y + 7), 6.0f, 0xffe066, 1.0f, time * 2.0f);
+        }
+        text(cv, kLeft + 34, y, fit(wii_button_name(i), 11), 2, on ? kWhite : kMuted);  // 11 + 8 fit the row
+        const std::string value = on && capturing ? std::string(T(S_PRESS_BUTTON))
+                                  : controls_map[i] >= 0 ? std::string(kPhysLabel[controls_map[i]]) : std::string(T(S_AS_BEFORE));
+        const std::string shown = fit(value, 8);
+        text(cv, kPanelX + kPanelW - 36 - text_width(shown, 2), y, shown, 2,
+             on && capturing ? kGold : controls_map[i] >= 0 ? kGreen : 0x8f82a8);
+      }
+      if (controls_scroll > 0) text_center(cv, kCenter, 176, "\xE2\x86\x91", 1, kMuted);
+      if (controls_scroll + kVisible < kWiiButtonCount) text_center(cv, kCenter, 368, "\xE2\x86\x93", 1, kMuted);
+    }
+    text_center(cv, kCenter, 384, fit(T(S_STICKS_SAME), 22), 2, 0x8f82a8);
+    if (capturing) {
+      hints(cv, 432, {{"START", T(S_CANCEL)}});
+    } else {
+      if (controls_row > 0) hints(cv, 410, {{"A", T(S_ASSIGN)}, {"X", T(S_CLEAR)}});
+      hints(cv, 434, {{"START", T(S_SAVE)}, {"B", T(S_BACK)}});
+    }
   }
 
   void draw_language(Canvas& cv, float time) {
@@ -1761,6 +1947,23 @@ int demo(const std::string& out) {
   app.draw(cv, scene, 2.55f);
   save_png(cv, out + "/1h-ajustes-vibracion.png");
   app.opt_vibration = true;
+  app.settings_row = 2; app.opt_custom_controls = true;
+  app.draw(cv, scene, 2.56f);
+  save_png(cv, out + "/1i-ajustes-mandos.png");
+  for (int& m : app.controls_map) m = -1;
+  app.controls_map[0] = kEast; app.controls_map[1] = kSouth; app.controls_map[4] = kR2;
+  app.screen = Screen::Controls; app.controls_row = 2; app.capturing = false;
+  app.draw(cv, scene, 2.57f);
+  save_png(cv, out + "/1j-mandos.png");
+  app.capturing = true;
+  app.draw(cv, scene, 2.58f);
+  save_png(cv, out + "/1k-mandos-captura.png");
+  app.capturing = false; app.controls_row = 14;
+  app.draw(cv, scene, 2.59f);
+  save_png(cv, out + "/1l-mandos-abajo.png");
+  app.opt_custom_controls = false; app.controls_row = 0;
+  app.draw(cv, scene, 2.6f);
+  save_png(cv, out + "/1m-mandos-predeterminado.png");
   app.screen = Screen::Language;
   app.pak_patch = kRu; app.pak_patched_slot = 1;  // a game.pak made with the Russian patch, in English's slot
   app.language = kRu;
@@ -1886,6 +2089,7 @@ int run_ui(App& app) {
   // ...unless the firmware maps them by label (NEBULA_FACE_LAYOUT=labels, from the launcher's profile).
   const char* face = getenv("NEBULA_FACE_LAYOUT");
   const bool swap = getenv("CACTUS_SWAP_AB") != nullptr || (face != nullptr && strcmp(face, "labels") == 0);
+  const bool face_labels = face != nullptr && strcmp(face, "labels") == 0;  // as the game reads the face buttons
   // The firmware's quit chord with Start: MENU (KNULLI, muOS), SELECT (ArkOS, dArkOS) or both.
   const char* combo = getenv("NEBULA_QUIT_COMBO");
   const bool quit_menu = combo == nullptr || strcmp(combo, "select") != 0;
@@ -1927,19 +2131,47 @@ int run_ui(App& app) {
         if (b == SDL_CONTROLLER_BUTTON_START && ((guide && quit_menu) || (select && quit_select))) {
           app.result = 1; app.quit = true; continue;  // the quit chord: out, no game
         }
-        if (b == (swap ? SDL_CONTROLLER_BUTTON_A : SDL_CONTROLLER_BUTTON_B) || b == SDL_CONTROLLER_BUTTON_START) app.press(App::kConfirm);
-        if (b == (swap ? SDL_CONTROLLER_BUTTON_B : SDL_CONTROLLER_BUTTON_A) || b == SDL_CONTROLLER_BUTTON_BACK) app.press(App::kBack);
+        if (app.capturing) {  // the custom controls: this button goes to the Wii button chosen (START: never mind)
+          if (b == SDL_CONTROLLER_BUTTON_START) { app.capturing = false; continue; }
+          static const int kFace[4] = {kSouth, kEast, kWest, kNorth};  // SDL A, B, X, Y as the game reads them
+          int phys = -1;
+          if (b >= SDL_CONTROLLER_BUTTON_A && b <= SDL_CONTROLLER_BUTTON_Y) {
+            phys = kFace[b - SDL_CONTROLLER_BUTTON_A];
+            if (face_labels) phys = phys == kSouth ? kEast : phys == kEast ? kSouth : phys == kWest ? kNorth : kWest;
+          }
+          if (b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) phys = kL1;
+          if (b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) phys = kR1;
+          if (b == SDL_CONTROLLER_BUTTON_LEFTSTICK) phys = kL3;
+          if (b == SDL_CONTROLLER_BUTTON_RIGHTSTICK) phys = kR3;
+          if (b == SDL_CONTROLLER_BUTTON_BACK) phys = kSelectBtn;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) phys = kDUp;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) phys = kDDown;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT) phys = kDLeft;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) phys = kDRight;
+          if (phys >= 0) app.capture(phys);
+          continue;
+        }
+        if (b == SDL_CONTROLLER_BUTTON_START) app.press(App::kStart);
+        if (b == SDL_CONTROLLER_BUTTON_BACK) app.press(App::kMap);
+        if (b == (swap ? SDL_CONTROLLER_BUTTON_A : SDL_CONTROLLER_BUTTON_B)) app.press(App::kConfirm);
+        if (b == (swap ? SDL_CONTROLLER_BUTTON_B : SDL_CONTROLLER_BUTTON_A)) app.press(App::kBack);
         if (b == (swap ? SDL_CONTROLLER_BUTTON_X : SDL_CONTROLLER_BUTTON_Y)) app.press(App::kToggle);  // X (top)
         if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) app.press(App::kUp);
         if (b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) app.press(App::kDown);
         if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT) app.press(App::kPrev);
         if (b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) app.press(App::kNext);
       }
+      if (e.type == SDL_CONTROLLERAXISMOTION && app.capturing && e.caxis.value > 20000 &&
+          (e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)) {
+        app.capture(e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ? kL2 : kR2);  // L2/R2 as the game's ZL/ZR
+      }
       if (e.type == SDL_KEYDOWN) {  // gptokeyb or a keyboard
         switch (e.key.keysym.sym) {
           case SDLK_RETURN: case SDLK_a: app.press(App::kConfirm); break;
           case SDLK_ESCAPE: case SDLK_b: case SDLK_BACKSPACE: app.press(App::kBack); break;
           case SDLK_x: app.press(App::kToggle); break;
+          case SDLK_s: app.press(App::kStart); break;
+          case SDLK_m: case SDLK_TAB: app.press(App::kMap); break;
           case SDLK_UP: app.press(App::kUp); break;
           case SDLK_DOWN: app.press(App::kDown); break;
           case SDLK_LEFT: app.press(App::kPrev); break;
@@ -2000,6 +2232,8 @@ int main(int argc, char** argv) {
   app.language_file = app.smg + "/idioma.txt";
   app.options_file = app.smg + "/opciones.cfg";
   app.load_options();
+  app.controls_file = app.smg + "/mandos.cfg";
+  app.load_controls();
   app.pak_language_file = app.output + ".idioma";
   app.viva_file = app.smg + "/.primer-arranque";
   {  // a game.pak made before this version: the game has started already, no send-off

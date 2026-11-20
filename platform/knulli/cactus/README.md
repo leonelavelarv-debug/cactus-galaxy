@@ -39,6 +39,13 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   Wii) y la vibración (Sí/No). ◄► cambia el valor, ▲▼ la fila, A o B vuelve. Se guardan en `smg/opciones.cfg`
   (`GALAXY_GLES_RESOLUTION`, `NEBULA_VIBRACION`), que el lanzador lee antes que `ajustes.cfg` y `ultra.cfg` (estos
   mandan si fijan lo mismo); se aplican al jugar.
+- Mandos (SELECT en cualquier pantalla salvo al convertir, o la fila Mandos de Ajustes): perfil Predeterminado
+  (los controles de siempre) o Personalizado: a cada botón del Wii que se usa (A, B, Z, C, Giro, +, −, 1, 2, la
+  cruceta y Recentrar) se le da un botón del mando (A asignar y pulsar el botón, también L2/R2; X lo deja como
+  antes; START guarda, B sale sin guardar). Un botón asignado deja de hacer lo que hacía por defecto; los sticks no
+  cambian. Se guarda en `smg/mandos.cfg` (`bind.switch_pro.*` y `bind.xbox.*`, los nombres de la configuración del
+  juego) y `NEBULA_MANDOS=personalizado` en `smg/opciones.cfg`; el lanzador lo pasa como `NEBULA_MANDOS_ARCHIVO` y
+  el juego lo aplica sobre sus controles sin tocar `settings.ini`. En todo el wrapper START confirma y B vuelve.
 - Antes del primer arranque del juego (después de la primera conversión) saluda un cactus con lentes de sol:
   "¡Viva México, Viva Sonora, Cabrones! En breve iniciará el juego." en el idioma elegido para el juego (español,
   inglés, francés, portugués o ruso; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
@@ -50,7 +57,7 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   `CACTUS_LANG=xx` o `--lang xx` lo fijan. Los errores habituales de nebula-pak (espacio, FAT32, imagen dañada,
   main.dol, cancelado) también salen traducidos; en una instalación nueva, el idioma del juego propuesto sigue al
   de la interfaz (español, francés o, para el resto, inglés).
-- Controles: cruceta para elegir, A (derecha) convertir, B (abajo) salir o cancelar, X borrar el disco al terminar,
+- Controles: cruceta para elegir, A (derecha) o START convertir, B (abajo) salir o cancelar, SELECT mandos, X borrar el disco al terminar,
   MENU + START salir. `CACTUS_SWAP_AB=1` cambia A y B.
 - `cactus-galaxy-wrapper --demo <carpeta>` escribe capturas PNG de cada pantalla y los fotogramas del cactus
   creciendo (sin pantalla ni SDL).

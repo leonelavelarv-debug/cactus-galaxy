@@ -144,6 +144,15 @@ for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.
     esac
   done < "$cfg"
 done
+# Mandos (SELECT en Cactus Galaxy Wrapper): con NEBULA_MANDOS=personalizado (smg/opciones.cfg) el juego toma ademas
+# las asignaciones de smg/mandos.cfg (botones del Wii a botones del mando; lo demas como el perfil predeterminado).
+if [ "${NEBULA_MANDOS:-predeterminado}" = personalizado ] && [ -f "$GAMEDIR/mandos.cfg" ]; then
+  export NEBULA_MANDOS_ARCHIVO="$GAMEDIR/mandos.cfg"
+  echo "mandos: perfil personalizado ($NEBULA_MANDOS_ARCHIVO)"
+else
+  unset NEBULA_MANDOS_ARCHIVO
+  echo "mandos: perfil predeterminado"
+fi
 #   NEBULA_PERFIL=bajo|medio|normal      medio (por defecto): graficos medios -- resolucion interna fija de 75 % (480x396,
 #                                        entre el 50-100 % dinamico del bajo y los 640x528 del normal), con el mismo
 #                                        salto de frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion

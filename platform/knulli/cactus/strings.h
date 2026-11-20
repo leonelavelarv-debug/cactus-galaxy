@@ -9,7 +9,9 @@ enum Str {
   S_DONE, S_PAK_CREATED, S_IN, S_DISC_DELETED, S_BLOOMED, S_STARTS_IN, S_PLAY_NOW, S_OUCH, S_COULD_NOT,
   S_ERR_RUN, S_ERR_EXIT, S_ERR_SPACE, S_ERR_SPACE_SHORT, S_ERR_FAT32, S_ERR_INCOMPLETE, S_ERR_DOL, S_ERR_CANCELLED,
   S_ERR_PATCH, S_NEED_DISC, S_NEED_DISC_HELP, S_SEARCHING, S_PLAY, S_REINSTALL, S_PAK_READY, S_NO_PATCHES, S_MAKE_MOD,
-  S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_ERR_MOD, S_COUNT
+  S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_ERR_MOD,
+  S_CONTROLS, S_PROFILE, S_PROFILE_DEFAULT, S_PROFILE_CUSTOM, S_SHAKE, S_RECENTER, S_PRESS_BUTTON, S_AS_BEFORE,
+  S_ASSIGN, S_CLEAR, S_SAVE, S_STICKS_SAME, S_COUNT
 };
 
 enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_RU, UI_COUNT };
@@ -36,6 +38,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Sin parches: original", "Se prepara el parche",
         "Ajustes", "Resolución", "Vibración", "Auto (dinámica)", "recomendada", "Se aplica al jugar",
         "No se pudo preparar el parche de idioma. Detalles en log.txt.",
+        "Mandos", "Perfil", "Predeterminado", "Personalizado", "Giro", "Recentrar", "Pulsa un botón", "original", "Asignar", "Quitar", "Guardar", "Los sticks no cambian",
     },
     {  // English
         "Choose your disc:", "No disc found",
@@ -55,6 +58,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "No patches: original", "Patch will be prepared",
         "Settings", "Resolution", "Vibration", "Auto (dynamic)", "recommended", "Applies when you play",
         "The language patch could not be prepared. Details in log.txt.",
+        "Controls", "Profile", "Default", "Custom", "Spin", "Recenter", "Press a button", "default", "Assign", "Clear", "Save", "Sticks stay the same",
     },
     {  // Français
         "Choisis ton disque :", "Aucun disque trouvé",
@@ -74,6 +78,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Sans patch : original", "Le patch sera préparé",
         "Réglages", "Résolution", "Vibration", "Auto (dynamique)", "recommandée", "S'applique en jeu",
         "Le patch de langue n'a pas pu être préparé. Détails dans log.txt.",
+        "Manettes", "Profil", "Par défaut", "Personnalisé", "Toupie", "Recentrer", "Appuie sur un bouton", "origine", "Assigner", "Effacer", "Valider", "Sticks inchangés",
     },
     {  // Português
         "Escolha seu disco:", "Nenhum disco encontrado",
@@ -93,6 +98,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Sem patches: original", "O patch será preparado",
         "Ajustes", "Resolução", "Vibração", "Auto (dinâmica)", "recomendada", "Vale ao jogar",
         "Não foi possível preparar o patch de idioma. Detalhes no log.txt.",
+        "Controles", "Perfil", "Padrão", "Personalizado", "Giro", "Recentrar", "Aperte um botão", "padrão", "Atribuir", "Limpar", "Salvar", "Os sticks não mudam",
     },
     {  // Italiano
         "Scegli il disco:", "Nessun disco trovato",
@@ -112,6 +118,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Senza patch: originale", "La patch sarà creata",
         "Impostazioni", "Risoluzione", "Vibrazione", "Auto (dinamica)", "consigliata", "Vale in gioco",
         "Impossibile preparare la patch della lingua. Dettagli in log.txt.",
+        "Controlli", "Profilo", "Predefinito", "Personalizzato", "Giravolta", "Ricentra", "Premi un pulsante", "di base", "Assegna", "Togli", "Salva", "Gli stick non cambiano",
     },
     {  // Deutsch
         "Wähle deine Disc:", "Keine Disc gefunden",
@@ -131,6 +138,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Ohne Patch: Original", "Patch wird erstellt",
         "Einstellungen", "Auflösung", "Vibration", "Auto (dynamisch)", "empfohlen", "Gilt beim Spielen",
         "Der Sprachpatch konnte nicht erstellt werden. Details in log.txt.",
+        "Steuerung", "Profil", "Standard", "Eigenes", "Drehung", "Zentrieren", "Drück eine Taste", "Standard", "Zuweisen", "Löschen", "Sichern", "Sticks bleiben gleich",
     },
     {  // Русский
         "Выбери диск:", "Диск не найден",
@@ -150,5 +158,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Ищу диск…", "Играть", "Переустановка с:", "game.pak готов ✓", "Без патчей: оригинал",
         "Патч будет подготовлен", "Настройки", "Разрешение", "Вибрация", "Авто (динамика)", "оптимально",
         "Применится в игре", "Не удалось подготовить языковой патч. Подробности в log.txt.",
+        "Управление", "Профиль", "Стандартный", "Свой", "Вращение", "Центровка", "Нажми кнопку", "как было", "Назначить", "Сбросить", "Сохранить", "Стики не меняются",
     },
 };
