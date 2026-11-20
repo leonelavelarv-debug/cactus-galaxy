@@ -1970,29 +1970,62 @@ int patch_mod(const std::string& image, const std::string& patch_path, const std
   remove_tree(temporary);
   int english = 0, spanish = 0, french = 0, written = 0;
   u64 bytes = 0;
-  for (const FileEntry& f : after) {
-    auto o = original_files.find(f.name);
-    bool hit = o == original_files.end() || o->second->offset != f.offset || o->second->length != f.length;
-    for (const auto& r : changed) if (f.length && f.offset < r.second && f.offset + f.length > r.first) hit = true;
-    if (!hit) continue;
-    std::string l = f.name;
-    for (char& ch : l) ch = char(tolower((unsigned char)ch));
-    if (l == "main.dol") continue;
-    std::vector<u8> data(size_t(f.length));
-    patched_data.read(f.offset, data.size(), data.data());
-    const std::string path = temporary + "/files/" + f.name;
-    make_parents(path);
-    FILE* out = fopen(path.c_str(), "wb");
-    if (!out) fail("no se puede crear %s: %s", path.c_str(), strerror(errno));
-    const bool ok = fwrite(data.data(), 1, data.size(), out) == data.size();
-    if (fclose(out) != 0 || !ok) fail("no se pudo escribir %s (¿falta espacio?)", path.c_str());
-    if (written++ < 64) printf("PATCHED\t%s\n", f.name.c_str());
-    bytes += f.length;
-    english += l.find("usenglish") != std::string::npos;
-    spanish += l.find("usspanish") != std::string::npos;
-    french += l.find("usfrench") != std::string::npos;
+  constexpr size_t kChunk = 4u << 20;
+  std::vector<u8> chunk, original_chunk;
+  try {
+    for (const FileEntry& f : after) {
+      if (g_cancel.load()) fail("conversion cancelada");
+      auto o = original_files.find(f.name);
+      const bool same_place = o != original_files.end() && o->second->offset == f.offset && o->second->length == f.length;
+      bool hit = !same_place;
+      for (const auto& r : changed) if (f.length && f.offset < r.second && f.offset + f.length > r.first) hit = true;
+      if (!hit) continue;
+      std::string l = f.name;
+      for (char& ch : l) ch = char(tolower((unsigned char)ch));
+      if (l == "main.dol") continue;
+      // The patched disc's names become paths here: none may climb out of the mod's folder.
+      if (f.name.empty() || f.name[0] == '/' || ("/" + f.name + "/").find("/../") != std::string::npos) {
+        fail("el parche trae un nombre de fichero no valido: %s", f.name.c_str());
+      }
+      // A file the patch only moved (or whose clusters it touched without changing it) is the game's own: left out.
+      if (o != original_files.end() && o->second->length == f.length) {
+        bool same = true;
+        for (u64 at = 0; at < f.length && same; at += kChunk) {
+          const size_t take = size_t(std::min<u64>(kChunk, f.length - at));
+          chunk.resize(take);
+          original_chunk.resize(take);
+          patched_data.read(f.offset + at, take, chunk.data());
+          source_data->read(o->second->offset + at, take, original_chunk.data());
+          same = chunk == original_chunk;
+        }
+        if (same) continue;
+      }
+      const std::string path = temporary + "/files/" + f.name;
+      make_parents(path);
+      FILE* out = fopen(path.c_str(), "wb");
+      if (!out) fail("no se puede crear %s: %s", path.c_str(), strerror(errno));
+      bool ok = true;
+      for (u64 at = 0; at < f.length && ok; at += kChunk) {  // in pieces: a big file never whole in memory
+        const size_t take = size_t(std::min<u64>(kChunk, f.length - at));
+        chunk.resize(take);
+        patched_data.read(f.offset + at, take, chunk.data());
+        ok = fwrite(chunk.data(), 1, take, out) == take;
+      }
+      if (fclose(out) != 0 || !ok) fail("no se pudo escribir %s (¿falta espacio?)", path.c_str());
+      if (written++ < 64) printf("PATCHED\t%s\n", f.name.c_str());
+      bytes += f.length;
+      english += l.find("usenglish") != std::string::npos;
+      spanish += l.find("usspanish") != std::string::npos;
+      french += l.find("usfrench") != std::string::npos;
+    }
+  } catch (...) {
+    remove_tree(temporary);  // nothing half made left behind
+    throw;
   }
-  if (written == 0) fail("el parche no cambia ningun fichero del juego");
+  if (written == 0) {
+    remove_tree(temporary);
+    fail("el parche no cambia ningun fichero del juego");
+  }
   remove_tree(out_dir);
   make_parents(out_dir + "/x");
   rmdir(out_dir.c_str());

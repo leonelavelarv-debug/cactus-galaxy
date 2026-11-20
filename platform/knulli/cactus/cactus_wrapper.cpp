@@ -981,6 +981,7 @@ struct App {
   // launcher reads it before ajustes.cfg and ultra.cfg, which still win).
   std::string options_file;
   int opt_resolution = 2;  // kResolutions: auto, 50, 75 (the medium profile's), 100
+  bool opt_resolution_set = false;  // chosen (or in the file): only then written (the profiles keep their own)
   bool opt_vibration = true;
   int settings_row = 0;
   bool failed_mod = false;  // the failure shown is a translation's mod's (game.pak is fine)
@@ -1050,7 +1051,7 @@ struct App {
         if (eq == std::string::npos || l[0] == '#') continue;
         const std::string key = l.substr(0, eq), value = lower(l.substr(eq + 1));
         if (key == "GALAXY_GLES_RESOLUTION") {
-          for (int i = 0; i < 4; ++i) if (value == kResolutions[i]) opt_resolution = i;
+          for (int i = 0; i < 4; ++i) if (value == kResolutions[i]) { opt_resolution = i; opt_resolution_set = true; }
         } else if (key == "NEBULA_VIBRACION") {
           opt_vibration = value != "0";
         } else if (key == "NEBULA_MANDOS") {
@@ -1064,8 +1065,9 @@ struct App {
     const std::string temporary = options_file + ".tmp";
     if (FILE* f = fopen(temporary.c_str(), "w")) {
       fprintf(f, "# Cactus Galaxy Wrapper: Ajustes (X en la pantalla de idiomas). ajustes.cfg y ultra.cfg mandan sobre esto.\n");
-      fprintf(f, "GALAXY_GLES_RESOLUTION=%s\nNEBULA_VIBRACION=%d\nNEBULA_MANDOS=%s\n", kResolutions[opt_resolution],
-              opt_vibration ? 1 : 0, opt_custom_controls ? "personalizado" : "predeterminado");
+      if (opt_resolution_set) fprintf(f, "GALAXY_GLES_RESOLUTION=%s\n", kResolutions[opt_resolution]);
+      fprintf(f, "NEBULA_VIBRACION=%d\nNEBULA_MANDOS=%s\n", opt_vibration ? 1 : 0,
+              opt_custom_controls ? "personalizado" : "predeterminado");
       fclose(f);
       rename(temporary.c_str(), options_file.c_str());
     }
@@ -1472,7 +1474,7 @@ struct App {
         if (key == kDown) settings_row = (settings_row + 1) % 3;
         if (key == kPrev || key == kNext || (key == kToggle)) {
           const int d = key == kPrev ? -1 : 1;
-          if (settings_row == 0) opt_resolution = (opt_resolution + d + 4) % 4;
+          if (settings_row == 0) { opt_resolution = (opt_resolution + d + 4) % 4; opt_resolution_set = true; }
           else if (settings_row == 1) opt_vibration = !opt_vibration;
           else opt_custom_controls = !opt_custom_controls;
         }

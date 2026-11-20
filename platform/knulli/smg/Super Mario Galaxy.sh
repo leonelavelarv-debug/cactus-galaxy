@@ -314,6 +314,8 @@ export GALAXY_LANGUAGE
 # PT-BR, o el ruso que hace cactus-ruso): la del idioma elegido va a smg/mods (donde el juego busca mods) y las demas
 # salen de ahi. Con un idioma propio del juego ("english", sin variante) no queda ninguna: el juego tal cual.
 mkdir -p "$GAMEDIR/mods"
+# El ruso de un paquete de prueba anterior (smg/mods/ruso-switch) quedaria activo siempre: se quita (ahora es idioma-ru).
+rm -rf "$GAMEDIR/mods/ruso-switch" "$GAMEDIR/patches/ruso-switch"
 for idioma_mod in ptbr ru; do
   mod_off="$GAMEDIR/patches/idioma-$idioma_mod"
   mod_on="$GAMEDIR/mods/idioma-$idioma_mod"

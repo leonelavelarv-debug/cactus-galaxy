@@ -925,7 +925,7 @@ FontResult add_glyphs(const Font& game, const GlyphSource& source, const std::se
 
 struct GamePak {
   FILE* f = nullptr;
-  struct Entry { std::string path; u32 offset, size; };
+  struct Entry { std::string path; u64 offset; u32 size; };
   std::vector<Entry> files;
 
   explicit GamePak(const std::string& path) {
@@ -933,7 +933,7 @@ struct GamePak {
     if (!f) fail("no se puede abrir %s", path.c_str());
     const Bytes boot = read(0, 0x440);
     if (memcmp(boot.data(), "RMGE01", 6) != 0) fail("game.pak no es el de Super Mario Galaxy USA (RMGE01)");
-    const u32 fst = rd32(&boot[0x424], true) << 2, size = rd32(&boot[0x428], true) << 2;
+    const u64 fst = u64(rd32(&boot[0x424], true)) << 2, size = u64(rd32(&boot[0x428], true)) << 2;
     if (!fst || size < 12 || size > (64u << 20)) fail("game.pak: la tabla de archivos no cuadra");
     const Bytes t = read(fst, size);
     const u32 n = rd32(&t[8], true);
@@ -948,7 +948,7 @@ struct GamePak {
       const std::string nm(reinterpret_cast<const char*>(&t[names + name]));
       const std::string path = dirs.back().second + "/" + nm;
       if (e[0] == 1) dirs.push_back({rd32(e + 8, true), path});
-      else files.push_back({path, rd32(e + 4, true) << 2, rd32(e + 8, true)});
+      else files.push_back({path, u64(rd32(e + 4, true)) << 2, rd32(e + 8, true)});
     }
   }
   ~GamePak() { if (f) fclose(f); }
@@ -1107,6 +1107,9 @@ int extract(const std::string& translation_path, const std::string& out_path) {
   return 0;
 }
 
+void make_mod(const GamePak& pak, const TranslationData& tr, const GamePak::Entry& wii_msg_entry,
+              const GamePak::Entry& wii_font_entry, const std::string& temporary, unsigned total);
+
 int run(const std::string& translation_path, const std::string& pak_path, const std::string& out_dir) {
   const GamePak pak(pak_path);
   printf("Traducción: %s\n", translation_path.c_str());
@@ -1123,7 +1126,24 @@ int run(const std::string& translation_path, const std::string& pak_path, const 
 
   const std::string temporary = out_dir + ".tmp";
   remove_tree(temporary);
+  try {
+    make_mod(pak, tr, *wii_msg, *wii_font, temporary, total);
+  } catch (...) {
+    remove_tree(temporary);  // nothing half made left behind
+    throw;
+  }
+  progress(100, total);
+  remove_tree(out_dir);
+  make_dirs(out_dir.substr(0, out_dir.rfind('/')));
+  if (rename(temporary.c_str(), out_dir.c_str()) != 0) fail("no se puede crear %s: %s", out_dir.c_str(), strerror(errno));
+  printf("Mod listo: %s\n", out_dir.c_str());
+  return 0;
+}
 
+void make_mod(const GamePak& pak, const TranslationData& tr, const GamePak::Entry& wii_msg_entry,
+              const GamePak::Entry& wii_font_entry, const std::string& temporary, unsigned total) {
+  const GamePak::Entry* wii_msg = &wii_msg_entry;
+  const GamePak::Entry* wii_font = &wii_font_entry;
   // Text.
   const Bytes wii_msg_file = pak.read(wii_msg->offset, wii_msg->size);
   const Rarc wii_msg_arc(unpacked(wii_msg_file));
@@ -1170,12 +1190,6 @@ int run(const std::string& translation_path, const std::string& pak_path, const 
     }
   }
 
-  progress(100, total);
-  remove_tree(out_dir);
-  make_dirs(out_dir.substr(0, out_dir.rfind('/')));
-  if (rename(temporary.c_str(), out_dir.c_str()) != 0) fail("no se puede crear %s: %s", out_dir.c_str(), strerror(errno));
-  printf("Mod listo: %s\n", out_dir.c_str());
-  return 0;
 }
 
 }  // namespace
