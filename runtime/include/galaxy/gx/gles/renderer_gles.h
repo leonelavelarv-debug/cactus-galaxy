@@ -217,6 +217,10 @@ public:
     void discard_efb_depth_at_next_copy() noexcept { discard_depth_at_copy_ = true; }
     // The display copy about to run belongs to a skipped frame: the EFB has not changed since the last one.
     void repeat_next_display_copy() noexcept { xfb_repeat_ = true; }
+    // The last display copy reused the previous picture (a skipped frame's repeat).
+    [[nodiscard]] bool last_display_copy_repeated() const noexcept { return last_copy_repeated_; }
+    // GALAXY_CINEMATICA_RITMO: the next end_frame's swap is a cutscene's paced picture (cinematica.h).
+    void set_paced_present(bool paced) noexcept { paced_present_ = paced; }
     // Tests: what the dynamic resolution does at a level change (the EFB rebuilt at `percent`, its picture kept).
     bool resize_efb_for_tests(unsigned percent) { return resize_efb(percent); }
     // Tests read the EFB back whole (gles_blend_tests.cpp).
@@ -487,6 +491,8 @@ private:
     gpu::TextureRef last_xfb_;
     XfbKey last_xfb_key_{};
     bool xfb_repeat_ = false;
+    bool last_copy_repeated_ = false;
+    bool paced_present_ = false;
     GLuint clear_program_ = 0;        // colour (masked by glColorMask) and depth clears as draws
     GLuint vao_ = 0;                  // the GX vertex layout (GxVertexOut) at binding 0
     GLuint empty_vao_ = 0;            // the renderer's attribute-less draws

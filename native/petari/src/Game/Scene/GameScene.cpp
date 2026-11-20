@@ -505,6 +505,9 @@ void GameScene::draw3D() const {
     f32 sceneCamera[4][4];
     MotionSignal::sceneCamera(sceneCamera);
     __NebulaGameStage(MR::getCurrentStageName());
+    // A cutscene running, for the host (NEBULA_CONTEXT_DEMO): every 3D frame, so a stage change on the host's side
+    // (which clears it) is mended at once.
+    __NebulaGameContext(NEBULA_CONTEXT_DEMO, MR::isDemoActive() ? 1 : 0);
     __NebulaGXSceneMarker(NEBULA_SCENE_3D_BEGIN, sceneCamera);
     MotionSignal::sceneBegin();
     GameLightSignal::frame();

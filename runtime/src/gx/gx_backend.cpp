@@ -77,6 +77,7 @@
 #if defined(NEBULA_GPU_GLES)
 #include "galaxy/gx/gles/gles_context.h"
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/cinematica.h"
 #endif
 
 // NEBULA_MEMTRACE (platform/knulli/game/memtrace_knulli.cpp, only in the console's executable): its report.
@@ -12261,6 +12262,19 @@ void GxBackend::present_cached_xfb_on_thread(
         !native_settings_overlay_visible() && skip_for_present_rate()) {
         return;
     }
+#if defined(NEBULA_GPU_GLES)
+    // GALAXY_CINEMATICA_RITMO: in a cutscene a skipped frame's repeat is not presented (the screen already shows that
+    // picture) and each new picture waits its turn on the swapping thread (cinematica.h).
+    const bool cinematica_ritmo = count_game_xfb_present && !native_settings_overlay_visible() &&
+        ((cinematica::ritmo_habilitado() && cinematica::activa.load(std::memory_order_relaxed) != 0) ||
+         (cinematica::video_modo() == 2 && cinematica::video_activo()));
+    const bool video_sin_repetir = count_game_xfb_present && cinematica::video_modo() == 3 &&
+        cinematica::video_activo() && !native_settings_overlay_visible();
+    if ((cinematica_ritmo || video_sin_repetir) && renderer_.last_display_copy_repeated()) {
+        return;
+    }
+    renderer_.set_paced_present(cinematica_ritmo);
+#endif
     if (count_game_xfb_present && trace_xfb_present_enabled() &&
         (present_requests <= 8u ||
          present_requests % trace_xfb_present_interval() == 0u)) {
@@ -17926,7 +17940,13 @@ void GxBackend::frameskip_after_display_copy() {
     frameskip_last_idle_ns_ = frameskip_idle_ns_;
 
     // The next frame follows the cadence in force (frameskip_next_skipped predicted it).
-    const unsigned n = mode > 0 ? static_cast<unsigned>(mode) : frameskip_n_;
+    unsigned n = mode > 0 ? static_cast<unsigned>(mode) : frameskip_n_;
+#if defined(NEBULA_GPU_GLES)
+    // GALAXY_VIDEO_SIN_SALTO: while a movie plays every decoded frame is drawn (a movie picture is one cheap draw).
+    if ((cinematica::video_modo() == 1 || cinematica::video_modo() == 2) && cinematica::video_activo()) {
+        n = 0u;
+    }
+#endif
     frameskip_skipping_ = was_skipped ? frameskip_run_ < n : n > 0u;
 
     if (mode < 0 && busy_ms >= 0.0 && busy_ms < 1000.0) {
@@ -17944,6 +17964,13 @@ void GxBackend::frameskip_after_display_copy() {
             const double gpu_ms = gpu_aware ? renderer_.recent_drawn_gpu_ms() : 0.0;
 #else
             const double gpu_ms = 0.0;
+#endif
+#if defined(NEBULA_GPU_GLES)
+            // GALAXY_CINEMATICA_RITMO: in a cutscene the skip only goes up, so the pictures stay evenly spaced in play.
+            const bool cinematica_hold = cinematica::ritmo_habilitado() &&
+                cinematica::activa.load(std::memory_order_relaxed) != 0;
+#else
+            const bool cinematica_hold = false;
 #endif
             const auto fits = [&](unsigned k, double margin) {
                 return frameskip_drawn_ms_ + k * skipped <= (k + 1u) * kFrameMs * margin &&
@@ -17964,7 +17991,7 @@ void GxBackend::frameskip_after_display_copy() {
                     frameskip_n_ = std::min(frameskip_n_ + 1u, max_n);
                     frameskip_up_votes_ = 0u;
                 }
-            } else if (wanted < frameskip_n_ && fits(frameskip_n_ - 1u, 0.97)) {
+            } else if (wanted < frameskip_n_ && fits(frameskip_n_ - 1u, 0.97) && !cinematica_hold) {
                 frameskip_up_votes_ = 0u;
                 // Faster only with room to spare for about two seconds of drawn frames.
                 if (++frameskip_down_votes_ >= 60u / (frameskip_n_ + 1u)) {

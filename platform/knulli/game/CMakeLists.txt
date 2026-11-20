@@ -127,6 +127,7 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/gx/gles/texture_backend_gles.cpp
     ${rt}/gx/gles/pipeline_cache_gles.cpp
     ${rt}/gx/gles/renderer_gles.cpp
+    ${rt}/gx/gles/cinematica.cpp
     ${rt}/gx/gles/ultra_gles.cpp
     ${rt}/gx/gles/nopal_depurar.cpp
     ${rt}/frame_cadence_diagnostics.cpp

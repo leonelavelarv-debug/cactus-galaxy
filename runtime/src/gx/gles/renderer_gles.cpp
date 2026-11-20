@@ -3,6 +3,7 @@
 
 #include "galaxy/gx/gles/renderer_gles.h"
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/cinematica.h"
 #include "galaxy/gx/gles/nopal_depurar.h"
 #include "galaxy/gx/gles/gl_thread.h"
 
@@ -1077,12 +1078,20 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
     }
     if (present_swap_chain && presented_this_frame_) {
         const std::int64_t start = monotonic_ns();
+        // GALAXY_CINEMATICA_RITMO: a cutscene's new picture waits its turn on the swapping thread (cinematica.h).
+        const bool paced = paced_present_;
+        const double hz = display_refresh_hz_ > 1.0 ? display_refresh_hz_ : 60.0;
+        const auto period_ns = static_cast<std::int64_t>(1e9 / hz);
         if (gles::glthread::recording()) {
             // The swap is the GL thread's (it waits for the vsync there); its time comes back in its stats.
             host_window::NativeWindow window = window_;
-            gles::glthread::enqueue([window] {
+            gles::glthread::enqueue([window, paced, period_ns] {
+                if (paced) {
+                    cinematica::esperar_turno(period_ns);
+                }
                 const std::int64_t swap_start = monotonic_ns();
                 host_window::gles_swap_buffers(window);
+                cinematica::swap_hecho(paced);
                 gles::glthread::add_swap_ns(static_cast<std::uint64_t>(monotonic_ns() - swap_start));
             });
             gles::glthread::kick();
@@ -1092,7 +1101,11 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
             window_stats_.present_wait_ns += waited;
             ultra_swap_ns_ += waited;
         } else {
+            if (paced) {
+                cinematica::esperar_turno(period_ns);
+            }
             host_window::gles_swap_buffers(window_);
+            cinematica::swap_hecho(paced);
         }
         const std::int64_t end = monotonic_ns();
         if (!gles::glthread::recording()) {
@@ -1122,6 +1135,7 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
         rotate_next_ = true;  // GALAXY_GLES_SLOT_POR_IMAGEN: the next stretch starts the next picture's slot
     }
     presented_this_frame_ = false;
+    paced_present_ = false;
     // ULTRA-GLES and Nopal's debug channel (nopal_depurar.h) take the same frame sample.
     if (presented && (ultra::enabled() || nopal_depurar::active())) {
         ultra_frame();
@@ -2009,6 +2023,7 @@ void RendererGles::copy_efb_to_xfb(const EfbCopyParams& params, XfbTexture& dest
     key.height = dest.height;
     const bool repeat = xfb_repeat_ && last_xfb_ && std::memcmp(&key, &last_xfb_key_, sizeof(key)) == 0;
     xfb_repeat_ = false;
+    last_copy_repeated_ = repeat;
     if (repeat) {
         ++window_stats_.xfb_repeats;
         if (last_xfb_.get() != dest.texture.get()) {

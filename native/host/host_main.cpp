@@ -16,6 +16,7 @@
 #include <nebula_game_api.h>
 #if defined(NEBULA_GPU_GLES)
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/cinematica.h"
 #include "galaxy/gx/gles/nopal_depurar.h"
 #endif
 
@@ -1529,6 +1530,7 @@ void svc_game_stage(void*, const char* name) {
         ++gSceneStageSerial;
 #if defined(NEBULA_GPU_GLES)
         galaxy::gx::ultra::set_scene(name);  // ULTRA-GLES: the frames from here on are this scene's
+        galaxy::gx::cinematica::activa.store(0, std::memory_order_relaxed);  // the new stage reports its own
         galaxy::gx::nopal_depurar::scene(name);
 #endif
     }
@@ -1737,6 +1739,12 @@ void svc_game_context(void*, uint32_t what, int32_t value) {
             std::snprintf(text, sizeof(text), "star pointer mode %d", static_cast<int>(value));
             log_line("context:", text);
         }
+    } else if (what == NEBULA_CONTEXT_DEMO) {
+#if defined(NEBULA_GPU_GLES)
+        if (galaxy::gx::cinematica::activa.exchange(value != 0 ? 1 : 0, std::memory_order_relaxed) != (value != 0 ? 1 : 0)) {
+            log_line("context:", value != 0 ? "cinematica 1" : "cinematica 0");
+        }
+#endif
     } else if (what == NEBULA_CONTEXT_TILT_SECTION) {
         if (gTiltSection.exchange(static_cast<uint32_t>(value), std::memory_order_relaxed) != static_cast<uint32_t>(value)) {
             std::snprintf(text, sizeof(text), "tilt section %d", static_cast<int>(value));
@@ -2586,6 +2594,9 @@ uint32_t physical_of(const void* pointer) {
 // planes in GX's I8 tiling. The planes are then the renderer's to re-read, as after the console's decode.
 int32_t svc_thp_video_decode(void*, const void* frame, uint32_t size, void* y, void* u, void* v) {
     gMovieFrames.fetch_add(1, std::memory_order_relaxed);
+#if defined(NEBULA_GPU_GLES)
+    galaxy::gx::cinematica::video_cuadro();  // GALAXY_VIDEO_SIN_SALTO: a movie is playing
+#endif
     if (galaxy::gx::movie_replacement_showing()) {
         // A replacement video's frames show in place of these planes: their decode would be unseen work.
         gMovieSkipped.fetch_add(1, std::memory_order_relaxed);

@@ -349,6 +349,7 @@ enum {
 enum {
     NEBULA_CONTEXT_STAR_POINTER_MODE = 1, /* StarPointerOnOffController's mode (-1 none): menus and play */
     NEBULA_CONTEXT_TILT_SECTION,          /* 0 none, 1 Mario on a Star Ball, 2 on a Ray: tilt steers */
+    NEBULA_CONTEXT_DEMO,                  /* 1 while a cutscene runs (MR::isDemoActive), 0 otherwise */
 };
 
 /* Returns NEBULA_GAME_API_VERSION, or 0 if the host's services are too old. */
