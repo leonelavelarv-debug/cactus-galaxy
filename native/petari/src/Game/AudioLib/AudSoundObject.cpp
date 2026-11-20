@@ -47,6 +47,17 @@ bool AudSoundObject::writePort(JAISoundHandle* pHandle, u32 port, u16 value) {
 
     BOOL en = OSDisableInterrupts();
 
+#if defined(TARGET_PC)
+    // Nebula: OSDisableInterrupts delivers the interrupt work that is pending (os_native.c), and that work can end
+    // the sound and detach it from the handle between the check above and here (u137: SIGSEGV at address 0 in
+    // setCutoffToPort -> writePort while GameScene::init started a star bit's sound on the scene's async thread).
+    // On the console the interrupt could only land before the check; checked again inside the section.
+    if (!pHandle->isSoundAttached()) {
+        OSRestoreInterrupts(en);
+        return false;
+    }
+#endif
+
     JASTrack* track = pHandle->getSound()->getTrack();
     if (track != nullptr) {
         track->writePort(port, value);
