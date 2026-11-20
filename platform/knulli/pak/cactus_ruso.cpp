@@ -20,6 +20,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -515,17 +516,27 @@ Bytes switch_text_to_wii(const Bytes& raw, const std::vector<Tag>& wii_tags, std
 
 struct MessageResult { Bytes arc; std::set<u16> codes; u32 russian = 0, english = 0, only_translation = 0; TextStats tags; };
 
-MessageResult convert_messages(const Rarc& wii_arc, const Rarc& ru_arc) {
-  const Rarc::File* wb = wii_arc.file("message.bmg");
-  const Rarc::File* wt = wii_arc.file("messageid.tbl");
+// The translation's text by message name: each as raw little-endian bytes (the Switch file's), up to its end.
+std::map<std::string, Bytes> translation_texts(const Rarc& ru_arc) {
   const Rarc::File* rb = ru_arc.file("message.bmg");
   const Rarc::File* rt = ru_arc.file("messageid.tbl");
-  if (!wb || !wt) fail("el Message.arc del juego no tiene message.bmg o messageid.tbl");
   if (!rb || !rt) fail("el Message.arc de la traducción no tiene message.bmg o messageid.tbl");
-  const Bmg wii(wii_arc.contents(*wb)), ru(ru_arc.contents(*rb));
+  const Bmg ru(ru_arc.contents(*rb));
+  if (ru.be) fail("el message.bmg de la traducción no es el de Switch");
+  std::map<std::string, Bytes> out;
+  for (const auto& [name, index] : message_ids(ru_arc.contents(*rt), ru_arc.be)) {
+    if (index < ru.count) out[name] = ru.raw(u16(index));
+  }
+  return out;
+}
+
+MessageResult convert_messages(const Rarc& wii_arc, const std::map<std::string, Bytes>& ru_texts) {
+  const Rarc::File* wb = wii_arc.file("message.bmg");
+  const Rarc::File* wt = wii_arc.file("messageid.tbl");
+  if (!wb || !wt) fail("el Message.arc del juego no tiene message.bmg o messageid.tbl");
+  const Bmg wii(wii_arc.contents(*wb));
   if (!wii.be) fail("el message.bmg del juego no es de Wii");
   const std::map<std::string, u32> wii_ids = message_ids(wii_arc.contents(*wt), true);
-  const std::map<std::string, u32> ru_ids = message_ids(ru_arc.contents(*rt), ru_arc.be);
   std::vector<const std::string*> name_of(wii.count, nullptr);
   for (const auto& [name, index] : wii_ids) if (index < wii.count) name_of[index] = &name;
 
@@ -534,14 +545,14 @@ MessageResult convert_messages(const Rarc& wii_arc, const Rarc& ru_arc) {
   for (u16 i = 0; i < wii.count; ++i) {
     texts[i] = wii.raw(i);
     if (!name_of[i]) continue;
-    auto it = ru_ids.find(*name_of[i]);
-    if (it == ru_ids.end() || it->second >= ru.count) { ++r.english; continue; }
-    const Bytes ru_text = ru.raw(u16(it->second));
+    auto it = ru_texts.find(*name_of[i]);
+    if (it == ru_texts.end()) { ++r.english; continue; }
+    const Bytes& ru_text = it->second;
     if (ru_text.empty() && !texts[i].empty()) { ++r.english; continue; }  // untranslated there: the disc's
     texts[i] = switch_text_to_wii(ru_text, tags_of(texts[i], true), r.codes, r.tags);
     ++r.russian;
   }
-  for (const auto& [name, index] : ru_ids) if (!wii_ids.count(name)) ++r.only_translation;
+  for (const auto& [name, text] : ru_texts) if (!wii_ids.count(name)) ++r.only_translation;
 
   // The disc's file with new INF1 offsets and DAT1 text; the other sections (flow) as they are.
   Bytes dat = {'D', 'A', 'T', '1', 0, 0, 0, 0, 0, 0};  // offset 0: an empty text
@@ -720,21 +731,56 @@ struct Font {
 
 struct FontResult { Bytes data; u32 added = 0; float scale = 0; std::string note; };
 
+// Where added glyphs come from, by character code: the translation's font itself, or the glyphs extracted from it
+// (cactus-ruso --extraer).
+struct GlyphSource {
+  int cell_w = 0, cell_h = 0, baseline = 0, height = 0;
+  bool intensity_only = false;  // I4/I8 (no alpha of its own)
+  virtual ~GlyphSource() = default;
+  virtual bool has(u16 c) const = 0;
+  virtual Pixel pixel(u16 c, int x, int y) const = 0;
+  virtual void widths(u16 c, int& left, int& glyph_w, int& advance) const = 0;
+};
+
+struct FontGlyphs : GlyphSource {
+  const Font& f;
+  explicit FontGlyphs(const Font& font) : f(font) {
+    cell_w = f.cell_w; cell_h = f.cell_h; baseline = f.baseline; height = f.height; intensity_only = f.format <= 1;
+  }
+  bool has(u16 c) const override {
+    const u16 g = f.glyph(c);
+    return Font::supported(f.format) && g != 0xFFFF && g < f.capacity();
+  }
+  Pixel pixel(u16 c, int x, int y) const override { return f.pixel(f.glyph(c), x, y); }
+  void widths(u16 c, int& left, int& glyph_w, int& advance) const override { f.widths(f.glyph(c), left, glyph_w, advance); }
+};
+
+struct PackGlyphs : GlyphSource {
+  struct Glyph { int left, glyph_w, advance; Bytes px; };  // px: a byte a pixel, intensity << 4 | alpha (4 bits each)
+  std::map<u16, Glyph> glyphs;
+  bool has(u16 c) const override { return glyphs.count(c) != 0; }
+  Pixel pixel(u16 c, int x, int y) const override {
+    const u8 b = glyphs.at(c).px[size_t(y) * cell_w + x];
+    return {float(b >> 4) / 15.0f, float(b & 15) / 15.0f};
+  }
+  void widths(u16 c, int& left, int& glyph_w, int& advance) const override {
+    const Glyph& g = glyphs.at(c);
+    left = g.left; glyph_w = g.glyph_w; advance = g.advance;
+  }
+};
+
 // The game's font with `codes` it lacks added from `source` (scaled to the game's cell); new glyph indices after
 // the last sheet's capacity, a width block and a scan map for them, the map first in the list.
-FontResult add_glyphs(const Font& game, const Font& source, const std::set<u16>& codes) {
+FontResult add_glyphs(const Font& game, const GlyphSource& source, const std::set<u16>& codes) {
   FontResult r;
   if (!game.be) fail("la fuente del juego no es de Wii");
-  std::vector<std::pair<u16, u16>> add;  // code, the source's glyph
+  std::vector<std::pair<u16, u16>> add;  // code (twice: the source is looked up by code)
   for (u16 c : codes) {
-    if (c < 0x20 || game.glyph(c) != 0xFFFF) continue;
-    const u16 g = source.glyph(c);
-    if (g == 0xFFFF || g >= source.capacity()) continue;
-    add.push_back({c, g});
+    if (c < 0x20 || game.glyph(c) != 0xFFFF || !source.has(c)) continue;
+    add.push_back({c, c});
   }
   if (add.empty()) { r.data = game.d; return r; }
   if (!Font::supported(game.format)) { r.data = game.d; r.note = "formato de la fuente sin soporte"; return r; }
-  if (!Font::supported(source.format)) { r.data = game.d; r.note = "formato de la fuente rusa sin soporte"; return r; }
   const float scale = game.baseline > 0 && source.baseline > 0 ? float(game.baseline) / float(source.baseline)
                       : source.height > 0 && game.height > 0 ? float(game.height) / float(source.height)
                                                              : float(game.cell_h) / float(source.cell_h);
@@ -771,7 +817,7 @@ FontResult add_glyphs(const Font& game, const Font& source, const std::set<u16>&
         }
         Pixel out{0, 0};
         if (wsum > 0) out = {sa > 0 ? si / sa : 0.0f, sa / wsum};
-        if (source.format <= 1 && game.format >= 2) out.i = 1.0f;  // an intensity font into one with alpha: white
+        if (source.intensity_only && game.format >= 2) out.i = 1.0f;  // an intensity font into one with alpha: white
         Font::encode(s, game.format, game.sheet_w, cx + x, cy + y, out);
       }
     }
@@ -925,33 +971,163 @@ void progress(unsigned percent, unsigned total_mib) {
   printf(" %u%% (%u / %u MiB)\n", percent, total_mib * percent / 100, total_mib);
 }
 
+// What the conversion takes from the translation: its text by message name and the glyphs of its fonts by name.
+struct TranslationData {
+  std::map<std::string, Bytes> texts;
+  std::map<std::string, std::unique_ptr<GlyphSource>> fonts;  // lowercase .brfnt name
+  std::vector<std::unique_ptr<Font>> held;                    // the fonts FontGlyphs read from
+  bool font_archive = false;
+};
+
+constexpr char kPackMagic[8] = {'R', 'U', 'S', 'M', 'G', '1', 0, 0};
+
+// The characters the Russian text needs beyond plain ASCII: what an extracted pack keeps of the fonts.
+std::set<u16> pack_codes(const std::map<std::string, Bytes>& texts) {
+  std::set<u16> codes;
+  for (u16 c = 0x400; c <= 0x4FF; ++c) codes.insert(c);
+  for (const auto& [name, raw] : texts) {
+    for (size_t p = 0; p + 1 < raw.size();) {
+      const u16 c = rd16(&raw[p], false);
+      if (c == 0x1A) { p += raw[p + 2]; continue; }
+      if (c >= 0x80) codes.insert(c);
+      p += 2;
+    }
+  }
+  return codes;
+}
+
+TranslationData load_translation(const std::string& path) {
+  TranslationData t;
+  struct stat st;
+  if (stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode)) {
+    const Bytes head = [&] { Bytes h(8, 0); if (FILE* f = fopen(path.c_str(), "rb")) { (void)!fread(h.data(), 1, 8, f); fclose(f); } return h; }();
+    if (!memcmp(head.data(), kPackMagic, 8)) {
+      // An extracted pack (cactus-ruso --extraer): only the translators' text and glyphs.
+      const Bytes d = read_file(path);
+      size_t p = 8;
+      auto need = [&](size_t n) { if (p + n > d.size()) fail("%s está incompleto", path.c_str()); };
+      need(4);
+      const u32 messages = rd32(&d[p], true); p += 4;
+      for (u32 i = 0; i < messages; ++i) {
+        need(2); const u16 n = rd16(&d[p], true); p += 2;
+        need(n); std::string name(reinterpret_cast<const char*>(&d[p]), n); p += n;
+        need(4); const u32 len = rd32(&d[p], true); p += 4;
+        need(len); t.texts[name] = Bytes(d.begin() + p, d.begin() + p + len); p += len;
+      }
+      need(4);
+      const u32 fonts = rd32(&d[p], true); p += 4;
+      for (u32 i = 0; i < fonts; ++i) {
+        need(1); const u8 n = d[p++];
+        need(n); std::string name(reinterpret_cast<const char*>(&d[p]), n); p += n;
+        need(7);
+        auto g = std::make_unique<PackGlyphs>();
+        g->cell_w = d[p]; g->cell_h = d[p + 1]; g->baseline = int8_t(d[p + 2]); g->height = d[p + 3];
+        g->intensity_only = d[p + 4] != 0;
+        const u16 count = rd16(&d[p + 5], true); p += 7;
+        const size_t cell = size_t(g->cell_w) * g->cell_h;
+        for (u16 k = 0; k < count; ++k) {
+          need(5 + cell);
+          PackGlyphs::Glyph glyph{int8_t(d[p + 2]), d[p + 3], int8_t(d[p + 4]), Bytes(d.begin() + p + 5, d.begin() + p + 5 + cell)};
+          g->glyphs[rd16(&d[p], true)] = std::move(glyph);
+          p += 5 + cell;
+        }
+        t.fonts[lower(name)] = std::move(g);
+      }
+      t.font_archive = fonts > 0;
+      return t;
+    }
+  }
+  const Translation tr(path);
+  const std::vector<std::string> prefer = {"/euenglish/", "/usenglish/", "english"};
+  Bytes msg, font;
+  if (!tr.find("/messagedata/message.arc", prefer, msg, nullptr))
+    fail("la traducción no tiene MessageData/Message.arc: ¿es el .zip de la traducción rusa?");
+  t.texts = translation_texts(Rarc(unpacked(msg)));
+  if (tr.find("/layoutdata/font.arc", prefer, font, nullptr)) {
+    const Rarc arc(unpacked(font));
+    t.font_archive = true;
+    for (const Rarc::File& f : arc.files) {
+      const std::string name = lower(f.path.substr(f.path.rfind('/') + 1));
+      if (!ends_with(name, ".brfnt")) continue;
+      t.held.push_back(std::make_unique<Font>(arc.contents(f)));
+      t.fonts[name] = std::make_unique<FontGlyphs>(*t.held.back());
+    }
+  }
+  return t;
+}
+
+// cactus-ruso --extraer: from the translation's .zip, only what its translators made (the Russian text by message
+// name, and of each font the glyphs of the characters that text needs beyond ASCII), in one file; the game's own
+// files (the fonts as a whole, the Switch's data) stay out. The conversion reads it like the .zip.
+int extract(const std::string& translation_path, const std::string& out_path) {
+  const TranslationData t = load_translation(translation_path);
+  const std::set<u16> codes = pack_codes(t.texts);
+  Bytes out(kPackMagic, kPackMagic + 8);
+  put32(out, u32(t.texts.size()));
+  for (const auto& [name, text] : t.texts) {
+    put16(out, u16(name.size()));
+    out.insert(out.end(), name.begin(), name.end());
+    put32(out, u32(text.size()));
+    out.insert(out.end(), text.begin(), text.end());
+  }
+  size_t glyphs_total = 0;
+  std::vector<std::pair<std::string, std::vector<u16>>> fonts;
+  for (const auto& [name, source] : t.fonts) {
+    std::vector<u16> have;
+    for (u16 c : codes) if (source->has(c)) have.push_back(c);
+    if (!have.empty()) fonts.push_back({name, have});
+  }
+  put32(out, u32(fonts.size()));
+  for (const auto& [name, have] : fonts) {
+    const GlyphSource& g = *t.fonts.at(name);
+    out.push_back(u8(name.size()));
+    out.insert(out.end(), name.begin(), name.end());
+    out.push_back(u8(g.cell_w)); out.push_back(u8(g.cell_h)); out.push_back(u8(int8_t(g.baseline)));
+    out.push_back(u8(g.height)); out.push_back(g.intensity_only ? 1 : 0);
+    put16(out, u16(have.size()));
+    for (u16 c : have) {
+      int left, gw, adv;
+      g.widths(c, left, gw, adv);
+      put16(out, c);
+      out.push_back(u8(int8_t(left))); out.push_back(u8(gw)); out.push_back(u8(int8_t(adv)));
+      for (int y = 0; y < g.cell_h; ++y) {
+        for (int x = 0; x < g.cell_w; ++x) {
+          const Pixel px = g.pixel(c, x, y);
+          out.push_back(u8(std::lround(px.i * 15)) << 4 | u8(std::lround(px.a * 15)));
+        }
+      }
+    }
+    glyphs_total += have.size();
+    printf("  %s: %zu letras\n", name.c_str(), have.size());
+  }
+  write_file(out_path + ".tmp", out);
+  if (rename((out_path + ".tmp").c_str(), out_path.c_str()) != 0) fail("no se puede crear %s", out_path.c_str());
+  printf("Extraído: %zu mensajes y %zu letras de %zu fuentes, %u KiB -> %s\n", t.texts.size(), glyphs_total,
+         fonts.size(), unsigned(out.size() >> 10), out_path.c_str());
+  return 0;
+}
+
 int run(const std::string& translation_path, const std::string& pak_path, const std::string& out_dir) {
   const GamePak pak(pak_path);
-  const Translation tr(translation_path);
   printf("Traducción: %s\n", translation_path.c_str());
   struct stat st;
   const unsigned total = stat(translation_path.c_str(), &st) == 0 && S_ISREG(st.st_mode)
                              ? std::max<unsigned>(1, unsigned((st.st_size + (1 << 20) - 1) >> 20)) : 16;
   progress(5, total);
+  const TranslationData tr = load_translation(translation_path);
 
   const GamePak::Entry* wii_msg = pak.find({"/usenglish/messagedata/message.arc"});
   const GamePak::Entry* wii_font = pak.find({"/usenglish/layoutdata/font.arc", "/layoutdata/font.arc"});
   if (!wii_msg) fail("game.pak no tiene UsEnglish/MessageData/Message.arc");
   if (!wii_font) fail("game.pak no tiene LayoutData/Font.arc");
-  const std::vector<std::string> prefer = {"/euenglish/", "/usenglish/", "english"};
-  Bytes ru_msg_raw, ru_font_raw;
-  std::string ru_msg_name, ru_font_name;
-  if (!tr.find("/messagedata/message.arc", prefer, ru_msg_raw, &ru_msg_name))
-    fail("la traducción no tiene MessageData/Message.arc: ¿es el .zip de la traducción rusa?");
-  const bool have_font = tr.find("/layoutdata/font.arc", prefer, ru_font_raw, &ru_font_name);
 
   const std::string temporary = out_dir + ".tmp";
   remove_tree(temporary);
 
   // Text.
   const Bytes wii_msg_file = pak.read(wii_msg->offset, wii_msg->size);
-  const Rarc wii_msg_arc(unpacked(wii_msg_file)), ru_msg_arc(unpacked(ru_msg_raw));
-  MessageResult m = convert_messages(wii_msg_arc, ru_msg_arc);
+  const Rarc wii_msg_arc(unpacked(wii_msg_file));
+  MessageResult m = convert_messages(wii_msg_arc, tr.texts);
   printf("Textos: %u mensajes en ruso, %u siguen en inglés (no están en la traducción), %u solo de la traducción\n",
          m.russian, m.english, m.only_translation);
   printf("Etiquetas: %u (%u iguales a las del juego, %u por su tipo)\n", m.tags.tags, m.tags.matched, m.tags.guessed);
@@ -964,20 +1140,19 @@ int run(const std::string& translation_path, const std::string& pak_path, const 
   for (u16 c = 0x410; c <= 0x44F; ++c) codes.insert(c);
   codes.insert(0x401);
   codes.insert(0x451);
-  if (!have_font) {
+  if (!tr.font_archive) {
     printf("La traducción no trae Font.arc: las letras rusas no se verán\n");
   } else {
     const Bytes wii_font_file = pak.read(wii_font->offset, wii_font->size);
     const Rarc wii_font_arc(unpacked(wii_font_file));
-    const Rarc ru_font_arc(unpacked(ru_font_raw));
     std::map<std::string, Bytes> fonts;
     for (const Rarc::File& f : wii_font_arc.files) {
       const std::string name = lower(f.path.substr(f.path.rfind('/') + 1));
       if (!ends_with(name, ".brfnt")) continue;
-      const Rarc::File* source = ru_font_arc.file(name);
-      if (!source) { printf("  %s: la traducción no la trae\n", f.path.c_str()); continue; }
-      const Font game(wii_font_arc.contents(f)), ru(ru_font_arc.contents(*source));
-      FontResult fr = add_glyphs(game, ru, codes);
+      auto source = tr.fonts.find(name);
+      if (source == tr.fonts.end()) { printf("  %s: la traducción no trae letras para ella\n", f.path.c_str()); continue; }
+      const Font game(wii_font_arc.contents(f));
+      FontResult fr = add_glyphs(game, *source->second, codes);
       if (!fr.note.empty()) printf("  %s: %s\n", f.path.c_str(), fr.note.c_str());
       if (fr.added == 0) {
         if (fr.note.empty()) printf("  %s: no le faltan letras\n", f.path.c_str());
@@ -1007,15 +1182,18 @@ int run(const std::string& translation_path, const std::string& pak_path, const 
 
 int main(int argc, char** argv) {
   setvbuf(stdout, nullptr, _IOLBF, 0);
+  const bool extracting = argc == 4 && strcmp(argv[1], "--extraer") == 0;
   if (argc != 4) {
     fprintf(stderr,
-            "uso: cactus-ruso <traducción.zip o carpeta> <game.pak> <carpeta del mod>\n"
+            "uso: cactus-ruso <traducción (.zip, carpeta o .rusmg)> <game.pak> <carpeta del mod>\n"
+            "     cactus-ruso --extraer <traducción.zip o carpeta> <salida.rusmg>\n"
             "  La traducción rusa de Super Mario Galaxy para Switch (СаХаР, sobre la de reWiision) llevada al juego\n"
-            "  de Wii (USA, RMGE01) como mod: textos y letras.\n");
+            "  de Wii (USA, RMGE01) como mod: textos y letras. --extraer guarda solo lo que hicieron los traductores\n"
+            "  (el texto ruso y las letras que usa), sin los archivos del juego que trae el .zip.\n");
     return 2;
   }
   try {
-    return run(argv[1], argv[2], argv[3]);
+    return extracting ? extract(argv[2], argv[3]) : run(argv[1], argv[2], argv[3]);
   } catch (const std::exception& e) {
     printf("Error: %s\n", e.what());
     return 1;

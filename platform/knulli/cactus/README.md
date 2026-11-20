@@ -25,7 +25,8 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   las dos traducciones, la lista de idiomas muestra solo los nombres, más juntos. El parche tiene que ser del disco
   USA (RMGE01), como el de PT-BR: el ruso de reWiision (2010) está hecho para el disco PAL y no aplica tal cual.
 - Ruso desde la traducción de Switch (el .zip tal como se descarga, p. ej. `Super_Mario_Galaxy_Switch_2025_RUS.zip`,
-  en `smg/patches/`, con "rus" o "ru" en el nombre; traducción de reWiision —2MON, ReD— adaptada a Switch por СаХаР
+  o el `.rusmg` que `cactus-ruso --extraer` saca de él —solo el texto ruso y las letras que usa, sin los archivos del
+  juego del .zip; es lo que lleva el port—, en `smg/patches/`, con "rus" o "ru" en el nombre; traducción de reWiision —2MON, ReD— adaptada a Switch por СаХаР
   y N69): sus archivos son del Switch (orden de bytes al revés, letras de alta resolución, unos 55 MB), así que no
   se copian. Al elegir "Russkiy", `cactus-ruso` (platform/knulli/pak) toma de `game.pak` el Message.arc inglés y el
   Font.arc del juego y hace un mod en `smg/patches/ruso-switch`: cada mensaje que la traducción tiene (por su nombre)

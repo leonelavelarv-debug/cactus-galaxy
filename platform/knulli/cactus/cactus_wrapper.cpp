@@ -849,7 +849,7 @@ struct App {
   int language = 0, language_choice = 0;
   std::string language_file, pak_language_file;
   std::string patch_files[kPatchedCount];  // the translations' xdelta found (PT-BR, RU), empty if not there
-  // Russian from the Switch release's .zip (smg/patches/): no game.pak of its own, cactus-ruso makes a mod of the
+  // Russian from the Switch release's .zip or its .rusmg (smg/patches/): no game.pak of its own, cactus-ruso makes a mod of the
   // game's English text and fonts (smg/patches/ruso-switch; the launcher puts it in smg/mods with Russian only).
   std::string ru_zip, ruso_tool;
   int pak_patch = -1;         // the game.pak was made with a translation's patch (kPtBr, kRu)...
@@ -978,8 +978,12 @@ struct App {
         const bool xdelta = name.size() > 7 && name.compare(name.size() - 7, 7, ".xdelta") == 0;
         const int which = xdelta ? patch_of_name(name.substr(0, name.size() - 7)) : -1;
         if (which >= 0 && patch_files[which - kPatchedFirst].empty()) patch_files[which - kPatchedFirst] = dir + "/" + e->d_name;
-        const bool zip = name.size() > 4 && name.compare(name.size() - 4, 4, ".zip") == 0;
-        if (zip && ru_zip.empty() && patch_of_name(name.substr(0, name.size() - 4)) == kRu) ru_zip = dir + "/" + e->d_name;
+        // The Switch release's .zip, or what cactus-ruso --extraer keeps of it (.rusmg, what the port ships).
+        const size_t dot = name.rfind('.');
+        const std::string ext = dot == std::string::npos ? std::string() : name.substr(dot);
+        if ((ext == ".zip" || ext == ".rusmg") && patch_of_name(name.substr(0, dot)) == kRu &&
+            (ru_zip.empty() || ext == ".rusmg"))
+          ru_zip = dir + "/" + e->d_name;
       }
       closedir(d);
     }

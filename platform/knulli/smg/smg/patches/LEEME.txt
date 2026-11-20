@@ -9,10 +9,13 @@ Parches de traducción para Cactus Galaxy Wrapper (xdelta del ISO original de Su
   Funciona igual que el portugués. Tiene que ser un parche del disco USA (RMGE01): la traducción rusa de reWiision
   (2010) está hecha para el disco PAL y no aplica sobre el USA.
 
-- Russkiy desde la traducción de Switch: pon aquí el .zip tal como se descarga (por ejemplo
+- Russkiy: Super_Mario_Galaxy_RUS.rusmg (o el .zip de la traducción de Switch tal como se descarga, por ejemplo
   Super_Mario_Galaxy_Switch_2025_RUS.zip, con "rus" en el nombre). Al elegir Russkiy, Cactus Galaxy Wrapper hace con
-  él y tu game.pak un mod de textos y letras (smg/patches/ruso-switch), que el juego usa solo con ese idioma.
-  Traducción de reWiision (2MON, ReD), adaptada a Switch por СаХаР y N69; el mérito es de sus autores.
+  él y tu game.pak un mod de textos y letras (smg/patches/ruso-switch), que el juego usa solo con ese idioma. El
+  .rusmg es lo que `cactus-ruso --extraer` guarda del .zip: solo el texto ruso y las letras que usa, sin los
+  archivos del juego que trae el .zip.
+  Traducción de reWiision (2MON — traducción, letras, corrección; ReD (den_n1) — cuestiones técnicas, letras),
+  adaptada a Switch y corregida por СаХаР (CaXaP) y N69 (Nanoposan69), versión 1.1.1. El mérito es de sus autores.
 
 El parche se comprueba contra tu disco: si no es el original sin modificar, la conversión se detiene con un aviso.
 

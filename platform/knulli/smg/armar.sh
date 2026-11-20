@@ -129,6 +129,7 @@ cp "$here/Super Mario Galaxy.sh" "$full/"
 # Parches de traduccion de terceros (no van en el repositorio): NEBULA_PARCHES=<carpeta con los .xdelta>.
 if [ -n "${NEBULA_PARCHES:-}" ]; then
   cp "$NEBULA_PARCHES"/*.xdelta "$full/smg/patches/" 2>/dev/null || fail "no hay .xdelta en $NEBULA_PARCHES"
+  cp "$NEBULA_PARCHES"/*.rusmg "$full/smg/patches/" 2>/dev/null || true  # el ruso (cactus-ruso --extraer)
 fi
 cp "$here/README.md" "$full/smg/README.md"
 printf '%s\n' "Pon aqui tu disco de Super Mario Galaxy (USA, RMGE01) en ISO, RVZ, WIA, WBFS, GCZ o CISO, y abre el juego:" \
