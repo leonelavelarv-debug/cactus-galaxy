@@ -168,6 +168,12 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
     #                                    44 galaxias x2 (5-nov), +21-23 % FPS mostrados, +16-21 % dibujados, p95 -17 %,
     #                                    12-35 MiB menos de memoria libre; 0: como antes (docs/PHASE3_PROGRESS.md)
     export GALAXY_GLES_SLOT_POR_IMAGEN="${GALAXY_GLES_SLOT_POR_IMAGEN:-1}"
+    #   GALAXY_GX_DL_MARCAR=1|0|2        (perfil medio) el hilo de render solo compara con la memoria las display lists
+    #                                    que un flush del juego toco; las demas valen sin memcmp. AstroGalaxy (5 pares,
+    #                                    19-nov): CPU de render por imagen -9 a -10 %, +2,5 a +5 % imagenes nuevas, escena
+    #                                    -4 a -5 %; 2 lo compara todo y avisa ("[gx] lista sin aviso"): 44 galaxias,
+    #                                    36,4 millones de comparaciones, 0 avisos; 0: como antes (docs/PHASE3_PROGRESS.md)
+    export GALAXY_GX_DL_MARCAR="${GALAXY_GX_DL_MARCAR:-1}"
   else
     export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   fi

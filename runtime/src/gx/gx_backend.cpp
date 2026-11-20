@@ -866,6 +866,9 @@ bool pe_preclassify_enabled() {
 
 bool display_list_dirty_invalidate_enabled() {
     static const bool enabled = [] {
+        if (display_list_mark_mode() != 0) {
+            return true;  // GALAXY_GX_DL_MARCAR: the flushes mark the lists (fifo_parser.h)
+        }
         char value[16]{};
         std::size_t length = 0;
         if (getenv_s(
