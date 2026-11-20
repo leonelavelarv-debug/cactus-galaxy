@@ -735,6 +735,7 @@ struct Job {
   std::string error, last_line;
   double started = 0;
   int language = 0, patch_slot = -1;
+  bool ruso = false;  // cactus-ruso making the Russian mod (not nebula-pak)
 };
 
 double now_seconds() {
@@ -848,12 +849,17 @@ struct App {
   int language = 0, language_choice = 0;
   std::string language_file, pak_language_file;
   std::string patch_files[kPatchedCount];  // the translations' xdelta found (PT-BR, RU), empty if not there
+  // Russian from the Switch release's .zip (smg/patches/): no game.pak of its own, cactus-ruso makes a mod of the
+  // game's English text and fonts (smg/patches/ruso-switch; the launcher puts it in smg/mods with Russian only).
+  std::string ru_zip, ruso_tool;
   int pak_patch = -1;         // the game.pak was made with a translation's patch (kPtBr, kRu)...
   int pak_patched_slot = -1;  // ...its text in this slot (0-2)
   Image pending;  // the disc waiting for its language
 
   const std::string& patch_file(int which) const { return patch_files[which - kPatchedFirst]; }
-  bool have_patch(int which) const { return is_patched(which) && !patch_file(which).empty(); }
+  bool have_xdelta(int which) const { return is_patched(which) && !patch_file(which).empty(); }
+  bool ru_mod() const { return !have_xdelta(kRu) && !ru_zip.empty(); }
+  bool have_patch(int which) const { return have_xdelta(which) || (which == kRu && ru_mod()); }
 
   static std::vector<std::string> words(const std::string& path) {
     std::vector<std::string> out;
@@ -879,11 +885,12 @@ struct App {
     const std::vector<std::string> chosen = words(language_file);   // "english", "english ptbr" or "english ru"
     if (!chosen.empty() && slot_of(chosen[0]) >= 0) language = slot_of(chosen[0]);
     if (chosen.size() >= 2 && pak_patch >= 0 && chosen[1] == kLanguages[pak_patch].key) language = pak_patch;
+    else if (chosen.size() >= 2 && chosen[1] == kLanguages[kRu].key && ru_mod() && have_pak) language = kRu;
   }
   void save_language(int which) {
     language = which;
     const bool patched = is_patched(which);
-    const int slot = patched ? std::max(0, pak_patched_slot) : which;
+    const int slot = !patched ? which : (which == kRu && ru_mod() && pak_patch != kRu) ? 1 : std::max(0, pak_patched_slot);
     const std::string temporary = language_file + ".tmp";
     if (FILE* f = fopen(temporary.c_str(), "w")) {
       fprintf(f, "%s%s%s\n", kLanguages[slot].key, patched ? " " : "", patched ? kLanguages[which].key : "");
@@ -899,6 +906,7 @@ struct App {
     std::vector<int> out;
     if (pak_patched_slot >= 0) out.push_back(pak_patch);
     for (int i = 0; i < 3; ++i) if (i != pak_patched_slot) out.push_back(i);
+    if (ru_mod() && have_pak && pak_patch != kRu) out.push_back(kRu);  // a mod over this game.pak, no new one
     return out;
   }
   // The languages a new install can have.
@@ -932,7 +940,7 @@ struct App {
     if (valid_disc() != nullptr) {
       if (pak_patched_slot >= 0) out.push_back(pak_patched_slot);
       for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i)
-        if (have_patch(i) && i != pak_patch) out.push_back(i);
+        if (have_patch(i) && i != pak_patch && std::find(out.begin(), out.end(), i) == out.end()) out.push_back(i);
     }
     return out;
   }
@@ -970,11 +978,14 @@ struct App {
         const bool xdelta = name.size() > 7 && name.compare(name.size() - 7, 7, ".xdelta") == 0;
         const int which = xdelta ? patch_of_name(name.substr(0, name.size() - 7)) : -1;
         if (which >= 0 && patch_files[which - kPatchedFirst].empty()) patch_files[which - kPatchedFirst] = dir + "/" + e->d_name;
+        const bool zip = name.size() > 4 && name.compare(name.size() - 4, 4, ".zip") == 0;
+        if (zip && ru_zip.empty() && patch_of_name(name.substr(0, name.size() - 4)) == kRu) ru_zip = dir + "/" + e->d_name;
       }
       closedir(d);
     }
     for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i)
-      if (have_patch(i)) printf("[cactus] parche %s: %s\n", kLanguages[i].tag, patch_file(i).c_str());
+      if (have_xdelta(i)) printf("[cactus] parche %s: %s\n", kLanguages[i].tag, patch_file(i).c_str());
+    if (ru_mod()) printf("[cactus] traducción rusa de Switch (mod): %s\n", ru_zip.c_str());
   }
 
   void refresh_disk() {
@@ -1016,25 +1027,38 @@ struct App {
   }
 
   void start_conversion(const Image& im, int chosen) {
+    std::vector<std::string> args = {tool};
+    if (have_xdelta(chosen)) { args.push_back("--patch"); args.push_back(patch_file(chosen)); }
+    args.push_back(im.path);
+    args.push_back(output);
+    printf("[cactus] convirtiendo %s -> %s\n", im.path.c_str(), output.c_str());
+    start_job(args, chosen, im.name, false, im.path, delete_after);
+  }
+  // Russian from the Switch release's .zip: cactus-ruso makes the mod over the game.pak there is.
+  std::string ruso_dir() const { return smg + "/patches/ruso-switch"; }
+  bool ruso_made() const {
+    struct stat st;
+    return stat(ruso_dir().c_str(), &st) == 0 || stat((smg + "/mods/ruso-switch").c_str(), &st) == 0;
+  }
+  void start_ruso() {
+    printf("[cactus] traducción rusa de Switch -> %s\n", ruso_dir().c_str());
+    start_job({ruso_tool, ru_zip, output, ruso_dir()}, kRu, ru_zip.substr(ru_zip.rfind('/') + 1), true, "", false);
+  }
+  void start_job(const std::vector<std::string>& args, int chosen, const std::string& name, bool ruso,
+                 const std::string& image_path, bool remove_image) {
     job = std::make_unique<Job>();
     job->language = chosen;
+    job->ruso = ruso;
     job->started = now_seconds();
-    converted_name = im.name;
+    converted_name = name;
     speed = 0; speed_mib = 0; speed_at = job->started;
     cancelling = false;
     Job* j = job.get();
     int fd = -1;
-    std::vector<std::string> args = {tool};
-    if (have_patch(chosen)) { args.push_back("--patch"); args.push_back(patch_file(chosen)); }
-    args.push_back(im.path);
-    args.push_back(output);
     j->pid = spawn(args, &fd);
-    if (j->pid < 0) { error = T(S_ERR_RUN); screen = Screen::Failed; return; }
+    if (j->pid < 0) { error = T(S_ERR_RUN); screen = Screen::Failed; job.reset(); return; }
     screen = Screen::Converting;
-    printf("[cactus] convirtiendo %s -> %s\n", im.path.c_str(), output.c_str());
     fflush(stdout);
-    const std::string image_path = im.path;
-    const bool remove_image = delete_after;
     j->thread = std::thread([this, j, fd, image_path, remove_image] {
       const int code = read_lines(fd, j->pid, [j](const std::string& l) {
         printf("%s\n", l.c_str());
@@ -1053,7 +1077,7 @@ struct App {
       });
       std::lock_guard<std::mutex> lock(j->mutex);
       j->exit_code = code;
-      if (code == 0 && remove_image) deleted = unlink(image_path.c_str()) == 0;
+      if (code == 0 && remove_image && !image_path.empty()) deleted = unlink(image_path.c_str()) == 0;
       j->finished = true;
     });
   }
@@ -1064,11 +1088,12 @@ struct App {
     took = now_seconds() - job->started;
     refresh_disk();
     if (job->exit_code == 0 && have_pak) {
-      screen = Screen::Done;
-      result = 0;
-      done_at = now_seconds();
       // The language goes with the game.pak just made; a translated one remembers which slot holds its text.
-      if (is_patched(job->language)) {
+      // Russian from the Switch .zip: the game.pak stays the disc's, and the mod is made next.
+      const bool then_ruso = !job->ruso && job->language == kRu && ru_mod();
+      if (job->ruso) {
+        // The mod over the game.pak there is: that one's languages stay as they are.
+      } else if (is_patched(job->language) && !then_ruso) {
         pak_patch = job->language;
         pak_patched_slot = job->patch_slot >= 0 ? job->patch_slot : 1;
         if (FILE* f = fopen(pak_language_file.c_str(), "w")) {
@@ -1080,6 +1105,16 @@ struct App {
         pak_patched_slot = -1;
         unlink(pak_language_file.c_str());
       }
+      if (then_ruso) {
+        const double started = job->started;
+        job.reset();
+        start_ruso();
+        if (job) job->started = started;  // the time is the whole install's
+        return;
+      }
+      screen = Screen::Done;
+      result = 0;
+      done_at = now_seconds();
       save_language(job->language);
     } else {
       error = job->error.empty() ? (cancelling ? std::string(T(S_ERR_CANCELLED)) : job->last_line) : translate_error(job->error);
@@ -1100,7 +1135,10 @@ struct App {
         if (key == kToggle) delete_after = !delete_after;
         if (key == kBack) quit = true;
         if (key == kPrev || key == kNext) {  // the game's language, even with game.pak already made
-          save_language(step(menu_languages(), language, key == kNext ? 1 : -1));
+          // Russian from the Switch .zip only once its mod is made (choosing it on the language screen makes it).
+          std::vector<int> list = menu_languages();
+          if (ru_mod() && !ruso_made()) list.erase(std::remove(list.begin(), list.end(), kRu), list.end());
+          save_language(step(list, language, key == kNext ? 1 : -1));
         }
         if (key == kConfirm && selected < int(images.size()) && images[selected].status == 0) ask_language(images[selected]);
         break;
@@ -1116,6 +1154,8 @@ struct App {
         if (key == kConfirm) {
           if (!pak_mode()) {
             start_conversion(pending, language_choice);
+          } else if (language_choice == kRu && ru_mod() && pak_patch != kRu) {
+            start_ruso();  // the Russian mod over this game.pak (a few seconds), then the game
           } else if (!needs_reinstall(language_choice)) {
             save_language(language_choice);  // the game starts in it
             result = 0;
@@ -1730,6 +1770,8 @@ int main(int argc, char** argv) {
   app.load_language();
   app.tool = dir_of_exe() + "/nebula-pak";
   if (access(app.tool.c_str(), X_OK) != 0) app.tool = app.smg + "/nebula-pak";
+  app.ruso_tool = dir_of_exe() + "/cactus-ruso";
+  if (access(app.ruso_tool.c_str(), X_OK) != 0) app.ruso_tool = app.smg + "/cactus-ruso";
   std::string ports = app.smg.substr(0, app.smg.rfind('/'));
   std::string roms = ports.substr(0, ports.rfind('/'));
   app.scan_dirs = {app.gamedata, app.smg, roms + "/wii", "/userdata/roms/wii", "/roms/wii", "/roms2/wii", "/storage/roms/wii"};

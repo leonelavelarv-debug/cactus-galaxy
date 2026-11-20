@@ -114,7 +114,7 @@ claves=("$repo/platform/android/vk_seed_keys.bin")
 [ -f "$here/claves-consola.bin" ] && claves+=("$here/claves-consola.bin")
 for c in ${NEBULA_CLAVES:-}; do [ -f "$c" ] || fail "no existe $c (NEBULA_CLAVES)"; claves+=("$c"); done
 "$build/aot/nebula_glsl_aot" "$build/shaders-gles.bin" "${claves[@]}" 2>> "$build/aot.log" || fail "la biblioteca GLSL fallo: $build/aot.log"
-say "4/6 nebula-pak y Cactus Galaxy Wrapper"
+say "4/6 nebula-pak, cactus-ruso y Cactus Galaxy Wrapper"
 cmake -S "$repo/platform/knulli/pak" -B "$build/pak" "${cfg[@]}" -DCACTUS_SDL2_PREFIX="$sdl2" > "$build/pak.log"
 cmake --build "$build/pak" -j "$jobs" >> "$build/pak.log" || fail "nebula-pak no compilo: $build/pak.log"
 
@@ -135,11 +135,11 @@ printf '%s\n' "Pon aqui tu disco de Super Mario Galaxy (USA, RMGE01) en ISO, RVZ
   "Cactus Galaxy Wrapper lo convierte en game.pak (o pon directamente el game.pak)." > "$full/smg/gamedata/LEEME.txt"
 strip=$(command -v llvm-strip || command -v llvm-strip-18 || true)
 [ -n "$strip" ] || fail "falta llvm-strip (sudo apt install llvm)"
-for b in "$build/nebula/nebula" "$lib" "$build/pak/nebula-pak" "$build/pak/cactus-galaxy-wrapper"; do
+for b in "$build/nebula/nebula" "$lib" "$build/pak/nebula-pak" "$build/pak/cactus-ruso" "$build/pak/cactus-galaxy-wrapper"; do
   [ -f "$b" ] || fail "no aparecio $b"
   "$strip" -o "$full/smg/$(basename "$b")" "$b"
 done
-chmod +x "$full/Super Mario Galaxy.sh" "$full/smg/nebula" "$full/smg/nebula-pak" "$full/smg/cactus-galaxy-wrapper"
+chmod +x "$full/Super Mario Galaxy.sh" "$full/smg/nebula" "$full/smg/nebula-pak" "$full/smg/cactus-ruso" "$full/smg/cactus-galaxy-wrapper"
 cp "$build/shaders-gles.bin" "$full/smg/shaders-gles.bin"
 # Para rehacer la biblioteca despues con las claves de la consola (nopal nebula shaders), sin volver a compilar.
 mkdir -p "$out/herramientas"
@@ -156,7 +156,7 @@ cp "$repo/third_party/archive/zlib/LICENSE" "$L/zlib-LICENSE"
 cp "$repo/third_party/disc/zstd/LICENSE" "$L/zstd-LICENSE"
 cp "$repo/platform/knulli/cactus/font8x8/README" "$L/font8x8-README"
 # Ningun binario lleva rutas de esta PC.
-for b in "$full/smg/nebula" "$full/smg/libsmg_game.so" "$full/smg/nebula-pak" "$full/smg/cactus-galaxy-wrapper"; do
+for b in "$full/smg/nebula" "$full/smg/libsmg_game.so" "$full/smg/nebula-pak" "$full/smg/cactus-ruso" "$full/smg/cactus-galaxy-wrapper"; do
   rutas=(-e "$repo" -e "$build")
   [ "${#HOME}" -ge 6 ] && rutas+=(-e "$HOME/")
   if grep -qa "${rutas[@]}" "$b"; then fail "$(basename "$b") lleva rutas de esta PC"; fi

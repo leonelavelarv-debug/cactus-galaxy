@@ -89,7 +89,7 @@ cp -rf "$work/smg/." "$ports/smg/" || fail "no se pudo copiar smg/ (espacio?)"
 cp -f "$work/Super Mario Galaxy.sh" "$scripts/Super Mario Galaxy.sh" || fail "no se pudo copiar el lanzador"
 # Restos de versiones anteriores: un .sh dentro de smg/ saldria como juego en algunos menus.
 rm -f "$ports/smg/cactus-galaxy-wrapper.sh"
-for tool in nebula nebula-pak cactus-galaxy-wrapper gamelist.py; do
+for tool in nebula nebula-pak cactus-ruso cactus-galaxy-wrapper gamelist.py; do
   [ -f "$ports/smg/$tool" ] && { chmod +x "$ports/smg/$tool" 2>/dev/null || $ESUDO chmod +x "$ports/smg/$tool"; }
 done
 chmod +x "$scripts/Super Mario Galaxy.sh" 2>/dev/null || $ESUDO chmod +x "$scripts/Super Mario Galaxy.sh"

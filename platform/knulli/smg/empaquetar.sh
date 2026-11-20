@@ -27,7 +27,7 @@ tar -C "$src" -cf - \
   --exclude='smg/title.png' --exclude='smg/*.sh' --exclude='smg/ultra.cfg' --exclude='smg/ultra/2*' \
   --exclude='smg/ultra/nand-bench' --exclude='smg/nebula-f*' --exclude='smg/nebula-u*' --exclude='__pycache__' smg | tar -C "$stage" -xf -
 cp "$here/smg/port.json" "$stage/smg/port.json"
-chmod +x "$stage/Super Mario Galaxy.sh" "$stage/smg/nebula" "$stage/smg/nebula-pak" \
+chmod +x "$stage/Super Mario Galaxy.sh" "$stage/smg/nebula" "$stage/smg/nebula-pak" "$stage/smg/cactus-ruso" \
   "$stage/smg/cactus-galaxy-wrapper" "$stage/smg/gamelist.py" 2>/dev/null || true
 # Sin metadatos de quien empaqueta: todas las fechas fijas (el lanzamiento del juego, 2007-11-12, a mediodia UTC) y,
 # en zip y tar, sin usuario ni grupo; zip -X quita los campos extra (uid/gid, horas de Unix).

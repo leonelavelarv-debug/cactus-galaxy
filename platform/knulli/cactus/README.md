@@ -24,6 +24,16 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   interfaz no tiene cirílico); `smg/idioma.txt` queda como `english ru` y `game.pak.idioma` como `ru english`. Con
   las dos traducciones, la lista de idiomas muestra solo los nombres, más juntos. El parche tiene que ser del disco
   USA (RMGE01), como el de PT-BR: el ruso de reWiision (2010) está hecho para el disco PAL y no aplica tal cual.
+- Ruso desde la traducción de Switch (el .zip tal como se descarga, p. ej. `Super_Mario_Galaxy_Switch_2025_RUS.zip`,
+  en `smg/patches/`, con "rus" o "ru" en el nombre; traducción de reWiision —2MON, ReD— adaptada a Switch por СаХаР
+  y N69): sus archivos son del Switch (orden de bytes al revés, letras de alta resolución, unos 55 MB), así que no
+  se copian. Al elegir "Russkiy", `cactus-ruso` (platform/knulli/pak) toma de `game.pak` el Message.arc inglés y el
+  Font.arc del juego y hace un mod en `smg/patches/ruso-switch`: cada mensaje que la traducción tiene (por su nombre)
+  en ruso, con sus etiquetas pasadas a Wii, y los demás en inglés; a cada fuente del juego le agrega las letras que
+  el ruso usa y le faltan (cirílico, «», …), reducidas a su celda, en hojas nuevas. El `game.pak` no cambia y no hace
+  falta el disco si ya existe (unos segundos). `smg/idioma.txt` queda como `english ru` y el lanzador mueve el mod a
+  `smg/mods/` (donde el juego lee los mods) solo con ese idioma; con otro lo devuelve a `smg/patches/`. Si hay
+  también un .xdelta ruso, se usa el .xdelta. La pantalla de Game Over sigue en inglés.
 - Antes del primer arranque del juego (después de la primera conversión) saluda un cactus con lentes de sol:
   "¡Viva México, Viva Sonora, Cabrones! En breve iniciará el juego." en el idioma elegido para el juego (español,
   inglés, francés, portugués o ruso en letras latinas; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
