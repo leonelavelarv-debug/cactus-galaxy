@@ -46,6 +46,24 @@ int display_list_mark_mode() noexcept {
     return mode;
 }
 
+// GALAXY_GX_DL_MARCAR_TODAS=1 (an experiment, 0 by default): the marks also spare the compares of the parsers that
+// never advance a memory generation (the PE event classifier on the game thread, the dependency scanner). Their
+// lists kept validated_generation at 0, so the "compared since" test below never held for them and they compared
+// every call (8-9 % of the game thread in AstroGalaxy, u140). `flushed` alone says it: it starts set, a flush sets
+// it, and only a compare that matched clears it.
+static bool display_list_mark_all() noexcept {
+    static const bool all = [] {
+        const char* value = std::getenv("GALAXY_GX_DL_MARCAR_TODAS");
+        const bool on = value != nullptr && value[0] == '1';
+        if (on && display_list_mark_mode() != 0) {
+            std::fprintf(stderr, "[gx] display lists: marks also for the parsers without generations "
+                                 "(GALAXY_GX_DL_MARCAR_TODAS=1)\n");
+        }
+        return on;
+    }();
+    return all;
+}
+
 namespace {
 std::atomic<std::uint64_t> g_dl_unmarked_changes{0};  // GALAXY_GX_DL_MARCAR=2
 std::atomic<std::uint64_t> g_dl_mark_compares{0};
@@ -883,7 +901,8 @@ bool FifoParser::display_list_bytes_current(
         return true;
     }
     const int mark = display_list_mark_mode();
-    if (mark == 1 && !cached.flushed && cached.validated_generation != 0u) {
+    const bool compared_since = !cached.flushed && (cached.validated_generation != 0u || display_list_mark_all());
+    if (mark == 1 && compared_since) {
         // No flush of the game over it since its bytes last matched (GALAXY_GX_DL_MARCAR=1).
 #if defined(NEBULA_GPU_GLES)
         ultra::add(ultra::kDisplayListCompareSkips, 1u);
@@ -898,7 +917,7 @@ bool FifoParser::display_list_bytes_current(
     const std::uint64_t compares =
         mark == 2 ? g_dl_mark_compares.fetch_add(1u, std::memory_order_relaxed) + 1u : 0u;
     if (!bytes.empty() && std::memcmp(bytes.data(), cached.bytes.data(), bytes.size()) != 0) {
-        if (mark == 2 && !cached.flushed && cached.validated_generation != 0u) {
+        if (mark == 2 && compared_since) {
             const std::uint64_t n = g_dl_unmarked_changes.fetch_add(1u, std::memory_order_relaxed) + 1u;
             if (n <= 30u || n % 1000u == 0u) {
                 std::fprintf(stderr, "[gx] lista sin aviso: %08x (%u bytes) cambio sin flush; %llu de %llu "

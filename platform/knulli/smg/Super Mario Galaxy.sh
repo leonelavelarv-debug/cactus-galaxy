@@ -174,6 +174,10 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
     #                                    -4 a -5 %; 2 lo compara todo y avisa ("[gx] lista sin aviso"): 44 galaxias,
     #                                    36,4 millones de comparaciones, 0 avisos; 0: como antes (docs/PHASE3_PROGRESS.md)
     export GALAXY_GX_DL_MARCAR="${GALAXY_GX_DL_MARCAR:-1}"
+    #   GALAXY_GX_DL_MARCAR_TODAS=1|0  (perfil medio) las marcas tambien en el clasificador de eventos PE del hilo del
+    #                                    juego (comparaba siempre: 8-9 % del hilo). AstroGalaxy (2 pares, 20-nov): escena
+    #                                    -7 a -9 %, +5 a +10 % imagenes nuevas; 44 galaxias verificadas con =2, 0 avisos
+    export GALAXY_GX_DL_MARCAR_TODAS="${GALAXY_GX_DL_MARCAR_TODAS:-1}"
   else
     export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
   fi
