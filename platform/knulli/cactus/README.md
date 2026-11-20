@@ -25,7 +25,7 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   (ISO, RVZ, WIA, WBFS, GCZ o CISO; sin ISO intermedio) y el idioma del juego que sustituye (`PATCH_LANGUAGE`).
   Un `game.pak` hecho antes con el parche dentro (`gamedata/game.pak.idioma`) sigue sirviendo; el idioma que el
   parche tapó se recupera convirtiendo el disco otra vez, ya sin parche.
-- Ruso (Russkiy, en letras latinas: la fuente de la interfaz no tiene cirílico), con "rus", "russian", "рус" o "ru"
+- Ruso (Русский), con "rus", "russian", "рус" o "ru"
   como palabra aparte en el nombre: un `.rusmg`, el .zip de la traducción de Switch o un .xdelta del disco USA (el
   ruso de reWiision de 2010 es del disco PAL y no aplica tal cual). El `.rusmg` es lo que `cactus-ruso --extraer`
   saca del .zip de Switch (traducción de reWiision —2MON, ReD— adaptada por СаХаР y N69): solo el texto ruso y las
@@ -41,10 +41,12 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   mandan si fijan lo mismo); se aplican al jugar.
 - Antes del primer arranque del juego (después de la primera conversión) saluda un cactus con lentes de sol:
   "¡Viva México, Viva Sonora, Cabrones! En breve iniciará el juego." en el idioma elegido para el juego (español,
-  inglés, francés, portugués o ruso en letras latinas; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
+  inglés, francés, portugués o ruso; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
   empieza al pulsar A (aquí y en "¡LISTO!"). Solo una vez: `smg/.primer-arranque` lo recuerda.
 - Idioma de la interfaz: el de KNULLI (`system.language` de `/userdata/system/batocera.conf`; si no, el de
-  EmulationStation o `LANG`): español, English, français, português, italiano o Deutsch; si no se encuentra, español.
+  EmulationStation o `LANG`): español, English, français, português, italiano, Deutsch o русский; si no se
+  encuentra, español. El cirílico es una letra 8x8 propia, del estilo de font8x8 (las letras iguales a las latinas
+  usan esas).
   `CACTUS_LANG=xx` o `--lang xx` lo fijan. Los errores habituales de nebula-pak (espacio, FAT32, imagen dañada,
   main.dol, cancelado) también salen traducidos; en una instalación nueva, el idioma del juego propuesto sigue al
   de la interfaz (español, francés o, para el resto, inglés).
@@ -60,6 +62,6 @@ Fuente: font8x8 de Daniel Hepper (<https://github.com/dhepper/font8x8>, revisió
 `font8x8/README`), basada en las fuentes VGA de IBM, también de dominio público.
 
 En la pantalla final (la despedida antes del primer arranque) va el logo de Señor Cactus, el autor del port, encima de
-"Jugar ya", igual en los cinco idiomas (`logo_senor_cactus.h`: 104×104 RGBA cuadrado, generado desde su logo;
+"Jugar ya", igual en todos los idiomas (`logo_senor_cactus.h`: 104×104 RGBA cuadrado, generado desde su logo;
 solo píxeles, sin metadatos de la imagen original). La frase dice "¡Viva México, Viva Sonora, Cabrones!" en
 español y solo los dos vivas en inglés, francés, portugués y ruso.

@@ -6,8 +6,8 @@ juego usa solo con ese idioma: elegir Español, English o Français las desactiv
   Cactus Galaxy Wrapper muestra entonces "Português" y, la primera vez que lo eliges, saca del disco los archivos
   que cambia el parche (sirve con ISO, RVZ, WIA, WBFS, GCZ o CISO).
 
-- Russkiy: Super_Mario_Galaxy_RUS.rusmg (o el .zip de la traducción de Switch tal como se descarga, por ejemplo
-  Super_Mario_Galaxy_Switch_2025_RUS.zip, con "rus" en el nombre). Al elegir Russkiy, Cactus Galaxy Wrapper hace con
+- Русский (ruso): Super_Mario_Galaxy_RUS.rusmg (o el .zip de la traducción de Switch tal como se descarga, por ejemplo
+  Super_Mario_Galaxy_Switch_2025_RUS.zip, con "rus" en el nombre). Al elegir Русский, Cactus Galaxy Wrapper hace con
   él y tu game.pak un mod de textos y letras (smg/patches/idioma-ru), sin el disco. También sirve un .xdelta ruso del
   disco USA (con "rus" o "ru" en el nombre); el de reWiision de 2010 es del disco PAL y no aplica. El
   .rusmg es lo que `cactus-ruso --extraer` guarda del .zip: solo el texto ruso y las letras que usa, sin los

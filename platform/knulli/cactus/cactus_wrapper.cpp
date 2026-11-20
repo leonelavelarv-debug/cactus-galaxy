@@ -186,9 +186,95 @@ const Glyph kExtra[] = {
     {0x2026, {"........", "........", "........", "........", "........", "........", "##.##.##", "##.##.##"}},  // ...
 };
 
+// Cyrillic of our own (Russian: the interface's and the game's), in font8x8's style; letters shaped like Latin ones
+// are those (А = A, ё = ë...).
+struct CyrillicGlyph {
+  u32 code, latin;
+  const char* rows[8];
+};
+const CyrillicGlyph kCyrillic[] = {
+    {0x0410, 0x41, {}},  // А
+    {0x0411, 0, {"######..", "##......", "##......", "#####...", "##..##..", "##..##..", "#####...", "........"}},  // Б
+    {0x0412, 0x42, {}},  // В
+    {0x0413, 0, {"######..", "##......", "##......", "##......", "##......", "##......", "##......", "........"}},  // Г
+    {0x0414, 0, {"..####..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", "#######.", "##...##."}},  // Д
+    {0x0415, 0x45, {}},  // Е
+    {0x0401, 0xCB, {}},  // Ё
+    {0x0416, 0, {"##.##.##", "##.##.##", ".######.", "..####..", ".######.", "##.##.##", "##.##.##", "........"}},  // Ж
+    {0x0417, 0, {".####...", "##..##..", "....##..", "..###...", "....##..", "##..##..", ".####...", "........"}},  // З
+    {0x0418, 0, {"##...##.", "##..###.", "##.####.", "#######.", "####.##.", "###..##.", "##...##.", "........"}},  // И
+    {0x0419, 0, {"..###...", "##...##.", "##..###.", "##.####.", "####.##.", "###..##.", "##...##.", "........"}},  // Й
+    {0x041A, 0x4B, {}},  // К
+    {0x041B, 0, {"..####..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", "##..##..", "........"}},  // Л
+    {0x041C, 0x4D, {}},  // М
+    {0x041D, 0x48, {}},  // Н
+    {0x041E, 0x4F, {}},  // О
+    {0x041F, 0, {"#######.", "##...##.", "##...##.", "##...##.", "##...##.", "##...##.", "##...##.", "........"}},  // П
+    {0x0420, 0x50, {}},  // Р
+    {0x0421, 0x43, {}},  // С
+    {0x0422, 0x54, {}},  // Т
+    {0x0423, 0, {"##...##.", "##...##.", "##...##.", ".######.", ".....##.", "##...##.", ".#####..", "........"}},  // У
+    {0x0424, 0, {"...##...", ".######.", "##.##.##", "##.##.##", ".######.", "...##...", "...##...", "........"}},  // Ф
+    {0x0425, 0x58, {}},  // Х
+    {0x0426, 0, {"##..##..", "##..##..", "##..##..", "##..##..", "##..##..", "#######.", ".....##.", "........"}},  // Ц
+    {0x0427, 0, {"##...##.", "##...##.", "##...##.", ".######.", ".....##.", ".....##.", ".....##.", "........"}},  // Ч
+    {0x0428, 0, {"##.##.##", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", "........"}},  // Ш
+    {0x0429, 0, {"##.##.##", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", ".......#", "........"}},  // Щ
+    {0x042A, 0, {"###.....", ".##.....", ".##.....", ".####...", ".##.##..", ".##.##..", ".####...", "........"}},  // Ъ
+    {0x042B, 0, {"##....##", "##....##", "##....##", "####..##", "##.##.##", "##.##.##", "####..##", "........"}},  // Ы
+    {0x042C, 0, {"##......", "##......", "##......", "#####...", "##..##..", "##..##..", "#####...", "........"}},  // Ь
+    {0x042D, 0, {".####...", "##..##..", "....##..", "..####..", "....##..", "##..##..", ".####...", "........"}},  // Э
+    {0x042E, 0, {"##..###.", "##.##.##", "####..##", "####..##", "####..##", "##.##.##", "##..###.", "........"}},  // Ю
+    {0x042F, 0, {".######.", "##...##.", "##...##.", ".######.", "..##.##.", ".##..##.", "##...##.", "........"}},  // Я
+    {0x0430, 0x61, {}},  // а
+    {0x0431, 0, {"..####..", ".##.....", "##......", "#####...", "##..##..", "##..##..", ".####...", "........"}},  // б
+    {0x0432, 0, {"........", "........", "#####...", "##..##..", "#####...", "##..##..", "#####...", "........"}},  // в
+    {0x0433, 0, {"........", "........", "######..", "##......", "##......", "##......", "##......", "........"}},  // г
+    {0x0434, 0, {"........", "........", "..####..", ".##.##..", ".##.##..", ".##.##..", "#######.", "##...##."}},  // д
+    {0x0435, 0x65, {}},  // е
+    {0x0451, 0xEB, {}},  // ё
+    {0x0436, 0, {"........", "........", "##.##.##", ".######.", "..####..", ".######.", "##.##.##", "........"}},  // ж
+    {0x0437, 0, {"........", "........", ".####...", "....##..", "..###...", "....##..", ".####...", "........"}},  // з
+    {0x0438, 0, {"........", "........", "##...##.", "##..###.", "##.####.", "####.##.", "##...##.", "........"}},  // и
+    {0x0439, 0, {"........", "..###...", "##...##.", "##..###.", "##.####.", "####.##.", "##...##.", "........"}},  // й
+    {0x043A, 0, {"........", "........", "##..##..", "##.##...", "####....", "##.##...", "##..##..", "........"}},  // к
+    {0x043B, 0, {"........", "........", "..####..", ".##.##..", ".##.##..", ".##.##..", "##..##..", "........"}},  // л
+    {0x043C, 0, {"........", "........", "##...##.", "###.###.", "#######.", "##.#.##.", "##...##.", "........"}},  // м
+    {0x043D, 0, {"........", "........", "##..##..", "##..##..", "######..", "##..##..", "##..##..", "........"}},  // н
+    {0x043E, 0x6F, {}},  // о
+    {0x043F, 0, {"........", "........", "######..", "##..##..", "##..##..", "##..##..", "##..##..", "........"}},  // п
+    {0x0440, 0x70, {}},  // р
+    {0x0441, 0x63, {}},  // с
+    {0x0442, 0, {"........", "........", "######..", "..##....", "..##....", "..##....", "..##....", "........"}},  // т
+    {0x0443, 0x79, {}},  // у
+    {0x0444, 0, {"...##...", "...##...", ".######.", "##.##.##", "##.##.##", ".######.", "...##...", "...##..."}},  // ф
+    {0x0445, 0x78, {}},  // х
+    {0x0446, 0, {"........", "........", "##..##..", "##..##..", "##..##..", "##..##..", "#######.", ".....##."}},  // ц
+    {0x0447, 0, {"........", "........", "##..##..", "##..##..", ".#####..", "....##..", "....##..", "........"}},  // ч
+    {0x0448, 0, {"........", "........", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", "........"}},  // ш
+    {0x0449, 0, {"........", "........", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", ".......#"}},  // щ
+    {0x044A, 0, {"........", "........", "###.....", ".##.....", ".####...", ".##.##..", ".####...", "........"}},  // ъ
+    {0x044B, 0, {"........", "........", "##....##", "##....##", "####..##", "##.##.##", "####..##", "........"}},  // ы
+    {0x044C, 0, {"........", "........", "##......", "##......", "#####...", "##..##..", "#####...", "........"}},  // ь
+    {0x044D, 0, {"........", "........", ".####...", "....##..", "..####..", "....##..", ".####...", "........"}},  // э
+    {0x044E, 0, {"........", "........", "##..###.", "##.##.##", "####..##", "##.##.##", "##..###.", "........"}},  // ю
+    {0x044F, 0, {"........", "........", ".#####..", "##..##..", ".#####..", "..#.##..", "##..##..", "........"}},  // я
+};
+
 void glyph_bits(u32 code, unsigned char out[8]) {
   if (code < 128) { memcpy(out, font8x8_basic[code], 8); return; }
   if (code >= 0xA0 && code <= 0xFF) { memcpy(out, font8x8_ext_latin[code - 0xA0], 8); return; }
+  if (code >= 0x401 && code <= 0x451) {
+    for (const CyrillicGlyph& g : kCyrillic) {
+      if (g.code != code) continue;
+      if (g.latin) { glyph_bits(g.latin, out); return; }
+      for (int r = 0; r < 8; ++r) {
+        out[r] = 0;
+        for (int c = 0; c < 8; ++c) if (g.rows[r][c] == '#') out[r] |= u32(1) << c;
+      }
+      return;
+    }
+  }
   for (const Glyph& g : kExtra) {
     if (g.code != code) continue;
     for (int r = 0; r < 8; ++r) {
@@ -594,8 +680,8 @@ std::string detect_ui_language() {
 
 std::string mib_text(double mib) {
   char b[64];
-  if (mib >= 1024.0) snprintf(b, sizeof(b), "%.1f %s", mib / 1024.0, g_ui == UI_FR ? "Go" : "GB");
-  else snprintf(b, sizeof(b), "%.0f %s", mib, g_ui == UI_FR ? "Mo" : "MB");
+  if (mib >= 1024.0) snprintf(b, sizeof(b), "%.1f %s", mib / 1024.0, g_ui == UI_FR ? "Go" : g_ui == UI_RU ? "ГБ" : "GB");
+  else snprintf(b, sizeof(b), "%.0f %s", mib, g_ui == UI_FR ? "Mo" : g_ui == UI_RU ? "МБ" : "MB");
   std::string s = b;
   if (g_ui != UI_EN) std::replace(s.begin(), s.end(), '.', ',');
   return s;
@@ -623,9 +709,10 @@ std::string translate_error(const std::string& e) {
 std::string duration_text(double seconds) {
   char b[64];
   const long s = long(seconds + 0.5);
-  if (s >= 3600) snprintf(b, sizeof(b), "%ld h %02ld min", s / 3600, s / 60 % 60);
-  else if (s >= 60) snprintf(b, sizeof(b), "%ld min %02ld s", s / 60, s % 60);
-  else snprintf(b, sizeof(b), "%ld s", s);
+  const bool ru = g_ui == UI_RU;
+  if (s >= 3600) snprintf(b, sizeof(b), ru ? "%ld ч %02ld мин" : "%ld h %02ld min", s / 3600, s / 60 % 60);
+  else if (s >= 60) snprintf(b, sizeof(b), ru ? "%ld мин %02ld с" : "%ld min %02ld s", s / 60, s % 60);
+  else snprintf(b, sizeof(b), ru ? "%ld с" : "%ld s", s);
   return b;
 }
 
@@ -751,7 +838,7 @@ enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Se
 
 // The languages of the USA disc, as GALAXY_LANGUAGE names them (the launcher reads smg/idioma.txt), and Brazilian
 // Portuguese and Russian: the disc patched on the way with a translation's xdelta (smg/patches/), into one of those
-// three slots. The menu font has no Cyrillic, so Russian is written in Latin letters here.
+// three slots (Russian in the interface's own Cyrillic).
 struct Language {
   const char* key;
   const char* name;
@@ -763,7 +850,7 @@ const Language kLanguages[] = {
     {"english", "English", "texts and menus", ""},
     {"french", "Français", "textes et menus", ""},
     {"ptbr", "Português", "Brasil · tradução", "PT-BR"},
-    {"ru", "Russkiy", "russkiy perevod", "RU"},
+    {"ru", "Русский", "русский перевод", "RU"},
 };
 constexpr int kPtBr = 3, kRu = 4;
 constexpr int kPatchedFirst = kPtBr, kPatchedCount = 2;
@@ -774,13 +861,13 @@ int patched_of(const std::string& key) {
 }
 
 // The send-off before the game's very first start, in the game's language (Spanish, English, French, Brazilian
-// Portuguese, Russian in Latin letters); "Cabrones" only in Spanish, the other languages say the two vivas.
+// Portuguese, Russian); "Cabrones" only in Spanish, the other languages say the two vivas.
 const char* const kViva[5][3] = {
     {"¡Viva México, Viva Sonora, Cabrones!", "En breve iniciará el juego.", "Jugar ya"},
     {"Long live Mexico, long live Sonora!", "The game will start shortly.", "Play now"},
     {"Vive le Mexique, vive Sonora !", "Le jeu va bientôt commencer.", "Jouer"},
     {"Viva o México, viva Sonora!", "O jogo vai começar em breve.", "Jogar já"},
-    {"Da zdravstvuyut Meksika i Sonora!", "Igra skoro nachnyotsya.", "Igrat'"},
+    {"Да здравствуют Мексика и Сонора!", "Игра скоро начнётся.", "Играть"},
 };
 
 // Cool sunglasses and a grin on the full-grown saguaro (draw_cactus at growth 1).
@@ -944,7 +1031,8 @@ struct App {
   void load_language() {
     // Not chosen yet: the menu's language for a new install (spanish, english, french; Portuguese when the patch is
     // there), Spanish if game.pak is already there (what the launcher uses without smg/idioma.txt).
-    language = have_pak ? 0 : (g_ui == UI_ES ? 0 : g_ui == UI_FR ? 2 : (g_ui == UI_PT && have_patch(kPtBr)) ? kPtBr : 1);
+    language = have_pak ? 0 : (g_ui == UI_ES ? 0 : g_ui == UI_FR ? 2 : (g_ui == UI_PT && have_patch(kPtBr)) ? kPtBr
+                                 : (g_ui == UI_RU && have_patch(kRu)) ? kRu : 1);
     const std::vector<std::string> pak = words(pak_language_file);  // an older game.pak with a patch: "ptbr english"
     pak_patch = pak.size() >= 2 && have_pak ? patched_of(pak[0]) : -1;
     pak_patched_slot = pak_patch >= 0 ? slot_of(pak[1]) : -1;
@@ -1542,11 +1630,11 @@ struct App {
     text_center(cv, kCenter, 156, fit(converted_name, 22), 2, kMuted);
     text_center(cv, kCenter, 188, format("%d%%", int(percent)), 6, kWhite);
     progress_bar(cv, kLeft + 4, 252, kPanelW - 40, 32, float(percent / 100.0), time);
-    const char* unit = g_ui == UI_FR ? "Mo" : "MB";
+    const char* unit = g_ui == UI_FR ? "Mo" : g_ui == UI_RU ? "МБ" : "MB";
     if (total > 0) text_center(cv, kCenter, 300, format("%.0f / %.0f %s", done, total, unit), 2, kWhite);
     else text_center(cv, kCenter, 300, fit(T(S_READING), 22), 2, kWhite);
     if (speed > 0.05 && total > 0) {
-      text_center(cv, kCenter, 324, mib_text(speed) + "/s", 2, kMuted);
+      text_center(cv, kCenter, 324, mib_text(speed) + (g_ui == UI_RU ? "/с" : "/s"), 2, kMuted);
       text_center(cv, kCenter, 348, fit(format(T(S_LEFT), duration_text((total - done) / speed).c_str()), 22), 2, kMuted);
     }
     const float pulse = 0.65f + 0.35f * std::sin(time * 3.0f);

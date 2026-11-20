@@ -1,5 +1,5 @@
 // Cactus Galaxy Wrapper's texts in the languages of KNULLI's menu it follows (system.language): Spanish, English,
-// French, Portuguese, Italian and German. Each line fits the panel (22 characters at the body size) or is wrapped.
+// French, Portuguese, Italian, German and Russian. Each line fits the panel (22 characters at the body size) or is wrapped.
 #pragma once
 
 enum Str {
@@ -12,10 +12,10 @@ enum Str {
   S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_ERR_MOD, S_COUNT
 };
 
-enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_COUNT };
+enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_RU, UI_COUNT };
 
 // "es", "en"... as system.language starts.
-inline const char* const kUiCodes[UI_COUNT] = {"es", "en", "fr", "pt", "it", "de"};
+inline const char* const kUiCodes[UI_COUNT] = {"es", "en", "fr", "pt", "it", "de", "ru"};
 
 inline const char* const kText[UI_COUNT][S_COUNT] = {
     {  // Español
@@ -131,5 +131,24 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Ohne Patch: Original", "Patch wird erstellt",
         "Einstellungen", "Auflösung", "Vibration", "Auto (dynamisch)", "empfohlen", "Gilt beim Spielen",
         "Der Sprachpatch konnte nicht erstellt werden. Details in log.txt.",
+    },
+    {  // Русский
+        "Выбери диск:", "Диск не найден",
+        "Положи ISO или RVZ Super Mario Galaxy (USA) в roms/ports/smg/gamedata или в roms/wii и открой снова.",
+        "проверка…", "другая игра", "не диск Wii", "Язык: ", "Свободно: ", "Есть game.pak · ", "game.pak уже готов",
+        " (мало)", "Создать", "Выход", "Удалить диск: ", "Да", "Нет", "Язык игры", "Language · Idioma",
+        "Потом: держи SELECT", "Установить", "Назад", "Конвертация", "Отмена…", "Чтение диска…", "Осталось %s",
+        "Не выключай консоль", "Отмена", "ГОТОВО!", "game.pak создан", "за %s", "Диск удалён", "Твой кактус расцвёл",
+        "Старт через %d с", "Играть", "ОЙ!", "Не удалось создать", "Не удалось запустить nebula-pak.",
+        "nebula-pak завершился с кодом %d.", "Мало места: нужно %s, свободно %s.", "На карте закончилось место.",
+        "Карта в FAT32, а он не держит файлы больше 4 ГБ: используй exFAT или ext4.",
+        "Образ диска неполный или повреждён: скопируй его заново.",
+        "main.dol не оригинальный: образ может быть повреждён.", "Конвертация отменена.",
+        "Этот диск не подходит к патчу перевода: нужен оригинальный, неизменённый Super Mario Galaxy USA.",
+        "Нет игры",
+        "Скопируй свой диск Super Mario Galaxy (USA), ISO или RVZ, в папку:\nports/smg/gamedata\n(или roms/wii). Он появится здесь сам.",
+        "Ищу диск…", "Играть", "Переустановка с:", "game.pak готов ✓", "Без патчей: оригинал",
+        "Патч будет подготовлен", "Настройки", "Разрешение", "Вибрация", "Авто (динамика)", "оптимально",
+        "Применится в игре", "Не удалось подготовить языковой патч. Подробности в log.txt.",
     },
 };
