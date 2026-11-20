@@ -63,6 +63,10 @@ public:
     void resetAudioParams();
     bool setVolume(s32, s32);
     bool isPreLoading() const;
+#ifdef TARGET_PC
+    // Nebula: decoded audio buffers still waiting for the mixer (0 when the movie has no audio).
+    s32 queuedAudioBuffers() const;
+#endif
     void setUnpauseFrameFlag();
 
     static THPSimplePlayerStaticAudio mStaticAudioPlayer;

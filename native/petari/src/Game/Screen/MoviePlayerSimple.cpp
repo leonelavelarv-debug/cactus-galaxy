@@ -209,12 +209,45 @@ void MoviePlayerSimple::exePlaying() {
             break;
         case 2:
             mMovie->_24++;
+#ifdef TARGET_PC
+            {
+                // Nebula: a game frame whose movie frame had not been read from the disc yet (the movie falls behind).
+                static u32 sNotReady = 0;
+                if ((++sNotReady % 60u) == 1u) {
+                    OSReport("THP: cuadro sin leer a tiempo (%u en total)\n", (unsigned)sNotReady);
+                }
+            }
+#endif
             break;
         case 3:
             return;
         }
     }
 
+#ifdef TARGET_PC
+    // Nebula (on by default; NEBULA_VIDEO_AUDIO_RELOJ=0 turns it off): the movie's audio is mixed in real time, but the console
+    // decodes one movie frame per game frame. When the game runs below 60 frames a second the audio runs dry and
+    // cuts out; here a frame decodes again (at most 3 more) while fewer than 5 audio buffers (~80 ms) are queued:
+    // u155 kept 3 and still ran dry in ~4 % of the mixes. The
+    // picture shows the newest decoded frame, so it skips the ones in between as the console would when late.
+    {
+        static const bool sAudioClock = [] {
+            const char* value = getenv("NEBULA_VIDEO_AUDIO_RELOJ");
+            return value == nullptr || value[0] != '0';
+        }();
+        if (sAudioClock && mPlayerWrapper->mAudioExist) {
+            static u32 sCatchUp = 0;
+            for (s32 extra = 0; extra < 3 && mPlayerWrapper->queuedAudioBuffers() < 5; extra++) {
+                if (mPlayerWrapper->decode(0) != 0) {
+                    break;
+                }
+                if ((++sCatchUp % 300u) == 1u) {
+                    OSReport("THP: cuadro extra para no dejar sin audio (%u en total)\n", (unsigned)sCatchUp);
+                }
+            }
+        }
+    }
+#endif
     mMovie->_20++;
 
     if (mMovie->_19) {
