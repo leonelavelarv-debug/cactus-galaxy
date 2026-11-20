@@ -30,7 +30,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "La tarjeta está en FAT32, que no admite archivos de más de 4 GB: usa exFAT o ext4.",
         "La imagen del disco está incompleta o dañada: vuelve a copiarla.",
         "main.dol no es el original: la imagen puede estar dañada.", "Conversión cancelada.",
-        "Este disco no es el que espera el parche PT-BR: hace falta el Super Mario Galaxy USA original, sin modificar.",
+        "Este disco no es el que espera el parche de traducción: hace falta el Super Mario Galaxy USA original, sin modificar.",
         "Falta el juego", "Copia tu disco de Super Mario Galaxy (USA), en ISO o RVZ, a la carpeta:\nports/smg/gamedata\n(o a roms/wii). Aparecerá aquí solo.", "Buscando el disco…", "Jugar", "Se reinstala desde:", "game.pak listo ✓",
     },
     {  // English
@@ -46,7 +46,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "The card is FAT32, which cannot hold files over 4 GB: use exFAT or ext4.",
         "The disc image is incomplete or damaged: copy it again.",
         "main.dol is not the original one: the image may be damaged.", "Conversion cancelled.",
-        "This disc is not the one the PT-BR patch expects: it needs the original, unmodified USA Super Mario Galaxy.",
+        "This disc is not the one the translation patch expects: it needs the original, unmodified USA Super Mario Galaxy.",
         "Game missing", "Copy your Super Mario Galaxy (USA) disc, as ISO or RVZ, to the folder:\nports/smg/gamedata\n(or roms/wii). It will show up here.", "Looking for the disc…", "Play", "Reinstalls from:", "game.pak ready ✓",
     },
     {  // Français
@@ -62,7 +62,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "La carte est en FAT32, qui n'accepte pas les fichiers de plus de 4 Go : utilise exFAT ou ext4.",
         "L'image du disque est incomplète ou abîmée : recopie-la.",
         "main.dol n'est pas l'original : l'image est peut-être abîmée.", "Conversion annulée.",
-        "Ce disque n'est pas celui qu'attend le patch PT-BR : il faut le Super Mario Galaxy USA original, non modifié.",
+        "Ce disque n'est pas celui qu'attend le patch de traduction : il faut le Super Mario Galaxy USA original, non modifié.",
         "Jeu manquant", "Copie ton disque de Super Mario Galaxy (USA), en ISO ou RVZ, dans le dossier :\nports/smg/gamedata\n(ou roms/wii). Il apparaîtra ici.", "Recherche du disque…", "Jouer", "Réinstallé depuis :", "game.pak prêt ✓",
     },
     {  // Português
@@ -78,7 +78,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "O cartão está em FAT32, que não aceita arquivos de mais de 4 GB: use exFAT ou ext4.",
         "A imagem do disco está incompleta ou danificada: copie de novo.",
         "main.dol não é o original: a imagem pode estar danificada.", "Conversão cancelada.",
-        "Este disco não é o que o patch PT-BR espera: é preciso o Super Mario Galaxy USA original, sem modificações.",
+        "Este disco não é o que o patch de tradução espera: é preciso o Super Mario Galaxy USA original, sem modificações.",
         "Falta o jogo", "Copie seu disco de Super Mario Galaxy (USA), em ISO ou RVZ, para a pasta:\nports/smg/gamedata\n(ou roms/wii). Ele aparece aqui.", "Procurando o disco…", "Jogar", "Reinstala a partir de:", "game.pak pronto ✓",
     },
     {  // Italiano
@@ -94,7 +94,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "La scheda è in FAT32, che non accetta file oltre 4 GB: usa exFAT o ext4.",
         "L'immagine del disco è incompleta o danneggiata: ricopiala.",
         "main.dol non è l'originale: l'immagine potrebbe essere danneggiata.", "Conversione annullata.",
-        "Questo disco non è quello che si aspetta la patch PT-BR: serve il Super Mario Galaxy USA originale, non modificato.",
+        "Questo disco non è quello che si aspetta la patch di traduzione: serve il Super Mario Galaxy USA originale, non modificato.",
         "Manca il gioco", "Copia il disco di Super Mario Galaxy (USA), in ISO o RVZ, nella cartella:\nports/smg/gamedata\n(o roms/wii). Apparirà qui.", "Ricerca del disco…", "Gioca", "Si reinstalla da:", "game.pak pronto ✓",
     },
     {  // Deutsch
@@ -110,7 +110,7 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Die Karte ist FAT32 und kann keine Dateien über 4 GB speichern: nimm exFAT oder ext4.",
         "Das Disc-Abbild ist unvollständig oder beschädigt: kopiere es neu.",
         "main.dol ist nicht das Original: das Abbild ist vielleicht beschädigt.", "Umwandlung abgebrochen.",
-        "Diese Disc passt nicht zum PT-BR-Patch: nötig ist das unveränderte Original von Super Mario Galaxy (USA).",
+        "Diese Disc passt nicht zum Übersetzungs-Patch: nötig ist das unveränderte Original von Super Mario Galaxy (USA).",
         "Spiel fehlt", "Kopiere deine Disc von Super Mario Galaxy (USA) als ISO oder RVZ in den Ordner:\nports/smg/gamedata\n(oder roms/wii). Sie erscheint dann hier.", "Suche nach der Disc…", "Spielen", "Neu installiert aus:", "game.pak bereit ✓",
     },
 };

@@ -5,6 +5,10 @@ Parches de traducción para Cactus Galaxy Wrapper (xdelta del ISO original de Su
   juego y, si lo eliges, aplica el parche al disco mientras hace game.pak (sirve con ISO, RVZ, WIA, WBFS, GCZ o
   CISO; no hace falta un ISO parcheado ni espacio extra).
 
+- Russkiy (ruso): pon aquí el .xdelta con "rus", "russian" o "ru" en el nombre (por ejemplo smg-ru.xdelta).
+  Funciona igual que el portugués. Tiene que ser un parche del disco USA (RMGE01): la traducción rusa de reWiision
+  (2010) está hecha para el disco PAL y no aplica sobre el USA.
+
 El parche se comprueba contra tu disco: si no es el original sin modificar, la conversión se detiene con un aviso.
 
 Traducción al portugués de Brasil (v1.0, 2012): Brazilian Warriors y Nintendo BR. Autores: Ray, xujozer, Joelson Kamppello, Angel Forgotten y ERT_Ganon.

@@ -7,8 +7,8 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
 - Va dentro del port: el lanzador de Super Mario Galaxy la abre (`--setup`) la primera vez (sin `game.pak` o sin
   idioma elegido) y cuando se mantiene SELECT o L1 al abrir el juego (`--held` lo mira en 0,35 s). Sin `game.pak`
   pide el disco y lo detecta en cuanto se copia; con un único disco válido va directo al idioma y lo convierte; con
-  `game.pak` ofrece los idiomas del juego (A: jugar; los que necesitan otro game.pak, PT-BR o el idioma que este
-  sustituyó, lo rehacen desde el disco). Salida 0: arrancar el juego; 1: volver sin jugar; 3: sin pantalla.
+  `game.pak` ofrece los idiomas del juego (A: jugar; los que necesitan otro game.pak, una traducción o el idioma que
+  esta sustituyó, lo rehacen desde el disco). Salida 0: arrancar el juego; 1: volver sin jugar; 3: sin pantalla.
 - Busca discos en `smg/gamedata/`, `smg/` y `roms/wii/`; los comprueba con `nebula-pak --identify`.
 - Idioma del juego: al convertir pregunta Español, English o Français (lo que trae el disco USA) y lo guarda en
   `smg/idioma.txt`, que el lanzador del juego pasa como `GALAXY_LANGUAGE`. En el menú, ◄► lo cambia en cualquier
@@ -19,9 +19,14 @@ terminar. La conversión la hace `nebula-pak` (`platform/knulli/pak`) como proce
   traducción (`PATCH_LANGUAGE`: los ficheros cambiados en UsEnglish/UsSpanish/UsFrench); `smg/idioma.txt` queda
   como `english ptbr` y `gamedata/game.pak.idioma` como `ptbr english`. En el menú, ◄► ofrece entonces Português y
   los otros dos idiomas.
+- Ruso, igual que el portugués: con un .xdelta en `smg/patches/` cuyo nombre lleve "rus", "russian", "рус" o "ru"
+  como palabra aparte (`smg-ru.xdelta`, `SMG_RU_v1.xdelta`), aparece "Russkiy" (en letras latinas: la fuente de la
+  interfaz no tiene cirílico); `smg/idioma.txt` queda como `english ru` y `game.pak.idioma` como `ru english`. Con
+  las dos traducciones, la lista de idiomas muestra solo los nombres, más juntos. El parche tiene que ser del disco
+  USA (RMGE01), como el de PT-BR: el ruso de reWiision (2010) está hecho para el disco PAL y no aplica tal cual.
 - Antes del primer arranque del juego (después de la primera conversión) saluda un cactus con lentes de sol:
   "¡Viva México, Viva Sonora, Cabrones! En breve iniciará el juego." en el idioma elegido para el juego (español,
-  inglés, francés o portugués; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
+  inglés, francés, portugués o ruso en letras latinas; "Cabrones" no se traduce), con "Jugar ya" también en ese idioma. El juego solo
   empieza al pulsar A (aquí y en "¡LISTO!"). Solo una vez: `smg/.primer-arranque` lo recuerda.
 - Idioma de la interfaz: el de KNULLI (`system.language` de `/userdata/system/batocera.conf`; si no, el de
   EmulationStation o `LANG`): español, English, français, português, italiano o Deutsch; si no se encuentra, español.
@@ -40,6 +45,6 @@ Fuente: font8x8 de Daniel Hepper (<https://github.com/dhepper/font8x8>, revisió
 `font8x8/README`), basada en las fuentes VGA de IBM, también de dominio público.
 
 En la pantalla final (la despedida antes del primer arranque) va el logo de Señor Cactus, el autor del port, encima de
-"Jugar ya", igual en los cuatro idiomas (`logo_senor_cactus.h`: 104×104 RGBA cuadrado, generado desde su logo;
+"Jugar ya", igual en los cinco idiomas (`logo_senor_cactus.h`: 104×104 RGBA cuadrado, generado desde su logo;
 solo píxeles, sin metadatos de la imagen original). La frase dice "¡Viva México, Viva Sonora, Cabrones!" en
-español y solo los dos vivas en inglés, francés y portugués.
+español y solo los dos vivas en inglés, francés, portugués y ruso.
