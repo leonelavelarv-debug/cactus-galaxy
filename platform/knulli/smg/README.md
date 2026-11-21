@@ -60,8 +60,10 @@ en `smg/ajustes.cfg`; `16bits` ahorra más, `no` lo apaga). Un pack de texturas 
 hay que reducirlo antes en la PC (`nopal texturas reducir` de Nopal), porque no cabe en 1 GB. Un `.zip` con
 `TexturePacks/RMGE01/` junto al instalador se instala solo (sustituye el pack anterior y se borra el zip).
 Mods: un `.zip`, `.7z` o `.rar` con archivos del juego (`.arc`, `.szs`...) o `riivolution/` junto al instalador va a
-`smg/mods/<nombre del archivo>/` (7z y rar con el `7zzs` de PortMaster). Para quitar un mod, borra su carpeta;
-si el nuevo cambia los mismos archivos que otro ya instalado, el anterior se aparta a `smg/mods-desactivados/`.
+`smg/mods/<nombre del archivo>/` (7z y rar con el `7zzs` de PortMaster). Se encienden y apagan en Cactus Galaxy
+Wrapper: SELECT al abrir, X (Ajustes) > Mods. Apagado = movido a `smg/mods-desactivados/` (nunca se borra); al
+encender uno se apagan los que cambian los mismos archivos (p. ej. dos mods de personaje), y el instalador hace lo
+mismo con uno nuevo.
 Con `NOPAL_DEPURAR=5555` en `smg/ajustes.cfg`, el Depurador de Nopal Estudio se conecta desde la PC (por WiFi) y
 muestra los FPS, el tiempo de cada frame, la memoria y log.txt en vivo, y pausa el juego.
 

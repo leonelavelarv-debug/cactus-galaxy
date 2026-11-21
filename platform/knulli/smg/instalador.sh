@@ -202,9 +202,9 @@ printf '%s\n' "$mod_dirs" | while IFS= read -r dir; do
         viejos=$(find "$otro" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; | tr '[:upper:]' '[:lower:]' | sort)
         [ -n "$nuevos" ] && [ -n "$viejos" ] && printf '%s\n' "$viejos" | grep -qxF -f <(printf '%s\n' "$nuevos") || continue
         mkdir -p "$ports/smg/mods-desactivados" && rm -rf "$ports/smg/mods-desactivados/$o" &&
-          mv "$otro" "$ports/smg/mods-desactivados/$o" && say "El mod $o cambia los mismos archivos: apartado en smg/mods-desactivados/."
+          mv "$otro" "$ports/smg/mods-desactivados/$o" && say "El mod $o cambia los mismos archivos: queda apagado (se enciende en Ajustes > Mods)."
       done
-      say "Mod instalado: $nombre. Para quitarlo, borra smg/mods/$nombre."
+      say "Mod instalado: $nombre. Se enciende y apaga en Ajustes > Mods (manten SELECT al abrir el juego y pulsa X)."
     else
       rm -rf "$tmp"
       say "No se pudo instalar el mod $nombre (espacio?)."; sleep 5
