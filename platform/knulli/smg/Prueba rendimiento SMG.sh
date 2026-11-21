@@ -15,11 +15,19 @@ source "$controlfolder/control.txt"
 PRUEBA_GALAXIAS=${PRUEBA_GALAXIAS:-8}
 
 SMG="/$directory/ports/smg"
-JUEGO="/$directory/ports/Super Mario Galaxy.sh"
+# El lanzador del juego: junto a esta prueba (donde el instalador puso los dos) o en ports/.
+JUEGO="$(cd "$(dirname "$0")" 2>/dev/null && pwd)/Super Mario Galaxy.sh"
+[ -f "$JUEGO" ] || JUEGO="/$directory/ports/Super Mario Galaxy.sh"
+# Todo lo de antes de abrir el juego queda en smg/prueba/inicio.txt (si la prueba no arranca, ahi dice por que).
+mkdir -p "$SMG/prueba" 2>/dev/null && exec > >(tee "$SMG/prueba/inicio.txt") 2>&1
+echo "prueba: $(date '+%F %T') | firmware ${CFW_NAME:-?} | directory=$directory | juego: $JUEGO | smg: $SMG"
 aviso() {
   echo "$1"
-  for tty in /dev/tty0 /dev/tty1; do [ -w "$tty" ] && printf '\033c%s\n' "$1" > "$tty" 2>/dev/null; done
+  if type pm_message >/dev/null 2>&1; then pm_message "$1"; else
+    for tty in /dev/tty0 /dev/tty1; do [ -w "$tty" ] && printf '\033c%s\n' "$1" > "$tty" 2>/dev/null; done
+  fi
   sleep "${2:-6}"
+  type pm_message_end >/dev/null 2>&1 && pm_message_end
 }
 [ -f "$JUEGO" ] && [ -x "$SMG/nebula" ] || { aviso "Prueba: falta el port (ports/Super Mario Galaxy.sh y ports/smg)."; exit 1; }
 [ -f "$SMG/gamedata/game.pak" ] && [ -f "$SMG/idioma.txt" ] ||
@@ -353,7 +361,8 @@ for name in $names; do
       case "$key" in NEBULA_*|GALAXY_*) export "$key=$value"; echo "  $name: $key=$value" ;; esac
     done < <(awk -v want="$name" '{ sub(/\r$/, "") } /^[[:space:]]*\[/ { s = $0; gsub(/[][[:space:]]/, "", s); next }
                                    s == want && /=/ && !/^[[:space:]]*#/ { print }' "$GAMEDIR/prueba/serie.cfg")
-    if command -v timeout >/dev/null 2>&1; then
+    # Solo con un timeout que entienda -k (el de BusyBox viejo no): si no, sin limite de tiempo.
+    if command -v timeout >/dev/null 2>&1 && timeout -k 1 5 true >/dev/null 2>&1; then
       timeout -k 10 "$limite" ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$GAMEDIR/prueba/nand"
     else
       ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$GAMEDIR/prueba/nand"
@@ -384,4 +393,5 @@ awk -v j="$juego_linea" -v l="$log_linea" '
   { print }' "$JUEGO" > "$SMG/prueba/juego.sh"
 aviso "Prueba de rendimiento: $(grep -c '^\[' "$SMG/prueba/serie.cfg") pruebas de $PRUEBA_GALAXIAS galaxias (unos $(( $(grep -c '^\[' "$SMG/prueba/serie.cfg") * (2 + PRUEBA_GALAXIAS / 2) )) min). No toques nada; al final vuelve solo." 8
 export PRUEBA_GALAXIAS
+echo "prueba: abriendo el juego (log en smg/prueba/log.txt)"
 exec bash "$SMG/prueba/juego.sh"
