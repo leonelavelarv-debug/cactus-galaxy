@@ -157,6 +157,7 @@ cp "$repo/third_party/archive/xz/COPYING.0BSD" "$L/liblzma-COPYING.0BSD"
 cp "$repo/third_party/archive/zlib/LICENSE" "$L/zlib-LICENSE"
 cp "$repo/third_party/disc/zstd/LICENSE" "$L/zstd-LICENSE"
 cp "$repo/platform/knulli/cactus/font8x8/README" "$L/font8x8-README"
+cp "$repo/platform/knulli/MARCA.md" "$L/MARCA.md"  # nombre y logo de Senor Cactus fuera de la GPL
 # Ningun binario lleva rutas de esta PC.
 for b in "$full/smg/nebula" "$full/smg/libsmg_game.so" "$full/smg/nebula-pak" "$full/smg/cactus-ruso" "$full/smg/cactus-galaxy-wrapper"; do
   rutas=(-e "$repo" -e "$build")

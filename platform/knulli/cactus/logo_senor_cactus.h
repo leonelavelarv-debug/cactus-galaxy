@@ -1,5 +1,7 @@
 // Logo de Senor Cactus (el autor del port) para la pantalla final del wrapper: 104x104 RGBA cuadrado, generado desde
 // su logo (reducido; solo pixeles, sin metadatos de la imagen original).
+// El logo y el nombre de Senor Cactus no estan bajo la GPL: ver platform/knulli/MARCA.md (una version modificada del
+// port debe quitar este logo).
 #pragma once
 constexpr int kLogoSize = 104;
 constexpr unsigned char kLogoRgba[43264] = {
