@@ -8,11 +8,13 @@
 #
 # La copia de siempre (renderer_gles.cpp, display_copy_hlsl): 4 lecturas bilineales en diagonal, FXAA en los bordes y
 # nitidez fuera de ellos; agranda el EFB de 320x264 a 640 y las letras quedan borrosas (el FXAA las suaviza).
-# La nueva, en la misma pasada: Catmull-Rom en 5 lecturas bilineales (la cruz de pesos, sin las esquinas), recortada al
-# rango de los 4 texels mas cercanos (sin halos ni anillos) y despues nitidez con la cruz como desenfoque, tambien
-# recortada. Su fuerza es la de GALAXY_GLES_SHARPEN; con 0 (y siempre al 100 %, donde nebula la pone a 0) queda la
-# copia de siempre tal cual. Probada en la PC con una simulacion en numpy (texto con borde): +3,3 dB en el texto frente
-# a la actual. El lanzador elige la biblioteca con NEBULA_ESCALADOR=1|0.
+# La nueva, en la misma pasada y con las mismas 5 lecturas que la de siempre: Catmull-Rom en 5 lecturas bilineales (la
+# cruz de pesos, sin las esquinas), recortado al rango de esas 5 lecturas (sin anillos) y despues nitidez con la cruz
+# como desenfoque, tambien recortada. Su fuerza es la de GALAXY_GLES_SHARPEN; con 0 (y siempre al 100 %, donde nebula
+# la pone a 0) queda la copia de siempre tal cual. El lanzador elige la biblioteca con NEBULA_ESCALADOR=1|0.
+# Version anterior (21-nov), recortada con 4 texelFetch mas (9 lecturas; con el antiparpadeo, 27 por pixel): en la
+# RG35XX H -8,8 % imagenes dibujadas y +43 % tirones frente a la de siempre. Esta, en la simulacion de la PC (texto
+# con borde al 50 %): 21,9 dB la de siempre, 25,8 la de 9 lecturas, 25,1 esta.
 import re
 import struct
 import sys
@@ -78,7 +80,7 @@ def matching_brace(text, at):
     raise ValueError("llaves sin cerrar")
 
 
-def new_filter(indent, result, lin, fetch, pos, inv, ubo):
+def new_filter(indent, result, lin, pos, inv, ubo):
     lines = [
         "{",
         "    vec2 e_tc = floor(%s - vec2(0.5)) + vec2(0.5);" % pos,
@@ -102,15 +104,8 @@ def new_filter(indent, result, lin, fetch, pos, inv, ubo):
         "    float e_wl = e_w0.x * e_w12.y;",
         "    float e_wr = e_w3.x * e_w12.y;",
         "    vec4 e_cr = (e_c * e_wc + e_u * e_wu + e_d * e_wd + e_l * e_wl + e_r * e_wr) / (e_wc + e_wu + e_wd + e_wl + e_wr);",
-        "    ivec2 e_sz = textureSize(%s, 0) - ivec2(1);" % fetch,
-        "    ivec2 e_i = clamp(ivec2(floor(e_tc)), ivec2(0), e_sz);",
-        "    ivec2 e_j = clamp(e_i + ivec2(1), ivec2(0), e_sz);",
-        "    vec4 e_a = texelFetch(%s, e_i, 0);" % fetch,
-        "    vec4 e_b = texelFetch(%s, ivec2(e_j.x, e_i.y), 0);" % fetch,
-        "    vec4 e_g = texelFetch(%s, ivec2(e_i.x, e_j.y), 0);" % fetch,
-        "    vec4 e_h = texelFetch(%s, e_j, 0);" % fetch,
-        "    vec4 e_lo = min(min(e_a, e_b), min(e_g, e_h));",
-        "    vec4 e_hi = max(max(e_a, e_b), max(e_g, e_h));",
+        "    vec4 e_lo = min(min(min(e_c, e_u), min(e_d, e_l)), e_r);",
+        "    vec4 e_hi = max(max(max(e_c, e_u), max(e_d, e_l)), e_r);",
         "    e_cr = clamp(e_cr, e_lo, e_hi);",
         "    vec4 e_bl = (e_u + e_d + e_l + e_r) * 0.25;",
         "    vec4 e_o = clamp(e_cr + (e_cr - e_bl) * %s.copy_filter.x, e_lo, e_hi);" % ubo,
@@ -121,10 +116,6 @@ def new_filter(indent, result, lin, fetch, pos, inv, ubo):
 
 
 def patch(glsl):
-    texel = re.search(r"textureSize\((\w+), 0\)", glsl)
-    if texel is None:
-        raise ValueError("sin textureSize")
-    fetch = texel.group(1)
     out, at, count = [], 0, 0
     for m in CENTER.finditer(glsl):
         if m.start() < at:
@@ -156,7 +147,7 @@ def patch(glsl):
                  indent + "if (%s.copy_filter.x <= 0.0)\n" % ubo +
                  indent + "{\n" + body + indent + "}\n" +
                  indent + "else\n" +
-                 new_filter(indent, result, lin, fetch, pos, inv, ubo))
+                 new_filter(indent, result, lin, pos, inv, ubo))
         out.append(glsl[at:m.start()])
         out.append(block)
         at = end
