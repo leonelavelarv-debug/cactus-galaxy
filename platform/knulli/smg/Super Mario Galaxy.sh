@@ -1,9 +1,4 @@
 #!/bin/bash
-# PORTMASTER: smg.zip, Super Mario Galaxy.sh
-# Super Mario Galaxy (Nebula: el codigo de Petari compilado nativo, graficos OpenGL ES en la Mali-G31) para las
-# Anbernic RG con Allwinner H700 (KNULLI, muOS) y la R36S con Rockchip RK3326 (ArkOS, dArkOS). El juego sale de TU
-# disco (RMGE01): Cactus Galaxy Wrapper lo convierte la primera vez. GPL-3.0.
-#   Salir: MENU + START (KNULLI, muOS) o SELECT + START (ArkOS, dArkOS).   Controles: smg/README.md.
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 if [ -d "/opt/system/Tools/PortMaster/" ]; then controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then controlfolder="/opt/tools/PortMaster"
@@ -13,6 +8,10 @@ source "$controlfolder/control.txt"
 [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 get_controls
 
+# Super Mario Galaxy (Nebula: el codigo de Petari compilado nativo, graficos OpenGL ES en la Mali-G31) para las
+# Anbernic RG con Allwinner H700 (KNULLI, muOS) y la R36S con Rockchip RK3326 (ArkOS, dArkOS). El juego sale de TU
+# disco (RMGE01): Cactus Galaxy Wrapper lo convierte la primera vez. GPL-3.0.
+#   Salir: MENU + START (KNULLI, muOS) o SELECT + START (ArkOS, dArkOS).   Controles: smg/README.md.
 # El perfil de controles segun el firmware y la consola (PortMaster da CFW_NAME, DEVICE_NAME y ANALOG_STICKS):
 #   KNULLI y muOS (Anbernic RG con Allwinner H700): salir con MENU + START; ArkOS y dArkOS (R36S, Rockchip RK3326):
 #   SELECT + START; ROCKNIX, AmberELEC y el resto: cualquiera de los dos. Los controles son para consolas con dos
@@ -40,7 +39,7 @@ export NEBULA_FACE_LAYOUT="${NEBULA_FACE_LAYOUT:-positions}"
 # La base de mandos de PortMaster, por si el firmware no trae el mapeo de este mando.
 [ -f "$controlfolder/gamecontrollerdb.txt" ] && export NEBULA_GAMECONTROLLERDB="$controlfolder/gamecontrollerdb.txt"
 GAMEDIR="/$directory/ports/smg"
-cd "$GAMEDIR" || exit 1
+cd $GAMEDIR
 exec > >(tee "$GAMEDIR/log.txt") 2>&1
 $ESUDO chmod +x "$GAMEDIR/nebula" 2>/dev/null || chmod +x "$GAMEDIR/nebula"
 echo "firmware: ${CFW_NAME:-?} | consola: ${DEVICE_NAME:-?} (${soc:-soc ?}) | salir: $NEBULA_QUIT_COMBO + START | botones: $NEBULA_FACE_LAYOUT"
@@ -457,7 +456,8 @@ if [ "${NEBULA_PERF:-1}" = "1" ]; then
       perf_set "$dir/min_freq" "$top"
     fi
   done
-  trap perf_restore EXIT
+  # Con el pm_message_end de funcs.txt (su propio trap EXIT), que este reemplazaria.
+  trap 'perf_restore; type pm_message_end >/dev/null 2>&1 && pm_message_end' EXIT
 fi
 
 # Salir: la combinacion del firmware con Start (el juego la atiende; gptokeyb mata con la misma si no contesta):

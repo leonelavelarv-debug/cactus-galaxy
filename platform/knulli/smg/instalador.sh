@@ -83,6 +83,11 @@ if ! tail -n +"$start" "$self" | tar -xzf - -C "$work" 2>/dev/null; then
 fi
 [ -f "$work/Super Mario Galaxy.sh" ] && [ -f "$work/smg/nebula" ] || fail "el paquete no trae el juego"
 
+# Una portada o captura que ya haya en la consola (la caratula bajada o una del juego) no se cambia por la provisional
+# del paquete.
+for f in cover.png screenshot.png; do
+  [ -f "$ports/smg/$f" ] && [ ! -e "$ports/smg/$f.captura" ] && rm -f "$work/smg/$f" "$work/smg/$f.captura"
+done
 # smg/: lo nuevo encima de lo que haya (game.pak, idioma.txt, nand/ y data/ no vienen en el paquete y se quedan).
 mkdir -p "$ports/smg" || fail "no se puede crear $ports/smg"
 cp -rf "$work/smg/." "$ports/smg/" || fail "no se pudo copiar smg/ (espacio?)"

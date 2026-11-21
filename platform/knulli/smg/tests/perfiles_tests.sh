@@ -12,7 +12,7 @@ fallos=0
 # El trozo del lanzador con las rutas del sistema cambiadas por la raiz falsa ($R).
 trozo() {
   { sed -n '/^soc=\$(tr/,/^esac/p' "$lanzador"
-    sed -n '/^PERF_SAVED=""/,/^  trap perf_restore EXIT/p' "$lanzador" | sed '/trap perf_restore EXIT/d'
+    sed -n "/^PERF_SAVED=\"\"/,/^  trap 'perf_restore/p" "$lanzador" | sed "/trap 'perf_restore/d"
     echo fi
   } | sed -e 's#/sys/#$R/sys/#g' -e 's#/proc/device-tree#$R/proc/device-tree#g'
 }
