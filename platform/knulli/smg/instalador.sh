@@ -174,22 +174,25 @@ printf '%s\n' "$mod_dirs" | while IFS= read -r dir; do
     fi
     # Una sola carpeta arriba (la del propio archivo) y a lo sumo notas: el mod es esa carpeta. Las carpetas del disco
     # (ObjectData, files, riivolution...) Nebula ya las busca un nivel abajo.
+    # (Tantas veces como haga falta: un zip puede traer su carpeta y dentro la del mod.)
     raiz="$tmp"
-    subdirs=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | wc -l)
-    otros=$(find "$tmp" -mindepth 1 -maxdepth 1 -type f ! -iname '*.txt' ! -iname '*.md' ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.pdf' | wc -l)
-    if [ "$subdirs" = 1 ] && [ "$otros" = 0 ]; then
-      sub="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d)"
+    while :; do
+      subdirs=$(find "$raiz" -mindepth 1 -maxdepth 1 -type d | wc -l)
+      otros=$(find "$raiz" -mindepth 1 -maxdepth 1 -type f ! -iname '*.txt' ! -iname '*.md' ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.pdf' | wc -l)
+      [ "$subdirs" = 1 ] && [ "$otros" = 0 ] || break
+      sub="$(find "$raiz" -mindepth 1 -maxdepth 1 -type d)"
       case "$(basename "$sub" | tr '[:upper:]' '[:lower:]')" in
-        files|riivolution|textures|movies|objectdata|stagedata|layoutdata|audiores|particledata|systemdata|mappartsdata|moviedata|us*|eu*|jp*|kr*|cn*|tw*) ;;
-        *) raiz="$sub" ;;
+        files|riivolution|textures|movies|objectdata|stagedata|layoutdata|audiores|particledata|systemdata|mappartsdata|moviedata|us*|eu*|jp*|kr*|cn*|tw*) break ;;
       esac
-    fi
+      raiz="$sub"
+    done
+    # Instalado de nuevo, entra activado (Cactus Galaxy Wrapper lo apaga moviendolo a smg/mods-desactivados/).
     destino="$ports/smg/mods/$nombre"
-    rm -rf "$destino"
+    rm -rf "$destino" "$ports/smg/mods-desactivados/$nombre"
     if mv "$raiz" "$destino"; then
       rm -rf "$tmp"
       [ "${SMG_CONSERVAR_INSTALADOR:-0}" = 1 ] || rm -f "$a"
-      say "Mod instalado: $nombre (para quitarlo, borra smg/mods/$nombre)."
+      say "Mod instalado: $nombre. Para apagarlo o encenderlo: manten SELECT al abrir el juego, X (Ajustes) y Mods."
     else
       rm -rf "$tmp"
       say "No se pudo instalar el mod $nombre (espacio?)."; sleep 5
