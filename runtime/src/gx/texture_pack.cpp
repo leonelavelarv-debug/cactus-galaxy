@@ -662,8 +662,16 @@ std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std
     if (!result->failed && !result->pixels.levels.empty()) {
         static const unsigned compact_mode = texture_compact_mode();
         TexturePackPixels& pixels = result->pixels;
-        pixels.compact = compact_for_replacement(compact_mode, pixels.levels[0].data(),
-                                                 static_cast<std::size_t>(pixels.width) * pixels.height);
+        // Every level as it will be uploaded (generated, or a custom _mip<n> put in above): in "exacto" the format must
+        // hold all of them exactly (a lower level with alpha the base lacks keeps it), not just level 0's texels.
+        std::vector<const std::uint8_t*> level_data(pixels.levels.size());
+        std::vector<std::size_t> level_texels(pixels.levels.size());
+        for (std::size_t l = 0; l < pixels.levels.size(); ++l) {
+            level_data[l] = pixels.levels[l].data();
+            level_texels[l] = static_cast<std::size_t>(std::max(1u, pixels.width >> l)) * std::max(1u, pixels.height >> l);
+        }
+        pixels.compact = compact_for_replacement_levels(compact_mode, level_data.data(), level_texels.data(),
+                                                        level_data.size());
     }
 #endif
     if (!result->failed && stager_) {

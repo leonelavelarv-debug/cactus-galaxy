@@ -103,6 +103,53 @@ void cpu_tests() {
     expect(compact_for_replacement(1u, texels({0x123456FFu}).data(), 1u) == CompactFormat::RGBA8,
            "replacement, exact: not 565 values -> RGBA8");
 
+    // A replacement's mip levels in "exacto" (texture_pack.cpp): the format holds every level, not just level 0.
+    {
+        const std::uint32_t c565o = (std::uint32_t{e5(10)} << 24) | (std::uint32_t{e6(40)} << 16) |
+                                    (std::uint32_t{e5(5)} << 8) | 0xFFu;
+        const auto base = texels({c565o, c565o, c565o, c565o});        // 2x2, opaque, 565 values
+        const auto mip_alpha = texels({(c565o & 0xFFFFFF00u) | 64u});  // 1x1, the same colour with alpha 64
+        const std::uint8_t* levels[2] = {base.data(), mip_alpha.data()};
+        const std::size_t sizes[2] = {4u, 1u};
+        // The fault: level 0 alone picks RGB565, and the mip converted to it loses its alpha.
+        const CompactFormat old_choice = compact_for_replacement(1u, base.data(), 4u);
+        expect(old_choice == CompactFormat::RGB565, "exacto, level 0 alone: RGB565 (the old choice)");
+        std::vector<std::uint8_t> packed(compact_texel_bytes(old_choice)), back(4u);
+        compact_convert(old_choice, mip_alpha.data(), 1u, packed.data());
+        compact_expand(old_choice, packed.data(), 1u, back.data());
+        expect(back[3] != 64u, "the old choice: the mip's alpha 64 was lost (the fault reproduced)");
+        // The fix: every level decides; alpha 64 is not a 4-bit value either, so RGBA8, and the mip keeps 64.
+        const CompactFormat chosen = compact_for_replacement_levels(1u, levels, sizes, 2u);
+        expect(chosen == CompactFormat::RGBA8, "exacto, every level: a mip with alpha 64 -> RGBA8");
+        packed.assign(compact_texel_bytes(chosen), 0u);
+        compact_convert(chosen, mip_alpha.data(), 1u, packed.data());
+        compact_expand(chosen, packed.data(), 1u, back.data());
+        expect(back == mip_alpha && back[3] == 64u, "exacto, every level: the mip keeps alpha 64");
+        // A 4-bit alpha (68 = 4 * 17) on the mip: RGBA4 holds both levels exactly, and is chosen.
+        const std::uint32_t c4 = 0x334455FFu;
+        const auto base4 = texels({c4, c4, c4, c4});
+        const auto mip4 = texels({(c4 & 0xFFFFFF00u) | 68u});
+        const std::uint8_t* levels4[2] = {base4.data(), mip4.data()};
+        expect(compact_for_replacement_levels(1u, levels4, sizes, 2u) == CompactFormat::RGBA4,
+               "exacto, every level: a 4-bit alpha mip -> RGBA4");
+        // Compactable in every level: stays compact (RGB565 for opaque 565 values throughout).
+        const auto mip565 = texels({c565o});
+        const std::uint8_t* levels565[2] = {base.data(), mip565.data()};
+        expect(compact_for_replacement_levels(1u, levels565, sizes, 2u) == CompactFormat::RGB565,
+               "exacto, every level 565: stays RGB565");
+        const auto grey = texels({0x40404040u, 0x80808080u, 0x40404040u, 0x80808080u});
+        const auto grey_mip = texels({0x60606060u});
+        const std::uint8_t* levels_grey[2] = {grey.data(), grey_mip.data()};
+        expect(compact_for_replacement_levels(1u, levels_grey, sizes, 2u) == CompactFormat::R8,
+               "exacto, every level grey = alpha: stays R8");
+        // Only "exacto" changes: 16 bits still decides on level 0, off stays off.
+        expect(compact_for_replacement_levels(2u, levels, sizes, 2u) == CompactFormat::RGB565,
+               "16bits: level 0 decides, as before");
+        expect(compact_for_replacement_levels(0u, levels565, sizes, 2u) == CompactFormat::RGBA8, "off: RGBA8");
+        expect(compact_exact_levels(levels565, sizes, 1u) == compact_exact(base.data(), 4u),
+               "one level: the same as compact_exact");
+    }
+
     // Every value of each width comes back.
     std::vector<std::uint8_t> all;
     for (unsigned v = 0; v < 64u; ++v) {
@@ -256,8 +303,15 @@ int list_pack(const char* folder, unsigned mode) {
             ++failed;
             continue;
         }
-        const CompactFormat format = compact_for_replacement(
-            mode, pixels.levels[0].data(), static_cast<std::size_t>(pixels.width) * pixels.height);
+        // As the loader decides it (texture_pack.cpp): every level, generated ones included.
+        std::vector<const std::uint8_t*> level_data(pixels.levels.size());
+        std::vector<std::size_t> level_texels(pixels.levels.size());
+        for (std::size_t l = 0; l < pixels.levels.size(); ++l) {
+            level_data[l] = pixels.levels[l].data();
+            level_texels[l] = static_cast<std::size_t>(std::max(1u, pixels.width >> l)) * std::max(1u, pixels.height >> l);
+        }
+        const CompactFormat format =
+            compact_for_replacement_levels(mode, level_data.data(), level_texels.data(), level_data.size());
         std::printf("%s %ux%u %s\n", f.filename().string().c_str(), pixels.width, pixels.height,
                     compact_format_name(format));
     }

@@ -101,27 +101,61 @@ CompactFormat compact_for_guest(TexFormat format, TlutFormat tlut, unsigned mode
     }
 }
 
+namespace {
+// The compact formats that still hold every texel seen so far (compact_exact, compact_exact_levels).
+struct ExactFits {
+    bool r8 = true, rg8 = true, c565 = true, c5551 = true, c4444 = true;
+    [[nodiscard]] bool any() const noexcept { return r8 || rg8 || c565 || c5551 || c4444; }
+    // false once no compact format is left (the rest need not be looked at).
+    bool add(const std::uint8_t* rgba, std::size_t texels) noexcept {
+        for (std::size_t i = 0; i < texels; ++i) {
+            const std::uint8_t* p = rgba + i * 4u;
+            const std::uint8_t r = p[0], g = p[1], b = p[2], a = p[3];
+            const bool grey = r == g && g == b;
+            r8 = r8 && grey && a == r;
+            rg8 = rg8 && grey;
+            const bool colour5 = fits5(r) && fits5(b);
+            c565 = c565 && a == 255u && colour5 && fits6(g);
+            c5551 = c5551 && (a == 0u || a == 255u) && colour5 && fits5(g);
+            c4444 = c4444 && fits4(r) && fits4(g) && fits4(b) && fits4(a);
+            if (!any()) return false;
+        }
+        return true;
+    }
+    [[nodiscard]] CompactFormat narrowest() const noexcept {
+        if (r8) return CompactFormat::R8;
+        if (rg8) return CompactFormat::RG8;
+        if (c565) return CompactFormat::RGB565;
+        if (c5551) return CompactFormat::RGB5A1;
+        if (c4444) return CompactFormat::RGBA4;
+        return CompactFormat::RGBA8;
+    }
+};
+}  // namespace
+
 CompactFormat compact_exact(const std::uint8_t* rgba, std::size_t texels) noexcept {
     if (rgba == nullptr || texels == 0u) return CompactFormat::RGBA8;
-    bool r8 = true, rg8 = true, c565 = true, c5551 = true, c4444 = true;
-    for (std::size_t i = 0; i < texels; ++i) {
-        const std::uint8_t* p = rgba + i * 4u;
-        const std::uint8_t r = p[0], g = p[1], b = p[2], a = p[3];
-        const bool grey = r == g && g == b;
-        r8 = r8 && grey && a == r;
-        rg8 = rg8 && grey;
-        const bool colour5 = fits5(r) && fits5(b);
-        c565 = c565 && a == 255u && colour5 && fits6(g);
-        c5551 = c5551 && (a == 0u || a == 255u) && colour5 && fits5(g);
-        c4444 = c4444 && fits4(r) && fits4(g) && fits4(b) && fits4(a);
-        if (!r8 && !rg8 && !c565 && !c5551 && !c4444) return CompactFormat::RGBA8;
+    ExactFits fits;
+    if (!fits.add(rgba, texels)) return CompactFormat::RGBA8;
+    return fits.narrowest();
+}
+
+CompactFormat compact_exact_levels(const std::uint8_t* const* rgba, const std::size_t* texels,
+                                   std::size_t count) noexcept {
+    if (rgba == nullptr || texels == nullptr || count == 0u) return CompactFormat::RGBA8;
+    ExactFits fits;
+    for (std::size_t level = 0; level < count; ++level) {
+        if (rgba[level] == nullptr || texels[level] == 0u) return CompactFormat::RGBA8;
+        if (!fits.add(rgba[level], texels[level])) return CompactFormat::RGBA8;
     }
-    if (r8) return CompactFormat::R8;
-    if (rg8) return CompactFormat::RG8;
-    if (c565) return CompactFormat::RGB565;
-    if (c5551) return CompactFormat::RGB5A1;
-    if (c4444) return CompactFormat::RGBA4;
-    return CompactFormat::RGBA8;
+    return fits.narrowest();
+}
+
+CompactFormat compact_for_replacement_levels(unsigned mode, const std::uint8_t* const* rgba, const std::size_t* texels,
+                                             std::size_t count) noexcept {
+    if (rgba == nullptr || texels == nullptr || count == 0u) return CompactFormat::RGBA8;
+    if (mode == 1u) return compact_exact_levels(rgba, texels, count);
+    return compact_for_replacement(mode, rgba[0], texels[0]);
 }
 
 void compact_convert(CompactFormat format, const std::uint8_t* rgba, std::size_t texels, std::uint8_t* out) noexcept {

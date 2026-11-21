@@ -46,6 +46,17 @@ enum class CompactFormat : std::uint8_t { RGBA8 = 0, R8, RG8, RGB565, RGB5A1, RG
 [[nodiscard]] CompactFormat compact_for_replacement(unsigned mode, const std::uint8_t* rgba,
                                                     std::size_t texels) noexcept;
 
+// compact_exact over several images at once (a replacement's mip levels: generated and custom): the narrowest format
+// that holds every texel of every one exactly; RGBA8 when none does. `count` images, `rgba[i]` of `texels[i]`.
+[[nodiscard]] CompactFormat compact_exact_levels(const std::uint8_t* const* rgba, const std::size_t* texels,
+                                                 std::size_t count) noexcept;
+
+// A replacement with all its mip levels: in mode 1 ("exacto") the format holds every level exactly (a lower level
+// with alpha the base lacks keeps it: RGBA8 when no compact format holds them all); modes 0 and 2 as
+// compact_for_replacement on level 0.
+[[nodiscard]] CompactFormat compact_for_replacement_levels(unsigned mode, const std::uint8_t* const* rgba,
+                                                           const std::size_t* texels, std::size_t count) noexcept;
+
 // RGBA8 texels as `format` (tightly packed; 16-bit texels in the machine's byte order, as GL reads them).
 void compact_convert(CompactFormat format, const std::uint8_t* rgba, std::size_t texels, std::uint8_t* out) noexcept;
 
