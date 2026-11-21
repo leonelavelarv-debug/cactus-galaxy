@@ -270,8 +270,31 @@ export GALAXY_TEXTURE_COMPACT="${GALAXY_TEXTURE_COMPACT:-exacto}"
 #   (para editarlas en la PC y volver a ponerlas como pack).
 #   GALAXY_TEXTURE_PACK_BUDGET_MB=96     memoria para los reemplazos (los que no se usan salen primero). 96 cabe con
 #                                        lo que queda libre en 1 GB; un pack x2 va mejor con 128, si la memoria alcanza
-if [ -d "$GAMEDIR/data/TexturePacks" ]; then
-  export GALAXY_TEXTURE_PACK_DIR="${GALAXY_TEXTURE_PACK_DIR:-$GAMEDIR/data/TexturePacks}"
+#   Si hay un pack en cualquier parte de smg/data (archivos tex1_*.dds o .png hasta 5 carpetas abajo, sin contar
+#   TextureDumps) se activa solo: se usa su carpeta RMGE01 (o la primera carpeta de data/ que lo contiene), aunque el
+#   zip se haya descomprimido fuera de TexturePacks/. GALAXY_TEXTURE_PACKS=0 en smg/ajustes.cfg lo apaga.
+if [ -z "${GALAXY_TEXTURE_PACK_DIR:-}" ] && [ -d "$GAMEDIR/data" ]; then
+  tex=$(find "$GAMEDIR/data" -maxdepth 6 -path "$GAMEDIR/data/TextureDumps" -prune -o -type f \
+    -path "$GAMEDIR/data/*/*" \( -iname 'tex1_*.dds' -o -iname 'tex1_*.png' \) -print 2>/dev/null | head -n 1)
+  if [ -n "$tex" ]; then
+    case "$tex" in
+      "$GAMEDIR/data/TexturePacks/"*) pack="$GAMEDIR/data/TexturePacks" ;;
+      *)
+        pack=${tex%/*}
+        while [ "$pack" != "$GAMEDIR/data" ]; do
+          case "${pack##*/}" in [Rr][Mm][Gg][Ee]01|[Rr][Mm][Gg]) break ;; esac
+          pack=${pack%/*}
+        done
+        if [ "$pack" = "$GAMEDIR/data" ]; then rel=${tex#"$GAMEDIR/data/"}; pack="$GAMEDIR/data/${rel%%/*}"; fi ;;
+    esac
+    export GALAXY_TEXTURE_PACK_DIR="$pack"
+  fi
+fi
+if [ -n "${GALAXY_TEXTURE_PACK_DIR:-}" ]; then
+  export GALAXY_TEXTURE_PACKS="${GALAXY_TEXTURE_PACKS:-1}"
+  echo "texturas: pack en ${GALAXY_TEXTURE_PACK_DIR#"$GAMEDIR"/} ($(find "$GALAXY_TEXTURE_PACK_DIR" -type f \( -iname 'tex1_*.dds' -o -iname 'tex1_*.png' \) 2>/dev/null | wc -l) archivos), activas: $GALAXY_TEXTURE_PACKS"
+else
+  echo "texturas: no hay pack en smg/data"
 fi
 export GALAXY_TEXTURE_PACK_BUDGET_MB="${GALAXY_TEXTURE_PACK_BUDGET_MB:-96}"
 #   NOPAL_DEPURAR=5555                   el Depurador de Nopal Estudio se conecta desde la PC (por WiFi, a la IP de la
