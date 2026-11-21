@@ -186,4 +186,6 @@ say "Listo:"
 say "  $out/port      copia Super Mario Galaxy.sh y smg/ a la SD (o usa el instalador)"
 say "  $out/paquete   smg.zip para PortMaster e \"Instalar Super Mario Galaxy.sh\""
 say "  $out/herramientas  nebula_glsl_aot y las claves semilla (nopal nebula shaders rehace smg/shaders-gles.bin)"
-[ "${NEBULA_MEDICION:-0}" = 1 ] && say "  $out/paquete-medicion   el mismo port con ULTRA-GLES (para medir en la consola)"
+if [ "${NEBULA_MEDICION:-0}" = 1 ]; then  # (con && al final, sin medicion el armado salia con 1)
+  say "  $out/paquete-medicion   el mismo port con ULTRA-GLES (para medir en la consola)"
+fi
