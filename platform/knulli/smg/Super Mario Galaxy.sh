@@ -20,7 +20,16 @@ get_controls
 #   NEBULA_FACE_LAYOUT=positions|labels  labels si en tu firmware A y B salen al reves (A deberia ser el de la derecha)
 #   NEBULA_QUIT_COMBO=menu|select|both   fuerza la combinacion para salir
 cfw=$(printf '%s' "${CFW_NAME:-}" | tr '[:upper:]' '[:lower:]')
-soc=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -Eo 'h700|h616|rk3326|rk3566' | head -1)
+soc=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -Eo 'h700|h616|h618|rk3326|rk3566|rk3568' | head -1)
+# Perfil por chip, con la H700 (RG35XX H, la medida) de referencia: la CPU en "performance" y la GPU y la memoria (dmc)
+# a su frecuencia mas alta en todos; soc_cpu=chip sube ademas el tope de la CPU al maximo del chip (RK3326: sus
+# Cortex-A35 rinden menos por MHz que los A53 de la H700); soc_perfil son los graficos por defecto (Ajustes manda).
+case "$soc" in
+  h700|h616|h618) soc_nombre="Allwinner H700/H616 (A53, Mali-G31)"; soc_cpu=sistema; soc_perfil=medio ;;
+  rk3326)         soc_nombre="Rockchip RK3326 (A35, Mali-G31)";      soc_cpu=chip;    soc_perfil=bajo ;;
+  rk3566|rk3568)  soc_nombre="Rockchip RK3566 (A55, Mali-G52)";      soc_cpu=sistema; soc_perfil=medio ;;
+  *)              soc_nombre="desconocido";                          soc_cpu=sistema; soc_perfil=bajo ;;
+esac
 case "$cfw" in
   *knulli*|*muos*) quit_combo=menu ;;
   *arkos*|*darkos*) quit_combo=select ;;
@@ -153,12 +162,13 @@ else
   unset NEBULA_MANDOS_ARCHIVO
   echo "mandos: perfil predeterminado"
 fi
-#   NEBULA_PERFIL=bajo|medio|normal      medio (por defecto): graficos medios -- resolucion interna fija de 75 % (480x396,
+#   NEBULA_PERFIL=bajo|medio|normal      por defecto el del chip (soc_perfil arriba: medio en H700 y RK3566, bajo en
+#                                        RK3326 y los demas). medio: graficos medios -- resolucion interna fija de 75 % (480x396,
 #                                        entre el 50-100 % dinamico del bajo y los 640x528 del normal), con el mismo
 #                                        salto de frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion
 #                                        dinamica (baja sola cuando la GPU no llega); normal: 100 % y sin saltos
 #                                        (el perfil medio no esta medido en la consola: es un punto entre los dos)
-NEBULA_PERFIL="${NEBULA_PERFIL:-medio}"
+NEBULA_PERFIL="${NEBULA_PERFIL:-$soc_perfil}"
 if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
   #                                      cueste dibujar (GALAXY_FRAMESKIP_MAX=2: 20 como minimo); 1: siempre 30
@@ -217,6 +227,7 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
 else
   export GALAXY_FRAMESKIP="${GALAXY_FRAMESKIP:-0}"
 fi
+echo "chip: $soc_nombre (cpu: tope del $soc_cpu)"
 echo "perfil: $NEBULA_PERFIL (frameskip $GALAXY_FRAMESKIP, peeks ${GALAXY_PEEK_MODE:-sync})"
 #   GALAXY_GLES_PENDING=wait|skip|uber  shaders nuevos: esperar (tirones la 1a vez), saltar el dibujo, o uber
 #   NEBULA_PAD_SCHEME=nintendo|xbox      A a la derecha (nintendo) o abajo (xbox)
@@ -399,7 +410,7 @@ perf_set() {  # fichero valor: lo escribe y apunta el valor anterior para restau
     PERF_SAVED="$PERF_SAVED $1=$old"; echo "rendimiento: $1 $old -> $2"
   else echo "rendimiento: no se pudo escribir $2 en $1 (sigue en $old)"; fi
 }
-top_freq() { tr ' ' '\n' < "$1" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1; }
+top_freq() { [ -r "$1" ] || return 0; tr ' ' '\n' < "$1" | grep -E '^[0-9]+$' | sort -n | tail -1; }
 # Como estan las frecuencias (diagnostico).
 for dir in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$dir" ] && echo "cpu $(basename "$dir"): $(cat "$dir/scaling_governor" 2>/dev/null) [$(cat "$dir/scaling_available_governors" 2>/dev/null)] $(cat "$dir/scaling_cur_freq" 2>/dev/null) kHz ($(cat "$dir/scaling_min_freq" 2>/dev/null)-$(cat "$dir/scaling_max_freq" 2>/dev/null), hasta $(cat "$dir/cpuinfo_max_freq" 2>/dev/null))"
@@ -422,6 +433,11 @@ if [ "${NEBULA_PERF:-1}" = "1" ]; then
     [ -d "$dir" ] || continue
     if grep -qw performance "$dir/scaling_available_governors" 2>/dev/null; then
       perf_set "$dir/scaling_governor" performance
+      # RK3326: el tope al maximo del chip (con "performance" la CPU va a ese tope).
+      if [ "$soc_cpu" = chip ]; then
+        top=$(cat "$dir/cpuinfo_max_freq" 2>/dev/null)
+        [ -n "$top" ] && perf_set "$dir/scaling_max_freq" "$top"
+      fi
     else
       top=$(cat "$dir/cpuinfo_max_freq" 2>/dev/null)
       [ -n "$top" ] && perf_set "$dir/scaling_max_freq" "$top" && perf_set "$dir/scaling_min_freq" "$top"
@@ -432,8 +448,10 @@ if [ "${NEBULA_PERF:-1}" = "1" ]; then
     if grep -qw performance "$dir/available_governors" 2>/dev/null; then
       perf_set "$dir/governor" performance
     fi
-    # Sin "performance" (o si el driver no le hace caso): el minimo en la frecuencia mas alta.
+    # Sin "performance" (o si el driver no le hace caso): el minimo en la frecuencia mas alta (la de su lista o, si
+    # el driver no la da, su max_freq).
     top=$(top_freq "$dir/available_frequencies")
+    [ -n "$top" ] || top=$(cat "$dir/max_freq" 2>/dev/null)
     if [ -n "$top" ]; then
       perf_set "$dir/max_freq" "$top"
       perf_set "$dir/min_freq" "$top"
