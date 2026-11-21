@@ -24,8 +24,10 @@ aviso() {
 [ -f "$JUEGO" ] && [ -x "$SMG/nebula" ] || { aviso "Prueba: falta el port (ports/Super Mario Galaxy.sh y ports/smg)."; exit 1; }
 [ -f "$SMG/gamedata/game.pak" ] && [ -f "$SMG/idioma.txt" ] ||
   { aviso "Prueba: abre primero Super Mario Galaxy una vez (convierte el disco y elige idioma)."; exit 1; }
-if ! ls "$SMG/data/TexturePacks/RMGE01" >/dev/null 2>&1 || [ -z "$(ls -A "$SMG/data/TexturePacks/RMGE01" 2>/dev/null)" ]; then
-  aviso "Prueba: no hay pack de texturas en smg/data/TexturePacks/RMGE01. Instalalo primero."; exit 1
+# El pack, donde lo busca el lanzador: tex1_*.dds o .png en cualquier carpeta de smg/data (menos TextureDumps).
+if [ -z "$(find "$SMG/data" -maxdepth 6 -path "$SMG/data/TextureDumps" -prune -o -type f -path "$SMG/data/*/*" \
+     \( -iname 'tex1_*.dds' -o -iname 'tex1_*.png' \) -print 2>/dev/null | head -n 1)" ]; then
+  aviso "Prueba: no hay pack de texturas en smg/data. Instalalo primero."; exit 1
 fi
 mkdir -p "$SMG/prueba"
 
