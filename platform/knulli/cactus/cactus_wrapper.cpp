@@ -844,7 +844,7 @@ double now_seconds() {
 // ---------------------------------------------------------------------------------------------------------------
 // The app.
 
-enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Settings, Controls, Mods };
+enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Settings, Controls };
 
 // The custom controls profile: the game's Wii buttons that can be given another button of the handheld (the sticks
 // stay: Mario and the pointer), and the handheld's buttons as the game's bindings name them (Nintendo and Xbox
@@ -987,40 +987,6 @@ struct App {
   bool failed_mod = false;  // the failure shown is a translation's mod's (game.pak is fine)
   // Controls (SELECT, or the Settings row): the default profile (the game's own) or the custom one, smg/mandos.cfg.
   std::string controls_file;
-  // Mods (Ajustes > Mods): los de smg/mods/ (activos) y smg/mods-desactivados/ (apagados), sin los de idioma.
-  struct Mod { std::string name; bool on; };
-  std::vector<Mod> mods;
-  int mods_row = 0;
-  std::string mods_on_dir() const { return smg + "/mods"; }
-  std::string mods_off_dir() const { return smg + "/mods-desactivados"; }
-  void scan_mods() {
-    mods.clear();
-    for (const bool on : {true, false}) {
-      if (DIR* d = opendir((on ? mods_on_dir() : mods_off_dir()).c_str())) {
-        while (dirent* e = readdir(d)) {
-          const std::string n = e->d_name;
-          if (n.empty() || n[0] == '.' || n.rfind("idioma-", 0) == 0) continue;
-          struct stat st{};
-          if (stat(((on ? mods_on_dir() : mods_off_dir()) + "/" + n).c_str(), &st) == 0 && S_ISDIR(st.st_mode)) mods.push_back({n, on});
-        }
-        closedir(d);
-      }
-    }
-    std::sort(mods.begin(), mods.end(), [](const Mod& a, const Mod& b) { return lower(a.name) < lower(b.name); });
-    mods_row = std::clamp(mods_row, 0, std::max(0, int(mods.size()) - 1));
-  }
-  int mods_active() const { int n = 0; for (const Mod& m : mods) n += m.on; return n; }
-  // Apagar = mover la carpeta a smg/mods-desactivados/ (Nebula solo carga smg/mods/); encender, al reves.
-  void toggle_mod(int i) {
-    if (i < 0 || i >= int(mods.size())) return;
-    Mod& m = mods[i];
-    const std::string from = (m.on ? mods_on_dir() : mods_off_dir()) + "/" + m.name;
-    const std::string dir = m.on ? mods_off_dir() : mods_on_dir();
-    mkdir(dir.c_str(), 0755);
-    if (rename(from.c_str(), (dir + "/" + m.name).c_str()) == 0) m.on = !m.on;
-    printf("[cactus] mod %s: %s\n", m.name.c_str(), m.on ? "activo" : "apagado");
-    fflush(stdout);
-  }
   bool opt_custom_controls = false;
   int controls_map[kWiiButtonCount];  // the handheld's button for each Wii button (Phys), -1: the game's own
   int controls_saved[kWiiButtonCount];
@@ -1463,7 +1429,6 @@ struct App {
       case Screen::Language: {
         if (key == kToggle && pak_mode()) {  // X: the settings
           settings_row = 0;
-          scan_mods();
           screen = Screen::Settings;
           break;
         }
@@ -1505,15 +1470,8 @@ struct App {
         if (key == kBack && job && !cancelling) { cancelling = true; kill(job->pid, SIGTERM); }
         break;
       case Screen::Settings:
-        if (key == kUp) settings_row = (settings_row + 3) % 4;
-        if (key == kDown) settings_row = (settings_row + 1) % 4;
-        if ((key == kPrev || key == kNext || key == kToggle || key == kConfirm) && settings_row == 3) {  // the mods' list
-          save_options();
-          scan_mods();
-          mods_row = 0;
-          screen = Screen::Mods;
-          break;
-        }
+        if (key == kUp) settings_row = (settings_row + 2) % 3;
+        if (key == kDown) settings_row = (settings_row + 1) % 3;
         if (key == kPrev || key == kNext || (key == kToggle)) {
           const int d = key == kPrev ? -1 : 1;
           if (settings_row == 0) { opt_resolution = (opt_resolution + d + 4) % 4; opt_resolution_set = true; }
@@ -1530,14 +1488,6 @@ struct App {
           screen = Screen::Language;
         }
         break;
-      case Screen::Mods: {
-        const int n = int(mods.size());
-        if (n > 0 && key == kUp) mods_row = (mods_row + n - 1) % n;
-        if (n > 0 && key == kDown) mods_row = (mods_row + 1) % n;
-        if (key == kPrev || key == kNext || key == kToggle || key == kConfirm) toggle_mod(mods_row);
-        if (key == kBack) screen = Screen::Settings;
-        break;
-      }
       case Screen::Controls: {
         if (capturing) break;  // the next button goes to the row (main loop)
         const int rows = opt_custom_controls ? kWiiButtonCount + 1 : 1;
@@ -1644,7 +1594,6 @@ struct App {
       case Screen::Menu: draw_menu(cv); break;
       case Screen::Language: draw_language(cv, time); break;
       case Screen::Settings: draw_settings(cv, time); break;
-      case Screen::Mods: draw_mods(cv, time); break;
       case Screen::Controls: draw_controls(cv, time); break;
       case Screen::Converting: draw_converting(cv, time); break;
       case Screen::Done: draw_done(cv); break;
@@ -1734,16 +1683,13 @@ struct App {
     const std::string res_value = opt_resolution == 0 ? std::string(T(S_AUTO_RES)) : std::string(kResolutions[opt_resolution]) + " %";
     static const char* const kSizes[4] = {"50-100 %", "320x264", "480x396", "640x528"};
     const std::string res_note = opt_resolution == 2 ? std::string(kSizes[2]) + " · " + T(S_RECOMMENDED) : kSizes[opt_resolution];
-    const std::string mods_value = mods.empty() ? std::string("-") : format("%d / %d", mods_active(), int(mods.size()));
-    const struct { const char* label; std::string value, note; } rows[4] = {
+    const struct { const char* label; std::string value, note; } rows[3] = {
         {T(S_RESOLUTION), res_value, res_note},
         {T(S_VIBRATION), T(opt_vibration ? S_YES : S_NO), ""},
         {T(S_CONTROLS), T(opt_custom_controls ? S_PROFILE_CUSTOM : S_PROFILE_DEFAULT), ""},
-        {T(S_MODS), mods_value, ""},
     };
-    static constexpr int kRowY[4] = {152, 230, 286, 342};
-    for (int row = 0; row < 4; ++row) {
-      const int y = kRowY[row];
+    for (int row = 0; row < 3; ++row) {
+      const int y = 160 + row * 72;
       const bool sel = row == settings_row;
       if (sel) {
         cv.rrect(kLeft + 10, y - 6, kPanelW - 52, row == 0 ? 72 : 52, 10, 0x2f7d3e, 0.55f);
@@ -1756,36 +1702,9 @@ struct App {
       text_center(cv, kCenter, y + 24 + (scale == 2 ? 4 : 0), fit(value, scale == 3 ? 15 : 22), scale, sel ? kWhite : kMuted);
       if (!rows[row].note.empty()) text_center(cv, kCenter, y + 52, fit(rows[row].note, 22), 2, sel ? kGold : 0x8f82a8);
     }
-    text_center(cv, kCenter, 398, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
-    hints(cv, 418, {{"SELECT", T(S_CONTROLS)}});
-    hints(cv, 440, {{"A", settings_row == 2 ? T(S_ASSIGN) : settings_row == 3 ? T(S_MODS) : T(S_BACK)}, {"B", T(S_BACK)}});
-  }
-
-  // Ajustes > Mods: cada mod con Si/No (se aplica la proxima vez que se abra el juego).
-  void draw_mods(Canvas& cv, float time) {
-    text_center(cv, kCenter, 128, T(S_MODS), 2, kGold);
-    if (mods.empty()) {
-      int y = 190;
-      for (const std::string& line : wrap(T(S_NO_MODS), 22)) { text_center(cv, kCenter, y, line, 2, kMuted); y += 22; }
-    } else {
-      constexpr int kVisible = 5;
-      const int first = std::clamp(mods_row - kVisible / 2, 0, std::max(0, int(mods.size()) - kVisible));
-      for (int i = first; i < std::min(int(mods.size()), first + kVisible); ++i) {
-        const int y = 160 + (i - first) * 44;
-        const bool sel = i == mods_row;
-        if (sel) {
-          cv.rrect(kLeft + 10, y - 8, kPanelW - 52, 38, 10, 0x2f7d3e, 0.55f);
-          cv.rrect_outline(kLeft + 10, y - 8, kPanelW - 52, 38, 10, 2, 0x7fd88a, 0.9f);
-          cv.star(float(kLeft + 30), float(y + 10), 8.0f, 0xffe066, 1.0f, time * 2.0f);
-        }
-        text(cv, kLeft + 46, y + 2, fit(mods[i].name, 13), 2, sel ? kWhite : kMuted);
-        const std::string value = T(mods[i].on ? S_YES : S_NO);
-        text(cv, kLeft + kPanelW - 60 - text_width(value, 2), y + 2, value, 2, mods[i].on ? kGreen : 0x8f82a8);
-      }
-      if (int(mods.size()) > kVisible) text_center(cv, kCenter, 382, format("%d / %d", mods_row + 1, int(mods.size())), 2, 0x8f82a8);
-    }
-    text_center(cv, kCenter, 398, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
-    hints(cv, 432, {{"A", std::string(T(S_YES)) + "/" + T(S_NO)}, {"B", T(S_BACK)}});
+    text_center(cv, kCenter, 384, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
+    hints(cv, 406, {{"SELECT", T(S_CONTROLS)}});
+    hints(cv, 432, {{"A", settings_row == 2 ? T(S_ASSIGN) : T(S_BACK)}, {"B", T(S_BACK)}});
   }
 
   void draw_controls(Canvas& cv, float time) {
@@ -2037,17 +1956,6 @@ int demo(const std::string& out) {
   app.settings_row = 2; app.opt_custom_controls = true;
   app.draw(cv, scene, 2.56f);
   save_png(cv, out + "/1i-ajustes-mandos.png");
-  app.mods = {{"Mod de prueba con nombre largo", true}, {"Otro mod", false}, {"Tercero", true}};
-  app.settings_row = 3;
-  app.draw(cv, scene, 2.565f);
-  save_png(cv, out + "/1i2-ajustes-mods.png");
-  app.screen = Screen::Mods; app.mods_row = 1;
-  app.draw(cv, scene, 2.566f);
-  save_png(cv, out + "/1i3-mods.png");
-  app.mods.clear(); app.mods_row = 0;
-  app.draw(cv, scene, 2.567f);
-  save_png(cv, out + "/1i4-mods-vacio.png");
-  app.screen = Screen::Settings; app.settings_row = 2;
   for (int& m : app.controls_map) m = -1;
   app.controls_map[0] = kEast; app.controls_map[1] = kSouth; app.controls_map[4] = kR2;
   app.screen = Screen::Controls; app.controls_row = 2; app.capturing = false;

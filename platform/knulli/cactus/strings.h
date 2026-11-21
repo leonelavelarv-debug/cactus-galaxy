@@ -11,7 +11,7 @@ enum Str {
   S_ERR_PATCH, S_NEED_DISC, S_NEED_DISC_HELP, S_SEARCHING, S_PLAY, S_REINSTALL, S_PAK_READY, S_NO_PATCHES, S_MAKE_MOD,
   S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_ERR_MOD,
   S_CONTROLS, S_PROFILE, S_PROFILE_DEFAULT, S_PROFILE_CUSTOM, S_SHAKE, S_RECENTER, S_PRESS_BUTTON, S_AS_BEFORE,
-  S_ASSIGN, S_CLEAR, S_SAVE, S_STICKS_SAME, S_MODS, S_NO_MODS, S_COUNT
+  S_ASSIGN, S_CLEAR, S_SAVE, S_STICKS_SAME, S_COUNT
 };
 
 enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_RU, UI_COUNT };
@@ -39,7 +39,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Ajustes", "Resolución", "Vibración", "Auto (dinámica)", "recomendada", "Se aplica al jugar",
         "No se pudo preparar el parche de idioma. Detalles en log.txt.",
         "Mandos", "Perfil", "Predeterminado", "Personalizado", "Giro", "Recentrar", "Pulsa un botón", "original", "Asignar", "Quitar", "Guardar", "Los sticks no cambian",
-        "Mods", "No hay mods. Pon el .zip del mod junto al instalador y ábrelo."
     },
     {  // English
         "Choose your disc:", "No disc found",
@@ -60,7 +59,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Settings", "Resolution", "Vibration", "Auto (dynamic)", "recommended", "Applies when you play",
         "The language patch could not be prepared. Details in log.txt.",
         "Controls", "Profile", "Default", "Custom", "Spin", "Recenter", "Press a button", "default", "Assign", "Clear", "Save", "Sticks stay the same",
-        "Mods", "No mods yet. Put the mod's .zip next to the installer and run it."
     },
     {  // Français
         "Choisis ton disque :", "Aucun disque trouvé",
@@ -81,7 +79,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Réglages", "Résolution", "Vibration", "Auto (dynamique)", "recommandée", "S'applique en jeu",
         "Le patch de langue n'a pas pu être préparé. Détails dans log.txt.",
         "Manettes", "Profil", "Par défaut", "Personnalisé", "Toupie", "Recentrer", "Appuie sur un bouton", "origine", "Assigner", "Effacer", "Valider", "Sticks inchangés",
-        "Mods", "Aucun mod. Mets le .zip du mod à côté de l'installateur et lance-le."
     },
     {  // Português
         "Escolha seu disco:", "Nenhum disco encontrado",
@@ -102,7 +99,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Ajustes", "Resolução", "Vibração", "Auto (dinâmica)", "recomendada", "Vale ao jogar",
         "Não foi possível preparar o patch de idioma. Detalhes no log.txt.",
         "Controles", "Perfil", "Padrão", "Personalizado", "Giro", "Recentrar", "Aperte um botão", "padrão", "Atribuir", "Limpar", "Salvar", "Os sticks não mudam",
-        "Mods", "Nenhum mod. Coloque o .zip do mod junto ao instalador e abra-o."
     },
     {  // Italiano
         "Scegli il disco:", "Nessun disco trovato",
@@ -123,7 +119,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Impostazioni", "Risoluzione", "Vibrazione", "Auto (dinamica)", "consigliata", "Vale in gioco",
         "Impossibile preparare la patch della lingua. Dettagli in log.txt.",
         "Controlli", "Profilo", "Predefinito", "Personalizzato", "Giravolta", "Ricentra", "Premi un pulsante", "di base", "Assegna", "Togli", "Salva", "Gli stick non cambiano",
-        "Mod", "Nessuna mod. Metti lo .zip della mod accanto all'installer e aprilo."
     },
     {  // Deutsch
         "Wähle deine Disc:", "Keine Disc gefunden",
@@ -144,7 +139,6 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Einstellungen", "Auflösung", "Vibration", "Auto (dynamisch)", "empfohlen", "Gilt beim Spielen",
         "Der Sprachpatch konnte nicht erstellt werden. Details in log.txt.",
         "Steuerung", "Profil", "Standard", "Eigenes", "Drehung", "Zentrieren", "Drück eine Taste", "Standard", "Zuweisen", "Löschen", "Sichern", "Sticks bleiben gleich",
-        "Mods", "Keine Mods. Lege die .zip des Mods neben den Installer und starte ihn."
     },
     {  // Русский
         "Выбери диск:", "Диск не найден",
@@ -165,6 +159,5 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Патч будет подготовлен", "Настройки", "Разрешение", "Вибрация", "Авто (динамика)", "оптимально",
         "Применится в игре", "Не удалось подготовить языковой патч. Подробности в log.txt.",
         "Управление", "Профиль", "Стандартный", "Свой", "Вращение", "Центровка", "Нажми кнопку", "как было", "Назначить", "Сбросить", "Сохранить", "Стики не меняются",
-        "Моды", "Модов нет. Положи .zip мода рядом с установщиком и запусти его."
     },
 };
