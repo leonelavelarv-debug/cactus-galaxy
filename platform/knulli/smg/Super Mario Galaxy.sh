@@ -243,8 +243,17 @@ export NEBULA_DATA_DIR="$GAMEDIR/data"
 #   smg/shaders-gles.bin                 todos los shaders del juego ya en GLSL (hechos en la PC por armar.sh o
 #                                        `nopal nebula shaders`): Nebula se los da directo al driver de OpenGL, sin
 #                                        traducir nada en la consola. Uno que falte se dibuja con el shader generico (uber)
+#   NEBULA_ESCALADOR=1|0                 1 (por defecto): con la resolucion reducida (50 o 75 %) la imagen se agranda con
+#                                        el escalador (smg/shaders-gles-escalador.bin, hecho por escalador.py: Catmull-Rom
+#                                        sin halos y la nitidez de GALAXY_GLES_SHARPEN, tambien en las letras); 0: el
+#                                        filtro de antes (bilineal, suavizado de bordes FXAA). Al 100 % no cambia nada
 if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
-  export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$GAMEDIR/shaders-gles.bin}"
+  biblioteca="$GAMEDIR/shaders-gles.bin"
+  if [ "${NEBULA_ESCALADOR:-1}" = 1 ] && [ -f "$GAMEDIR/shaders-gles-escalador.bin" ]; then
+    biblioteca="$GAMEDIR/shaders-gles-escalador.bin"
+  fi
+  export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$biblioteca}"
+  echo "shaders: ${GALAXY_GLES_SHADER_LIBRARY##*/}"
 fi
 #   GALAXY_GLES_BLEND_FETCH=0            (prueba) la mezcla de GX con la alfa del TEV en blending fijo, como antes del
 #                                        paso 2 (docs/GX_ES_FRAMEBUFFER_FETCH.md); por defecto el shader la hace con
