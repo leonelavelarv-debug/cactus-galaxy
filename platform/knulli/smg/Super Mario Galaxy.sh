@@ -82,6 +82,8 @@ if [ -x "$GAMEDIR/cactus-galaxy-wrapper" ]; then
     if [ "$cactus" = 1 ]; then  # salir sin jugar
       pm_finish; exit 0
     fi
+    # Lo que se acaba de elegir en Ajustes (smg/opciones.cfg) vale ya en esta partida (ajustes.cfg sigue mandando).
+    type lee_ajustes >/dev/null 2>&1 && lee_ajustes
   fi
 fi
 # Sin pantalla para la interfaz (salida 3) o sin ella: la version de texto, con el avance en la consola.
@@ -139,6 +141,9 @@ fi
 # los de smg/ultra.cfg mandan.
 # Primero smg/opciones.cfg: lo que se elige en Ajustes de Cactus Galaxy Wrapper (X en la pantalla de idiomas):
 # GALAXY_GLES_RESOLUTION=auto|50|75|100 y NEBULA_VIBRACION=1|0 (0: el control no vibra). Los demas mandan sobre el.
+# (Una funcion: el port limpio la llama al entrar, antes de Cactus Galaxy Wrapper, y otra vez despues de el, que
+# acaba de escribir smg/opciones.cfg.)
+lee_ajustes() {
 for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
   [ -f "$cfg" ] || continue
   while IFS= read -r line || [ -n "$line" ]; do
@@ -152,6 +157,8 @@ for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.
     esac
   done < "$cfg"
 done
+}
+lee_ajustes
 # Mandos (SELECT en Cactus Galaxy Wrapper): con NEBULA_MANDOS=personalizado (smg/opciones.cfg) el juego toma ademas
 # las asignaciones de smg/mandos.cfg (botones del Wii a botones del mando; lo demas como el perfil predeterminado).
 if [ "${NEBULA_MANDOS:-predeterminado}" = personalizado ] && [ -f "$GAMEDIR/mandos.cfg" ]; then
