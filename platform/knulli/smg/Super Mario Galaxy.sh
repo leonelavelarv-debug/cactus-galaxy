@@ -169,11 +169,13 @@ else
   echo "mandos: perfil predeterminado"
 fi
 #   NEBULA_PERFIL=bajo|medio|normal      por defecto el del chip (soc_perfil arriba: medio en H700 y RK3566, bajo en
-#                                        RK3326 y los demas). medio: graficos medios -- resolucion interna fija de 75 % (480x396,
-#                                        entre el 50-100 % dinamico del bajo y los 640x528 del normal), con el mismo
-#                                        salto de frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion
-#                                        dinamica (baja sola cuando la GPU no llega); normal: 100 % y sin saltos
-#                                        (el perfil medio no esta medido en la consola: es un punto entre los dos)
+#                                        RK3326 y los demas). medio: resolucion interna fija de 50 % (320x264) con nitidez
+#                                        0.5 al ampliarla, pensada para el pack de texturas HD, con el mismo salto de
+#                                        frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion dinamica
+#                                        (baja sola cuando la GPU no llega); normal: 100 % y sin saltos.
+#                                        Prueba de rendimiento (21-nov, RG35XX H, 8 galaxias x6): 50 % frente a 75 %, +6 a
+#                                        +8 % imagenes dibujadas (+20 % en las pesadas: BreakDownPlanet, CannonFleet); el
+#                                        pack HD y la nitidez 0.5 no cuestan nada medible. 75 en Ajustes: como antes
 NEBULA_PERFIL="${NEBULA_PERFIL:-$soc_perfil}"
 if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
@@ -189,7 +191,7 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_GLES_RESOLUTION=auto        (perfil bajo) la resolucion interna dinamica: serie del 29-oct, GPU -48 %, p95 -20 %,
   #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
   if [ "$NEBULA_PERFIL" = "medio" ]; then
-    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-75}"
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-50}"
     #   GALAXY_GLES_SLOT_POR_IMAGEN=1|0  (perfil medio) el renderer cambia de slot al presentar una imagen y no en cada
     #                                    trozo que manda el juego (el 78 % no dibuja nada y cada uno esperaba a la GPU):
     #                                    44 galaxias x2 (5-nov), +21-23 % FPS mostrados, +16-21 % dibujados, p95 -17 %,
@@ -205,8 +207,8 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
     #                                    juego (comparaba siempre: 8-9 % del hilo). AstroGalaxy (2 pares, 20-nov): escena
     #                                    -7 a -9 %, +5 a +10 % imagenes nuevas; 44 galaxias verificadas con =2, 0 avisos
     export GALAXY_GX_DL_MARCAR_TODAS="${GALAXY_GX_DL_MARCAR_TODAS:-1}"
-    #   GALAXY_GLES_COPIA_REDUCIDA=1|0   (perfil medio) con el EFB al 75 %, las copias de color a textura de pantalla
-    #   GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640  completa se escriben a 480x342 (el tamano real del EFB) y no a 640x456;
+    #   GALAXY_GLES_COPIA_REDUCIDA=1|0   (perfil medio) con el EFB reducido, las copias de color a textura de pantalla
+    #   GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640  completa se escriben al tamano real del EFB (480x342 al 75 %) y no a 640x456;
     #                                    las chicas de efectos y las de profundidad se quedan igual. 12 galaxias x2
     #                                    (19-nov): GPU por imagen -2,2 ms (-7,6 %), capturas iguales bit a bit, sin
     #                                    cambio en imagenes nuevas/s; 0: como antes
@@ -325,7 +327,9 @@ export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-100}"
 export GALAXY_GLES_RESOLUTION_MIN="${GALAXY_GLES_RESOLUTION_MIN:-50}"
 export GALAXY_GLES_RESOLUTION_MAX="${GALAXY_GLES_RESOLUTION_MAX:-100}"
 export GALAXY_GLES_RESOLUTION_START="${GALAXY_GLES_RESOLUTION_START:-75}"
-#   GALAXY_GLES_SHARPEN=0.4              nitidez al ampliar la imagen interna (0.25-0.5 recomendado; 0: apagada; sin halos)
+#   GALAXY_GLES_SHARPEN=0.4              nitidez al ampliar la imagen interna (0.25-0.5 recomendado; 0: apagada; sin halos);
+#                                        0.5 por defecto con la resolucion al 50 % (la prueba del 21-nov: sin costo medible)
+if [ "$GALAXY_GLES_RESOLUTION" = 50 ]; then export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0.5}"; fi
 export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0.4}"
 #   GALAXY_GLES_SHADOWS=0.45             aclara las sombras (0.3-0.62 recomendado; 0: apagado); GALAXY_GLES_CONTRAST=0
 export GALAXY_GLES_SHADOWS="${GALAXY_GLES_SHADOWS:-0.45}"
