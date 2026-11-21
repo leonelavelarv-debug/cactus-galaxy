@@ -99,6 +99,41 @@ chmod +x "$scripts/Super Mario Galaxy.sh" 2>/dev/null || $ESUDO chmod +x "$scrip
 rm -rf "$work"
 sync
 
+# Pack de texturas (opcional): un .zip con TexturePacks/RMGE01/ junto a este instalador o en la carpeta de ports
+# (p. ej. "SMG1 HD x1 RG35XXH.zip", reducido en la PC para la consola) se pone en smg/data/ en lugar del que hubiera y
+# se borra el zip. El paquete del port no trae texturas: el pack lo pone cada uno. Si algo falla, el juego queda igual.
+pack_zip=""
+for z in "$(dirname "$self")"/*.zip "$ports"/*.zip; do
+  [ -f "$z" ] || continue
+  case "$(basename "$z")" in smg.zip) continue ;; esac
+  python3 -c 'import sys, zipfile; n = zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(0 if any(x.startswith("TexturePacks/RMGE01/") for x in n) else 1)' \
+    "$z" 2>/dev/null || continue
+  # Con varios, el mas reciente.
+  if [ -z "$pack_zip" ] || [ "$z" -nt "$pack_zip" ]; then pack_zip="$z"; fi
+done
+if [ -n "$pack_zip" ]; then
+  say "Instalando el pack de texturas $(basename "$pack_zip") ..."
+  pack_kb=$(python3 -c 'import sys, zipfile; print(sum(i.file_size for i in zipfile.ZipFile(sys.argv[1]).infolist()) // 1024 + 1024)' "$pack_zip" 2>/dev/null)
+  free_kb=$(df -Pk "$ports" 2>/dev/null | awk 'NR==2 {print $4}')
+  tp="$ports/smg/data/.texturas-instalando"
+  if [ -z "$pack_kb" ]; then
+    say "El pack de texturas esta danado (vuelve a copiarlo). El juego se instalo sin el."; sleep 5
+  elif [ -n "$free_kb" ] && [ "$free_kb" -lt "$pack_kb" ]; then
+    say "Faltan $(( (pack_kb - free_kb) / 1024 + 1 )) MB para el pack de texturas. El juego se instalo sin el."; sleep 5
+  elif rm -rf "$tp" && mkdir -p "$tp" &&
+       python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); z.extractall(sys.argv[2], [n for n in z.namelist() if n.startswith("TexturePacks/RMGE01/") and ".." not in n])' \
+         "$pack_zip" "$tp" && [ -d "$tp/TexturePacks/RMGE01" ]; then
+    mkdir -p "$ports/smg/data/TexturePacks"
+    rm -rf "$ports/smg/data/TexturePacks/RMGE01"
+    mv "$tp/TexturePacks/RMGE01" "$ports/smg/data/TexturePacks/RMGE01" && rm -rf "$tp" && sync &&
+      { [ "${SMG_CONSERVAR_INSTALADOR:-0}" = 1 ] || rm -f "$pack_zip"; } &&
+      say "Pack de texturas instalado en $ports/smg/data/TexturePacks/RMGE01."
+  else
+    rm -rf "$tp"
+    say "No se pudo descomprimir el pack de texturas (vuelve a copiarlo). El juego se instalo sin el."; sleep 5
+  fi
+fi
+
 # El instalador ya no hace falta (el gzip ya comprobo que llego entero).
 if [ "${SMG_CONSERVAR_INSTALADOR:-0}" != 1 ]; then rm -f "$self"; fi
 
