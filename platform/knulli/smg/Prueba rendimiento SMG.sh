@@ -11,7 +11,7 @@ elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then controlfolder="$XDG_DATA_HOME/Por
 else controlfolder="/roms/ports/PortMaster"; fi
 source "$controlfolder/control.txt"
 
-# Galaxias por prueba (8: unos 5 min cada prueba, ~25 min las cinco; 44: todas, ~20 min cada una).
+# Galaxias por prueba (8: unos 6 min cada prueba, ~36 min las seis; 44: todas, ~20 min cada una).
 PRUEBA_GALAXIAS=${PRUEBA_GALAXIAS:-8}
 
 SMG="/$directory/ports/smg"
@@ -299,7 +299,8 @@ __FIN_COMPARE__
 # lo que cambie entre esas dos es el ruido, y compare.py no marca como mejora o peor nada dentro de el.
 [ -f "$SMG/prueba/serie.cfg" ] || cat > "$SMG/prueba/serie.cfg" <<'__FIN_SERIE__'
 # Una prueba por seccion, en este orden; cada una con sus NOMBRE=valor encima de tus ajustes.
-# GALAXY_TEXTURE_PACKS=1|0 (pack HD puesto o quitado), GALAXY_GLES_RESOLUTION=50|75|100 (resolucion interna).
+# GALAXY_TEXTURE_PACKS=1|0 (pack HD puesto o quitado), GALAXY_GLES_RESOLUTION=50|75|100 (resolucion interna),
+# GALAXY_GLES_SHARPEN=0-0.5 (nitidez al agrandar la imagen; la normal es 0.4).
 [normal-75]
 GALAXY_TEXTURE_PACKS=0
 GALAXY_GLES_RESOLUTION=75
@@ -309,6 +310,10 @@ GALAXY_GLES_RESOLUTION=75
 [hd-50]
 GALAXY_TEXTURE_PACKS=1
 GALAXY_GLES_RESOLUTION=50
+[hd-50-nitida]
+GALAXY_TEXTURE_PACKS=1
+GALAXY_GLES_RESOLUTION=50
+GALAXY_GLES_SHARPEN=0.5
 [normal-50]
 GALAXY_TEXTURE_PACKS=0
 GALAXY_GLES_RESOLUTION=50
@@ -316,6 +321,15 @@ GALAXY_GLES_RESOLUTION=50
 GALAXY_TEXTURE_PACKS=0
 GALAXY_GLES_RESOLUTION=75
 __FIN_SERIE__
+
+# Un serie.cfg de la version anterior que nadie cambio (las cinco pruebas de siempre) recibe hd-50-nitida despues de
+# hd-50; uno editado a mano se deja como esta.
+if ! grep -q '^\[hd-50-nitida\]' "$SMG/prueba/serie.cfg" &&
+   [ "$(sed -n 's/^\[\(.*\)\][[:space:]]*\r*$/\1/p' "$SMG/prueba/serie.cfg" | tr '\n' ' ')" = "normal-75 hd-75 hd-50 normal-50 normal-75-otra " ]; then
+  awk '/^\[normal-50\]/ { print "[hd-50-nitida]"; print "GALAXY_TEXTURE_PACKS=1"; print "GALAXY_GLES_RESOLUTION=50"
+                           print "GALAXY_GLES_SHARPEN=0.5" } { print }' "$SMG/prueba/serie.cfg" > "$SMG/prueba/serie.cfg.nuevo" &&
+    mv "$SMG/prueba/serie.cfg.nuevo" "$SMG/prueba/serie.cfg"
+fi
 
 # Lo que hace cada prueba, ya dentro del lanzador del port (mismos ajustes, perfil, frecuencias y salida).
 cat > "$SMG/prueba/correr.sh" <<'__FIN_CORRER__'
