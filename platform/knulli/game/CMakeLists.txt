@@ -192,6 +192,11 @@ add_executable(nebula_wii_shake_tests "${CMAKE_CURRENT_SOURCE_DIR}/wii_shake_tes
 target_include_directories(nebula_wii_shake_tests PRIVATE "${nebula_root}/runtime/include" "${nebula_root}/runtime/src")
 
 # The display-list cache's byte check once per batch of guest writes (FifoParser::advance_memory_generation).
+# The prerendered movies' timing (native/petari/include/Game/Screen/NebulaMovieEvents.hpp): events of skipped frames,
+# repeated frames, restarts, the natural end's drain and the mixer's last block. No game, no GL.
+add_executable(nebula_movie_events_tests "${CMAKE_CURRENT_SOURCE_DIR}/movie_events_tests.cpp")
+target_include_directories(nebula_movie_events_tests PRIVATE "${nebula_root}/native/petari/include")
+
 add_executable(nebula_fifo_display_list_tests "${CMAKE_CURRENT_SOURCE_DIR}/fifo_display_list_tests.cpp")
 target_link_libraries(nebula_fifo_display_list_tests PRIVATE galaxy_gx_gles)
 

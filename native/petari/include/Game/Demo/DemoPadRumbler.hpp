@@ -12,6 +12,9 @@ class DemoPadRumbler {
 public:
     DemoPadRumbler(const char*);
     void update(s32);
+#ifdef TARGET_PC
+    void updateBetween(s32 from, s32 to);  // Nebula: every rumble whose frame lies in (from, to] (NebulaMovieEvents.hpp)
+#endif
 
     /* 0x0 */ s32 mNumPadRumbleEntries;
     /* 0x4 */ PadRumbleInfo* mPadRumbleEntries;

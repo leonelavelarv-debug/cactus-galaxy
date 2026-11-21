@@ -1,4 +1,7 @@
 #include "Game/Screen/THPSimplePlayerWrapper.hpp"
+#ifdef TARGET_PC
+#include "Game/Screen/NebulaMovieEvents.hpp"
+#endif
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
@@ -142,6 +145,7 @@ bool THPSimplePlayerWrapper::close() {
                 mOpen = 0;
                 DVDClose(&mFileInfo);
 #ifdef TARGET_PC
+                mAudioDraining = false;
                 __NebulaMovieFrame(nullptr, -1, 0.0f, nullptr, nullptr, nullptr, 0, 0);
 #endif
                 return true;
@@ -854,7 +858,14 @@ void THPSimplePlayerWrapper::mixAudio(s16* pDest, u32 sample) {
                 MR::zeroMemory(pDest, sample * 2 * sizeof(s16));
                 return;
             }
-        } else if (!mAudioBuffer[(mAudioOutputIndex + 1) % 0x14].validSample) {
+        }
+#ifdef TARGET_PC
+        // Nebula: at the movie's natural end the last block plays with none behind it (NebulaMovieEvents.hpp).
+        else if (!nebulaMovieMixerMayMix(mAudioDraining, mAudioBuffer[mAudioOutputIndex].validSample != 0,
+                                         mAudioBuffer[(mAudioOutputIndex + 1) % 0x14].validSample != 0)) {
+#else
+        else if (!mAudioBuffer[(mAudioOutputIndex + 1) % 0x14].validSample) {
+#endif
             MR::zeroMemory(pDest, sample * 2 * sizeof(s16));
 #ifdef TARGET_PC
             thpMixReport(true);
@@ -964,6 +975,9 @@ void THPSimplePlayerWrapper::mixAudio(s16* pDest, u32 sample) {
 }
 
 void THPSimplePlayerWrapper::resetAudioParams() {
+#ifdef TARGET_PC
+    mAudioDraining = false;
+#endif
     mAudioDecodeIndex = 0;
     mAudioOutputIndex = 0;
     MR::zeroMemory(mAudioBuffer, sizeof(mAudioBuffer));
