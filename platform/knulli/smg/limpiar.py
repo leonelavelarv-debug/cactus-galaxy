@@ -20,9 +20,10 @@ def cut(text, start, end, replacement=""):
 
 def clean_launcher(s):
     # Los ajustes de smg/ajustes.cfg se leen nada mas entrar en la carpeta del juego, antes de abrir Cactus Galaxy Wrapper
-    # (que tambien usa NEBULA_FACE_LAYOUT, NEBULA_QUIT_COMBO...) y antes de la primera linea del log, que los muestra.
+    # (que tambien usa NEBULA_FACE_LAYOUT, NEBULA_QUIT_COMBO...) y antes de la primera linea del log, que los muestra;
+    # la funcion lee_ajustes se vuelve a llamar despues del wrapper, que acaba de escribir smg/opciones.cfg.
     a = s.index("# Ajustes (se pueden cambiar aqui")
-    b = s.index("done\n", s.index('for cfg in "$GAMEDIR/', a)) + len("done\n")
+    b = s.index("\nlee_ajustes\n", s.index('for cfg in "$GAMEDIR/', a)) + len("\nlee_ajustes\n")
     block = s[a:b]
     s = s[:a] + s[b:]
     anchor = 'exec > >(tee "$GAMEDIR/log.txt") 2>&1\n'
