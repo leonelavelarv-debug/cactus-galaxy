@@ -37,9 +37,10 @@ def clean_launcher(s):
         "# Se aceptan ajustes.cfg y ajustes.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del\n")
     s = s.replace("# Tambien smg/ajustes.cfg (el del port limpio) y smg/ultra/ultra.cfg (el del paquete de medicion), leidos antes:\n"
                   "# los de smg/ultra.cfg mandan.\n", "")
-    s = s.replace('for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" '
-                  '"$GAMEDIR/ultra.cfg.txt"; do',
-                  'for cfg in "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt"; do')
+    # smg/opciones.cfg (Ajustes de Cactus Galaxy Wrapper) se queda: va primero, los del usuario mandan sobre el.
+    s = s.replace('for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" '
+                  '"$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do',
+                  'for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt"; do')
     s = s.replace("(ponlo en smg/ultra.cfg si algo se ve mal con el hilo)", "(ponlo en smg/ajustes.cfg si algo se ve mal con el hilo)")
     # Comentarios sin referencias a las mediciones ni a numeros de version.
     s = s.replace("# uber por defecto (ULTRA-GLES): la primera vez con wait,", "# uber por defecto: la primera vez con wait,")
