@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prueba de rendimiento de Super Mario Galaxy: el pack de texturas HD y la resolucion interna al 50 % y al 75 %.
+# Prueba de rendimiento de Super Mario Galaxy: el escalador de la resolucion reducida frente al filtro de antes.
 # Usa el port ya instalado (ports/smg) sin cambiarlo y con una partida aparte (smg/prueba/nand: la tuya no se toca).
 # El juego recorre solo las mismas galaxias en cada prueba (15 s de juego cada una); no toques nada mientras.
 # Resultados: smg/prueba/<fecha>/comparacion.txt (todas frente a la primera) y una carpeta por prueba con informe.txt.
@@ -11,7 +11,7 @@ elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then controlfolder="$XDG_DATA_HOME/Por
 else controlfolder="/roms/ports/PortMaster"; fi
 source "$controlfolder/control.txt"
 
-# Galaxias por prueba (8: unos 6 min cada prueba, ~36 min las seis; 44: todas, ~20 min cada una).
+# Galaxias por prueba (8: unos 6 min cada prueba, ~24 min las cuatro; 44: todas, ~20 min cada una).
 PRUEBA_GALAXIAS=${PRUEBA_GALAXIAS:-8}
 
 SMG="/$directory/ports/smg"
@@ -305,39 +305,41 @@ __FIN_COMPARE__
 
 # Las pruebas, en un orden que alterna (el calor de la consola sube con el tiempo) y con la primera repetida al final:
 # lo que cambie entre esas dos es el ruido, y compare.py no marca como mejora o peor nada dentro de el.
+# Las series de las versiones anteriores que nadie cambio (5 o 6 pruebas: pack y resolucion, ya medidas el 21-nov) se
+# guardan como serie-anterior.cfg y se cambian por la nueva; una editada a mano se deja como esta.
+if [ -f "$SMG/prueba/serie.cfg" ]; then
+  case "$(sed -n 's/^\[\(.*\)\][[:space:]]*\r*$/\1/p' "$SMG/prueba/serie.cfg" | tr '\n' ' ')" in
+    "normal-75 hd-75 hd-50 normal-50 normal-75-otra "|"normal-75 hd-75 hd-50 hd-50-nitida normal-50 normal-75-otra ")
+      mv -f "$SMG/prueba/serie.cfg" "$SMG/prueba/serie-anterior.cfg" ;;
+  esac
+fi
+# La serie: el escalador (NEBULA_ESCALADOR=1) frente al filtro de antes, al 50 % con el pack HD; el 75 % como la
+# calidad de referencia; y hd-50 repetida al final (lo que cambie entre las dos es el ruido).
 [ -f "$SMG/prueba/serie.cfg" ] || cat > "$SMG/prueba/serie.cfg" <<'__FIN_SERIE__'
 # Una prueba por seccion, en este orden; cada una con sus NOMBRE=valor encima de tus ajustes.
-# GALAXY_TEXTURE_PACKS=1|0 (pack HD puesto o quitado), GALAXY_GLES_RESOLUTION=50|75|100 (resolucion interna),
-# GALAXY_GLES_SHARPEN=0-0.5 (nitidez al agrandar la imagen; la normal es 0.4).
-[normal-75]
-GALAXY_TEXTURE_PACKS=0
-GALAXY_GLES_RESOLUTION=75
-[hd-75]
-GALAXY_TEXTURE_PACKS=1
-GALAXY_GLES_RESOLUTION=75
+# NEBULA_ESCALADOR=1|0 (escalador nuevo o el filtro de antes), GALAXY_GLES_RESOLUTION=50|75|100,
+# GALAXY_GLES_SHARPEN=0-2 (nitidez), GALAXY_TEXTURE_PACKS=1|0 (pack HD).
 [hd-50]
 GALAXY_TEXTURE_PACKS=1
 GALAXY_GLES_RESOLUTION=50
-[hd-50-nitida]
+GALAXY_GLES_SHARPEN=0.5
+NEBULA_ESCALADOR=0
+[hd-50-escalador]
 GALAXY_TEXTURE_PACKS=1
 GALAXY_GLES_RESOLUTION=50
 GALAXY_GLES_SHARPEN=0.5
-[normal-50]
-GALAXY_TEXTURE_PACKS=0
-GALAXY_GLES_RESOLUTION=50
-[normal-75-otra]
-GALAXY_TEXTURE_PACKS=0
+NEBULA_ESCALADOR=1
+[hd-75]
+GALAXY_TEXTURE_PACKS=1
 GALAXY_GLES_RESOLUTION=75
+GALAXY_GLES_SHARPEN=0.4
+NEBULA_ESCALADOR=0
+[hd-50-otra]
+GALAXY_TEXTURE_PACKS=1
+GALAXY_GLES_RESOLUTION=50
+GALAXY_GLES_SHARPEN=0.5
+NEBULA_ESCALADOR=0
 __FIN_SERIE__
-
-# Un serie.cfg de la version anterior que nadie cambio (las cinco pruebas de siempre) recibe hd-50-nitida despues de
-# hd-50; uno editado a mano se deja como esta.
-if ! grep -q '^\[hd-50-nitida\]' "$SMG/prueba/serie.cfg" &&
-   [ "$(sed -n 's/^\[\(.*\)\][[:space:]]*\r*$/\1/p' "$SMG/prueba/serie.cfg" | tr '\n' ' ')" = "normal-75 hd-75 hd-50 normal-50 normal-75-otra " ]; then
-  awk '/^\[normal-50\]/ { print "[hd-50-nitida]"; print "GALAXY_TEXTURE_PACKS=1"; print "GALAXY_GLES_RESOLUTION=50"
-                           print "GALAXY_GLES_SHARPEN=0.5" } { print }' "$SMG/prueba/serie.cfg" > "$SMG/prueba/serie.cfg.nuevo" &&
-    mv "$SMG/prueba/serie.cfg.nuevo" "$SMG/prueba/serie.cfg"
-fi
 
 # Lo que hace cada prueba, ya dentro del lanzador del port (mismos ajustes, perfil, frecuencias y salida).
 cat > "$SMG/prueba/correr.sh" <<'__FIN_CORRER__'
@@ -370,6 +372,12 @@ for name in $names; do
     done < <(awk -v want="$name" '{ sub(/\r$/, "") } /^[[:space:]]*\[/ { s = $0; gsub(/[][[:space:]]/, "", s); next }
                                    s == want && /=/ && !/^[[:space:]]*#/ { print }' "$GAMEDIR/prueba/serie.cfg")
     # Solo con un timeout que entienda -k (el de BusyBox viejo no): si no, sin limite de tiempo.
+    # El escalador se elige por la biblioteca de shaders (el lanzador ya eligio la suya antes de la serie).
+    case "${NEBULA_ESCALADOR:-}" in
+      0) export GALAXY_GLES_SHADER_LIBRARY="$GAMEDIR/shaders-gles.bin" ;;
+      1) [ -f "$GAMEDIR/shaders-gles-escalador.bin" ] && export GALAXY_GLES_SHADER_LIBRARY="$GAMEDIR/shaders-gles-escalador.bin" ;;
+    esac
+    echo "  $name: shaders ${GALAXY_GLES_SHADER_LIBRARY##*/}"
     if command -v timeout >/dev/null 2>&1 && timeout -k 1 5 true >/dev/null 2>&1; then
       timeout -k 10 "$limite" ./nebula --pak "$GAMEDIR/gamedata/game.pak" --nand "$GAMEDIR/prueba/nand"
     else
