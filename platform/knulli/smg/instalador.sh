@@ -134,6 +134,70 @@ if [ -n "$pack_zip" ]; then
   fi
 fi
 
+# Mods (opcionales): un .zip, .7z o .rar con archivos del juego (.arc, .szs...) o riivolution/ junto a este
+# instalador va a smg/mods/<nombre del archivo>/, donde Nebula los carga (los sueltos, cada uno en el sitio de su
+# nombre en el disco); si trae una sola carpeta arriba, esa. El zip lo abre python; 7z y rar, el 7zzs de PortMaster.
+sevenz=""
+for c in "$controlfolder/7zzs.${DEVICE_ARCH:-aarch64}" "$controlfolder/7zzs"; do [ -x "$c" ] && { sevenz="$c"; break; }; done
+mod_dirs="$(dirname "$self")"
+[ "$(cd "$ports" && pwd -P)" != "$(cd "$mod_dirs" && pwd -P)" ] && mod_dirs="$mod_dirs
+$ports"
+printf '%s\n' "$mod_dirs" | while IFS= read -r dir; do
+  for a in "$dir"/*.zip "$dir"/*.ZIP "$dir"/*.7z "$dir"/*.rar "$dir"/*.RAR; do
+    [ -f "$a" ] || continue
+    case "$(basename "$a")" in smg.zip) continue ;; esac
+    case "$a" in *.zip|*.ZIP)
+      python3 -c 'import sys, zipfile; sys.exit(any(n.startswith("TexturePacks/") for n in zipfile.ZipFile(sys.argv[1]).namelist()))' \
+        "$a" 2>/dev/null || continue ;;
+    esac
+    nombre="$(basename "$a")"; nombre="${nombre%.*}"; nombre="${nombre#.}"
+    tmp="$ports/smg/mods/.mod-instalando"
+    rm -rf "$tmp" && mkdir -p "$tmp" || continue
+    case "$a" in
+      *.zip|*.ZIP) python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$a" "$tmp" 2>/dev/null ;;
+      *) if [ -n "$sevenz" ]; then "$sevenz" x -y -o"$tmp" "$a" >/dev/null 2>&1; else false; fi ;;
+    esac
+    ok=$?
+    # Packs de texturas (ya instalados arriba) y zips que no son de este juego: se dejan como estan.
+    if [ -d "$tmp/TexturePacks" ]; then rm -rf "$tmp"; continue; fi
+    if [ "$ok" != 0 ]; then
+      rm -rf "$tmp"
+      case "$a" in
+        *.zip|*.ZIP) ;;
+        *) [ -z "$sevenz" ] && say "No se pudo abrir $(basename "$a"): falta 7zzs de PortMaster. Descomprimelo en la PC dentro de smg/mods/." && sleep 5 ;;
+      esac
+      continue
+    fi
+    if [ -z "$(find "$tmp" -type f \( -iname '*.arc' -o -iname '*.szs' -o -iname '*.bcsv' -o -iname '*.bmg' -o -iname '*.thp' -o -iname '*.ast' -o -iname '*.brsar' \) | head -n 1)" ] &&
+       [ -z "$(find "$tmp" -type d -iname riivolution | head -n 1)" ]; then
+      rm -rf "$tmp"; continue
+    fi
+    # Una sola carpeta arriba (la del propio archivo) y a lo sumo notas: el mod es esa carpeta. Las carpetas del disco
+    # (ObjectData, files, riivolution...) Nebula ya las busca un nivel abajo.
+    raiz="$tmp"
+    subdirs=$(find "$tmp" -mindepth 1 -maxdepth 1 -type d | wc -l)
+    otros=$(find "$tmp" -mindepth 1 -maxdepth 1 -type f ! -iname '*.txt' ! -iname '*.md' ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.pdf' | wc -l)
+    if [ "$subdirs" = 1 ] && [ "$otros" = 0 ]; then
+      sub="$(find "$tmp" -mindepth 1 -maxdepth 1 -type d)"
+      case "$(basename "$sub" | tr '[:upper:]' '[:lower:]')" in
+        files|riivolution|textures|movies|objectdata|stagedata|layoutdata|audiores|particledata|systemdata|mappartsdata|moviedata|us*|eu*|jp*|kr*|cn*|tw*) ;;
+        *) raiz="$sub" ;;
+      esac
+    fi
+    destino="$ports/smg/mods/$nombre"
+    rm -rf "$destino"
+    if mv "$raiz" "$destino"; then
+      rm -rf "$tmp"
+      [ "${SMG_CONSERVAR_INSTALADOR:-0}" = 1 ] || rm -f "$a"
+      say "Mod instalado: $nombre (para quitarlo, borra smg/mods/$nombre)."
+    else
+      rm -rf "$tmp"
+      say "No se pudo instalar el mod $nombre (espacio?)."; sleep 5
+    fi
+  done
+done
+sync
+
 # El instalador ya no hace falta (el gzip ya comprobo que llego entero).
 if [ "${SMG_CONSERVAR_INSTALADOR:-0}" != 1 ]; then rm -f "$self"; fi
 

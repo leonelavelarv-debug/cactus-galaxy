@@ -59,6 +59,8 @@ Texturas: Nebula guarda las del juego en 8 o 16 bits cuando caben sin cambiar na
 en `smg/ajustes.cfg`; `16bits` ahorra más, `no` lo apaga). Un pack de texturas va en `smg/data/TexturePacks/`; uno HD
 hay que reducirlo antes en la PC (`nopal texturas reducir` de Nopal), porque no cabe en 1 GB. Un `.zip` con
 `TexturePacks/RMGE01/` junto al instalador se instala solo (sustituye el pack anterior y se borra el zip).
+Mods: un `.zip`, `.7z` o `.rar` con archivos del juego (`.arc`, `.szs`...) o `riivolution/` junto al instalador va a
+`smg/mods/<nombre del archivo>/` (7z y rar con el `7zzs` de PortMaster). Para quitar un mod, borra su carpeta.
 Con `NOPAL_DEPURAR=5555` en `smg/ajustes.cfg`, el Depurador de Nopal Estudio se conecta desde la PC (por WiFi) y
 muestra los FPS, el tiempo de cada frame, la memoria y log.txt en vivo, y pausa el juego.
 
