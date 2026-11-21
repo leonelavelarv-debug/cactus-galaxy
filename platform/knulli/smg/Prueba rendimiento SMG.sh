@@ -342,7 +342,7 @@ fi
 # Lo que hace cada prueba, ya dentro del lanzador del port (mismos ajustes, perfil, frecuencias y salida).
 cat > "$SMG/prueba/correr.sh" <<'__FIN_CORRER__'
 serie_dir="$GAMEDIR/prueba/$(date +%Y%m%d-%H%M%S)"
-mkdir -p "$serie_dir" "$GAMEDIR/prueba/nand"
+mkdir -p "$serie_dir"
 export GALAXY_ULTRA=bench GALAXY_TEST_GALAXY_TOUR=auto GALAXY_TEST_GALAXY_TOUR_FRAMES=900
 export GALAXY_TEST_GALAXY_TOUR_LIMIT="${PRUEBA_GALAXIAS:-8}" NEBULA_AUTO_RECONNECT=1 NEBULA_PROFILE=0
 unset GALAXY_PRESENT_SNAPSHOT_DIR GALAXY_PRESENT_SNAPSHOT_EVERY
@@ -354,6 +354,14 @@ for name in $names; do
   run_dir="$serie_dir/$name"
   mkdir -p "$run_dir"
   echo "prueba: $name -> $run_dir"
+  # Cada prueba empieza de una copia de TU partida (smg/nand), que ya paso la introduccion: con una partida nueva el
+  # juego se queda en los mensajes del principio esperando A y el recorrido no avanza. La tuya no se toca.
+  rm -rf "$GAMEDIR/prueba/nand" && mkdir -p "$GAMEDIR/prueba/nand"
+  if [ -n "$(ls -A "$GAMEDIR/nand" 2>/dev/null)" ]; then
+    cp -a "$GAMEDIR/nand/." "$GAMEDIR/prueba/nand/" && echo "  $name: partida de prueba = copia de smg/nand"
+  else
+    echo "  $name: no hay partida en smg/nand: empieza una nueva (si se queda en un mensaje, pulsa A)"
+  fi
   (
     export GALAXY_ULTRA_DIR="$run_dir" NEBULA_ULTRA_ETIQUETA="$name"
     while IFS= read -r line; do
