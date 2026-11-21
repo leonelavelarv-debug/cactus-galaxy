@@ -980,7 +980,7 @@ struct App {
   // Settings (X on the language screen): the game's internal resolution and vibration, in smg/opciones.cfg (the
   // launcher reads it before ajustes.cfg and ultra.cfg, which still win).
   std::string options_file;
-  int opt_resolution = 2;  // kResolutions: auto, 50, 75 (the medium profile's), 100
+  int opt_resolution = 1;  // kResolutions: auto, 50 (the medium profile's, with the HD pack), 75, 100
   bool opt_resolution_set = false;  // chosen (or in the file): only then written (the profiles keep their own)
   bool opt_vibration = true;
   int settings_row = 0;
@@ -1772,7 +1772,7 @@ struct App {
     text_center(cv, kCenter, 128, T(S_SETTINGS), 2, kGold);
     const std::string res_value = opt_resolution == 0 ? std::string(T(S_AUTO_RES)) : std::string(kResolutions[opt_resolution]) + " %";
     static const char* const kSizes[4] = {"50-100 %", "320x264", "480x396", "640x528"};
-    const std::string res_note = opt_resolution == 2 ? std::string(kSizes[2]) + " · " + T(S_RECOMMENDED) : kSizes[opt_resolution];
+    const std::string res_note = opt_resolution == 1 ? std::string(kSizes[1]) + " · " + T(S_RECOMMENDED) : kSizes[opt_resolution];
     const std::string mods_value = mods.empty() ? std::string("-") : format("%d / %d", mods_active(), int(mods.size()));
     const struct { const char* label; std::string value, note; } rows[4] = {
         {T(S_RESOLUTION), res_value, res_note},
@@ -2068,7 +2068,7 @@ int demo(const std::string& out) {
   app.opt_resolution = 3;
   app.draw(cv, scene, 2.53f);
   save_png(cv, out + "/1g3-ajustes-100.png");
-  app.opt_resolution = 2;
+  app.opt_resolution = 1;
   app.settings_row = 1; app.opt_vibration = false;
   app.draw(cv, scene, 2.55f);
   save_png(cv, out + "/1h-ajustes-vibracion.png");
