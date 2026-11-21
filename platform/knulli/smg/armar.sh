@@ -16,7 +16,7 @@
 #            NEBULA_DEPS     la carpeta de --deps (glslang con External/spirv-tools, SPIRV-Cross, sdl2-a64)
 #            NEBULA_SDL2     SDL2 para aarch64 (por defecto $NEBULA_DEPS/sdl2-a64; solo se enlaza: en la consola se
 #                            usa la del firmware)
-#            NEBULA_PARCHES  opcional: una carpeta con parches .xdelta de traduccion (van a smg/patches/)
+#            NEBULA_PARCHES  opcional: una carpeta con parches de traduccion .xdelta y/o .rusmg (van a smg/patches/)
 #            NEBULA_CLAVES   opcional: gles_keys.bin de sesiones en la consola (mas shaders en la biblioteca)
 #            NEBULA_TRADUCTOR=1  opcional: Nebula con el traductor de shaders dentro (como antes)
 #            NEBULA_MEDICION=1   opcional: ademas, <salida>/paquete-medicion: el mismo port con ULTRA-GLES (smg/ultra/,
@@ -126,10 +126,11 @@ rm -rf "$full" "$out/port"
 mkdir -p "$full/smg/licenses" "$full/smg/gamedata"
 cp "$here/Super Mario Galaxy.sh" "$full/"
 (cd "$here/smg" && tar --exclude=__pycache__ --exclude=.gitignore -cf - .) | (cd "$full/smg" && tar -xf -)
-# Parches de traduccion de terceros (no van en el repositorio): NEBULA_PARCHES=<carpeta con los .xdelta>.
+# Parches de traduccion de terceros (no van en el repositorio): NEBULA_PARCHES=<carpeta con .xdelta, .rusmg o ambos>.
 if [ -n "${NEBULA_PARCHES:-}" ]; then
-  cp "$NEBULA_PARCHES"/*.xdelta "$full/smg/patches/" 2>/dev/null || fail "no hay .xdelta en $NEBULA_PARCHES"
-  cp "$NEBULA_PARCHES"/*.rusmg "$full/smg/patches/" 2>/dev/null || true  # el ruso (cactus-ruso --extraer)
+  # shellcheck source=parches.sh
+  . "$here/parches.sh"
+  copia_parches "$NEBULA_PARCHES" "$full/smg/patches" || fail "los parches de NEBULA_PARCHES no se pudieron copiar"
 fi
 cp "$here/README.md" "$full/smg/README.md"
 printf '%s\n' "Pon aqui tu disco de Super Mario Galaxy (USA, RMGE01) en ISO, RVZ, WIA, WBFS, GCZ o CISO, y abre el juego:" \
