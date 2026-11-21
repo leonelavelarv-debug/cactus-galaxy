@@ -444,7 +444,7 @@ El GLES subía todas las texturas del juego en RGBA8. Ahora cada una va en el fo
 
 ### Packs de texturas en la consola
 
-El lanzador pasa `smg/data/TexturePacks/` a Nebula (`GALAXY_TEXTURE_PACK_DIR`) si existe, con 256 MiB para los
+El lanzador pasa `smg/data/TexturePacks/` a Nebula (`GALAXY_TEXTURE_PACK_DIR`) si existe, con 96 MiB para los
 reemplazos (`GALAXY_TEXTURE_PACK_BUDGET_MB`). Un pack HD (4x, 8x) no cabe en 1 GB: `nopal texturas reducir` (Nopal)
 lo lleva en la PC a la escala del juego (o x2) y a formatos que Nebula sube compactos. `GALAXY_TEXTURE_DUMP=1` vuelca
 las texturas a `smg/data/TextureDumps/RMGE01/` para editarlas (Nopal Estudio, pestaña Texturas).

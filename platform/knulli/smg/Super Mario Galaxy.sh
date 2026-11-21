@@ -251,11 +251,12 @@ export GALAXY_TEXTURE_COMPACT="${GALAXY_TEXTURE_COMPACT:-exacto}"
 #   Packs de texturas: en smg/data/TexturePacks/ (hechos a la medida de la consola en la PC: `nopal texturas reducir`,
 #   o `nopal nebula armar --texturas`). GALAXY_TEXTURE_DUMP=1 vuelca las texturas del juego a smg/data/TextureDumps/
 #   (para editarlas en la PC y volver a ponerlas como pack).
-#   GALAXY_TEXTURE_PACK_BUDGET_MB=256    memoria de video para los reemplazos (los que no se usan salen primero)
+#   GALAXY_TEXTURE_PACK_BUDGET_MB=96     memoria para los reemplazos (los que no se usan salen primero). 96 cabe con
+#                                        lo que queda libre en 1 GB; un pack x2 va mejor con 128, si la memoria alcanza
 if [ -d "$GAMEDIR/data/TexturePacks" ]; then
   export GALAXY_TEXTURE_PACK_DIR="${GALAXY_TEXTURE_PACK_DIR:-$GAMEDIR/data/TexturePacks}"
 fi
-export GALAXY_TEXTURE_PACK_BUDGET_MB="${GALAXY_TEXTURE_PACK_BUDGET_MB:-256}"
+export GALAXY_TEXTURE_PACK_BUDGET_MB="${GALAXY_TEXTURE_PACK_BUDGET_MB:-96}"
 #   NOPAL_DEPURAR=5555                   el Depurador de Nopal Estudio se conecta desde la PC (por WiFi, a la IP de la
 #                                        consola y este puerto): FPS, tiempos del frame, RAM, CPU, log.txt en vivo, pausa
 #                                        y avance de a un frame. Sin fijarlo no se abre nada
