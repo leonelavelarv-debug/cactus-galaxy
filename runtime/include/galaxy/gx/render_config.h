@@ -161,6 +161,12 @@ struct RenderConfig {
     bool     texture_pack_preload = false;
     bool     texture_dump        = false;
     unsigned texture_pack_budget_mb = 2048;
+    // Compact textures on GLES (texture_compact.h): 0 off, 1 exact, 2 16 bits. Off on D3D12 and Vulkan.
+#if defined(NEBULA_GPU_GLES)
+    unsigned texture_compact     = 1;
+#else
+    unsigned texture_compact     = 0;
+#endif
 
     // Back-buffer dimensions (may differ from EFB; the present blit scales).
     // In windowed mode this is the client size, limited to the monitor's

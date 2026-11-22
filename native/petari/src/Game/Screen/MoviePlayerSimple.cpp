@@ -1,6 +1,9 @@
 #include "Game/Screen/MoviePlayerSimple.hpp"
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Screen/THPSimplePlayerWrapper.hpp"
+#ifdef TARGET_PC
+#include "Game/Screen/NebulaMovieEvents.hpp"
+#endif
 #include "Game/System/GameSystem.hpp"
 #include "Game/System/GameSystemFunction.hpp"
 #include "Game/System/HomeButtonStateNotifier.hpp"
@@ -189,7 +192,43 @@ void MoviePlayerSimple::exePreload() {
     appear();
 }
 
+#ifdef TARGET_PC
+namespace {
+    // Nebula: the movie's end held while the mixer plays its last decoded audio (one movie plays at a time).
+    NebulaMovieDrain sMovieDrain;
+}  // namespace
+#endif
+
 void MoviePlayerSimple::exePlaying() {
+#ifdef TARGET_PC
+    // Nebula: at the natural end the console stopped at once, the decoded audio still queued with it (the last ~80 ms
+    // and more, with the extra decodes below). The last picture now stays until the mixer has played it all (at most
+    // NebulaMovieDrain::kMaxFrames); a skip or a stop from outside still stops at once (stop()).
+    if (sMovieDrain.active()) {
+        if (sMovieDrain.step(mPlayerWrapper->queuedAudioBuffers())) {
+            sMovieDrain.reset();
+            stop();
+            setNerve(GET_NERVE_ANON(MoviePlayerSimpleOff));
+        }
+        return;
+    }
+    // The last frame reached (or passed, if the extra decodes went beyond it); a looping movie keeps the console's check.
+    const s32 next = mMovie->mCurrentFrame + 1, total = mPlayerWrapper->getTotalFrame();
+    if (mMovie->_18 ? next == total : next >= total) {
+        mMovie->_24 = 0;
+
+        if (!mMovie->_18) {
+            if (mPlayerWrapper->mAudioExist && mPlayerWrapper->queuedAudioBuffers() > 0) {
+                sMovieDrain.start();
+                mPlayerWrapper->setAudioDraining(true);
+                return;
+            }
+            stop();
+            setNerve(GET_NERVE_ANON(MoviePlayerSimpleOff));
+            return;
+        }
+    }
+#else
     if (mMovie->mCurrentFrame + 1 == mPlayerWrapper->getTotalFrame()) {
         mMovie->_24 = 0;
 
@@ -199,6 +238,7 @@ void MoviePlayerSimple::exePlaying() {
             return;
         }
     }
+#endif
 
     if (!mMovie->_19) {
         s32 result = mPlayerWrapper->decode(0);
@@ -209,12 +249,45 @@ void MoviePlayerSimple::exePlaying() {
             break;
         case 2:
             mMovie->_24++;
+#ifdef TARGET_PC
+            {
+                // Nebula: a game frame whose movie frame had not been read from the disc yet (the movie falls behind).
+                static u32 sNotReady = 0;
+                if ((++sNotReady % 60u) == 1u) {
+                    OSReport("THP: cuadro sin leer a tiempo (%u en total)\n", (unsigned)sNotReady);
+                }
+            }
+#endif
             break;
         case 3:
             return;
         }
     }
 
+#ifdef TARGET_PC
+    // Nebula (on by default; NEBULA_VIDEO_AUDIO_RELOJ=0 turns it off): the movie's audio is mixed in real time, but the console
+    // decodes one movie frame per game frame. When the game runs below 60 frames a second the audio runs dry and
+    // cuts out; here a frame decodes again (at most 3 more) while fewer than 5 audio buffers (~80 ms) are queued:
+    // u155 kept 3 and still ran dry in ~4 % of the mixes. The
+    // picture shows the newest decoded frame, so it skips the ones in between as the console would when late.
+    {
+        static const bool sAudioClock = [] {
+            const char* value = getenv("NEBULA_VIDEO_AUDIO_RELOJ");
+            return value == nullptr || value[0] != '0';
+        }();
+        if (sAudioClock && mPlayerWrapper->mAudioExist) {
+            static u32 sCatchUp = 0;
+            for (s32 extra = 0; extra < 3 && mPlayerWrapper->queuedAudioBuffers() < 5; extra++) {
+                if (mPlayerWrapper->decode(0) != 0) {
+                    break;
+                }
+                if ((++sCatchUp % 300u) == 1u) {
+                    OSReport("THP: cuadro extra para no dejar sin audio (%u en total)\n", (unsigned)sCatchUp);
+                }
+            }
+        }
+    }
+#endif
     mMovie->_20++;
 
     if (mMovie->_19) {
@@ -240,6 +313,10 @@ void MoviePlayerSimple::play(bool a1) {
 }
 
 void MoviePlayerSimple::stop() {
+#ifdef TARGET_PC
+    sMovieDrain.reset();
+    mPlayerWrapper->setAudioDraining(false);
+#endif
     mPlayerWrapper->loadStop();
     mPlayerWrapper->close();
     delete[] mMovie->mBuffer;

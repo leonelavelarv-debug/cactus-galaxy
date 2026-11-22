@@ -17,6 +17,7 @@
 #include "galaxy/gx/dependency_event_capture.h"
 
 #include "galaxy/gx/render_config.h"
+#include "galaxy/gx/texture_compact.h"
 #include "galaxy/gx/shader_keys.h"
 #include "galaxy/windows_power.h"
 
@@ -47,7 +48,15 @@ namespace galaxy::gx {
 
 namespace {
 
+#if defined(NEBULA_GPU_GLES)
+// OpenGL ES: the upload chunks are heap memory, read by glTexSubImage (or copied into the GL thread's queue) when
+// the frame's textures are flushed. A small first chunk per slot; a frame that needs more (a galaxy's load) gets more
+// chunks, and begin_frame gives them back the next time that slot comes round. The RG35XX H has 1 GiB and no swap:
+// 16 MiB chunks kept for good after the loads were most of the heap that grew galaxy by galaxy.
+static constexpr std::uint64_t kUploadArenaChunkBytes = 4ull << 20;
+#else
 static constexpr std::uint64_t kUploadArenaChunkBytes = 16ull << 20;
+#endif
 static constexpr std::uint64_t kContentCacheBudgetBytes = 64ull << 20;
 static constexpr std::size_t kContentCacheMaxEntries = 4096u;
 
@@ -1378,8 +1387,16 @@ void TextureCache::begin_frame(
         }
     }
     retired.clear();
-    upload_arenas_[frame_slot].active_chunk = 0;
-    upload_arenas_[frame_slot].cursor = 0;
+    {
+        // This slot's last frame is GPU-idle (above): the chunks a big frame added go back, the first one stays.
+        UploadArenaFrame& arena = upload_arenas_[frame_slot];
+        while (arena.chunks.size() > 1u) {
+            TextureBackend::release_upload_chunk(arena.chunks.back());
+            arena.chunks.pop_back();
+        }
+        arena.active_chunk = 0;
+        arena.cursor = 0;
+    }
     current_frame_slot_ = frame_slot;
     if (pack_staging_.size() != frames_in_flight) {
         pack_staging_.resize(frames_in_flight);
@@ -2248,11 +2265,23 @@ void TextureCache::apply_texture_packs() {
         if (pixels.staging && pixels.level_count != 0u && !current_frame_slot_invalid()) {
             // Staged by the loader: create and record the copy; the buffer lives until this slot comes round.
             std::uint64_t allocation_bytes = 0;
+#if defined(NEBULA_GPU_GLES)
+            // The loader staged a compact replacement already in its format (texture_compact.h).
+            gpu::TextureRef texture = backend_.create_texture(pixels.width, pixels.height, pixels.level_count,
+                                                              allocation_bytes, pixels.compact);
+            if (texture && pixels.compact != CompactFormat::RGBA8) {
+                backend_.record_upload_compact(gpu::raw(texture), *pixels.staging, 0u, pixels.width, pixels.height,
+                                               pixels.level_count, pixels.offsets.data(), pixels.pitches.data());
+            } else if (texture) {
+#else
             gpu::TextureRef texture =
                 backend_.create_texture(pixels.width, pixels.height, pixels.level_count, allocation_bytes);
             if (texture) {
+#endif
                 backend_.record_upload(gpu::raw(texture), false, *pixels.staging, 0u, pixels.width, pixels.height,
                                        pixels.level_count, pixels.offsets.data(), pixels.pitches.data());
+            }
+            if (texture) {
                 pack_staging_[current_frame_slot_].push_back(std::move(*pixels.staging));
                 pixels.staging.reset();
                 replacement.texture = std::move(texture);
@@ -2274,7 +2303,13 @@ void TextureCache::apply_texture_packs() {
                     }
                 }
                 std::uint64_t allocation_bytes = 0;
+#if defined(NEBULA_GPU_GLES)
+                // Not staged by the loader: RGBA8 levels, converted by record_upload when compact.
+                gpu::TextureRef texture = backend_.create_texture(pixels.width, pixels.height, levels,
+                                                                  allocation_bytes, pixels.compact);
+#else
                 gpu::TextureRef texture = backend_.create_texture(pixels.width, pixels.height, levels, allocation_bytes);
+#endif
                 if (texture) {
                     backend_.record_upload(gpu::raw(texture), false, *staging.chunk, staging.offset, pixels.width,
                                            pixels.height, levels, offsets.data(), pitches.data());
@@ -2858,10 +2893,25 @@ TextureHandle TextureCache::get(
 
     gpu::TextureRef resource;
     std::uint64_t allocation_bytes = 0;
+#if defined(NEBULA_GPU_GLES)
+    // Compact textures (texture_compact.h): the pool holds RGBA8 textures only. The levels are decoded on this
+    // thread on GLES (async_decode is off), so level 0 is there for the formats chosen by their alpha.
+    static const unsigned compact_mode = texture_compact_mode();
+    const CompactFormat compact = compact_for_guest(
+        image.format, tlut.format, compact_mode,
+        async_decode || level_pixels[0].empty() ? nullptr : reinterpret_cast<const std::uint8_t*>(level_pixels[0].data()),
+        async_decode ? 0u : static_cast<std::size_t>(w) * h);
+    const bool reused_resource =
+        compact == CompactFormat::RGBA8 && take_pooled_texture(w, h, levels, resource, allocation_bytes);
+    if (!reused_resource) {
+        resource = backend_.create_texture(w, h, levels, allocation_bytes, compact);
+    }
+#else
     const bool reused_resource = take_pooled_texture(w, h, levels, resource, allocation_bytes);
     if (!reused_resource) {
         resource = backend_.create_texture(w, h, levels, allocation_bytes);
     }
+#endif
     const auto resource_end = trace_stalls
         ? std::chrono::steady_clock::now()
         : std::chrono::steady_clock::time_point{};

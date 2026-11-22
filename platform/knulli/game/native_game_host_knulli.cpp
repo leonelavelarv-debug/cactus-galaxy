@@ -4,6 +4,7 @@
 // same bindings and tuning as Windows), vibration, and the device data the game reads.
 
 #include "sdl_host.h"
+#include "wii_shake.h"
 
 #include "galaxy/content_viewport.h"
 #include "galaxy/input_bindings.h"
@@ -22,7 +23,10 @@
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <cstdio>
+#include <cstdlib>
 #include <sstream>
+#include <string>
 #include <vector>
 
 namespace galaxy::host {
@@ -41,31 +45,63 @@ constexpr std::uint8_t kTapPressReports = 10;
 constexpr std::uint64_t kTapHoverMs = 200;
 constexpr float kTriggerThreshold = 96.0f / 255.0f;  // as GALAXY_XINPUT_TRIGGER_THRESHOLD's default
 
+// Cactus Galaxy Wrapper's custom controls (NEBULA_MANDOS_ARCHIVO, the launcher's smg/mandos.cfg with the custom
+// profile): `bind.<scheme>.<Wii button>=<one source>` lines over the game's own bindings, in this session's live copy
+// only (settings.ini is never written with them). A source given to a Wii button is taken away from the others, so a
+// remapped button does one thing; Wii buttons the file does not name keep theirs.
+void apply_custom_controls(in::ControlsConfig& config) {
+    const char* path = std::getenv("NEBULA_MANDOS_ARCHIVO");
+    if (path == nullptr || path[0] == '\0') return;
+    FILE* file = std::fopen(path, "r");
+    if (file == nullptr) return;
+    unsigned applied = 0;
+    char line[256];
+    while (std::fgets(line, sizeof(line), file) != nullptr) {
+        std::string text(line);
+        while (!text.empty() && (text.back() == '\n' || text.back() == '\r' || text.back() == ' ')) text.pop_back();
+        const std::size_t eq = text.find('=');
+        if (text.rfind("bind.", 0) != 0 || eq == std::string::npos) continue;
+        const std::string key = text.substr(0, eq), value = text.substr(eq + 1);
+        const std::size_t dot = key.find('.', 5);
+        if (dot == std::string::npos) continue;
+        const auto scheme = in::parse_control_scheme(key.substr(5, dot - 5));
+        const auto target = in::parse_wii_target(key.substr(dot + 1));
+        if (!scheme || !target) continue;
+        const auto source = in::parse_input_source(*scheme, value);
+        if (!source) continue;
+        in::BindingTable& table = config.table(*scheme);
+        for (in::TargetBindings& bindings : table.targets) {
+            for (in::InputSource& slot : bindings) if (slot == *source) slot = {};
+        }
+        if (in::apply_controls_setting(config, key, value)) ++applied;
+    }
+    std::fclose(file);
+    std::fprintf(stderr, "[input] mandos personalizados (%s): %u asignaciones\n", path, applied);
+}
+
 const in::ControlsConfig& live_controls() {
-    static in::ControlsConfig config = in::get_controls_config();
+    static in::ControlsConfig config = [] {
+        in::ControlsConfig c = in::get_controls_config();
+        apply_custom_controls(c);
+        return c;
+    }();
     static std::uint64_t generation = in::controls_config_generation();
     if (const std::uint64_t now = in::controls_config_generation(); now != generation) {
         config = in::get_controls_config();
+        apply_custom_controls(config);
         generation = now;
     }
     return config;
 }
 
-bool advance_nunchuk_shake_accel(in::WiimoteInputSnapshot& snapshot, bool pressed, bool& previous_pressed,
-                                 std::uint8_t& remaining_frames) {
-    if (pressed && !previous_pressed) {
-        remaining_frames = 12;
-    }
-    previous_pressed = pressed;
-    if (remaining_frames == 0) {
-        return false;
-    }
-    const bool phase = (remaining_frames & 1u) != 0u;
-    snapshot.nunchuk.accel.x = phase ? 0x02f0u : 0x0110u;
-    snapshot.nunchuk.accel.y = 0x0200u;
-    snapshot.nunchuk.accel.z = phase ? 0x0130u : 0x02d0u;
-    --remaining_frames;
-    return true;
+// GALAXY_SHAKE_HOLD=1|0: holding a shake button keeps shaking (1, default: the Sproutle vine and the beanstalk climb
+// while the button is held; wii_shake.h) or shakes once per press (0, as before). A tap is the same pulse either way.
+bool shake_hold_repeats() {
+    static const bool repeats = [] {
+        const char* value = std::getenv("GALAXY_SHAKE_HOLD");
+        return !(value != nullptr && std::strcmp(value, "0") == 0);
+    }();
+    return repeats;
 }
 
 // The on-screen controls as the bindings' output.
@@ -249,18 +285,35 @@ in::WiimoteInputSnapshot native_game_wiimote_snapshot(std::uint8_t, std::uint64_
         snapshot.accel.y = counts.y;
         snapshot.accel.z = counts.z;
     }
-    static bool s_shake = false;
-    static std::uint8_t s_shake_frames = 0;
-    (void)in::advance_wiimote_shake_accel(snapshot, held(in::WiiTarget::Shake), s_shake, s_shake_frames);
-    static bool s_nunchuk_shake = false;
-    static std::uint8_t s_nunchuk_shake_frames = 0;
-    (void)advance_nunchuk_shake_accel(snapshot, held(in::WiiTarget::NunchukShake), s_nunchuk_shake,
-                                      s_nunchuk_shake_frames);
+    // The shakes (wii_shake.h): a tap is the runtime's 12-report pulse; holding keeps the game's swing on every frame.
+    constexpr std::uint8_t kShakeTapReports = 12;
+    static galaxy::host::ShakeButton s_remote_shake{};
+    static galaxy::host::ShakeButton s_nunchuk_shake{};
+    galaxy::host::ShakeCounts counts{};
+    if (s_remote_shake.advance(held(in::WiiTarget::Shake), kShakeTapReports, shake_hold_repeats(), counts)) {
+        snapshot.accel.x = counts.x;
+        snapshot.accel.y = counts.y;
+        snapshot.accel.z = counts.z;
+    }
+    if (s_nunchuk_shake.advance(held(in::WiiTarget::NunchukShake), kShakeTapReports, shake_hold_repeats(), counts)) {
+        snapshot.nunchuk.accel.x = counts.x;
+        snapshot.nunchuk.accel.y = counts.y;
+        snapshot.nunchuk.accel.z = counts.z;
+    }
     return snapshot;
 }
 
+// NEBULA_VIBRACION=0 (Cactus Galaxy Wrapper's settings, smg/opciones.cfg): no vibration at all.
+static bool vibration_allowed() noexcept {
+    static const bool allowed = [] {
+        const char* value = std::getenv("NEBULA_VIBRACION");
+        return value == nullptr || value[0] != '0';
+    }();
+    return allowed;
+}
+
 void native_game_rumble(bool motor_on, std::int32_t) noexcept {
-    if (g_rumble_pad != 0) {
+    if (g_rumble_pad != 0 && vibration_allowed()) {
         sdl::rumble(g_rumble_pad, motor_on ? g_rumble_strength : 0.0f);
     }
 }

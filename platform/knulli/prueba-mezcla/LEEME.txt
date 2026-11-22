@@ -1,0 +1,22 @@
+Prueba mezcla GX (Nebula, paso 2 de GX-ES)
+
+Que prueba: la mezcla de doble fuente de GX (el color se mezcla con la alfa del TEV mientras el EFB guarda otra
+alfa). El driver de la Mali-G31 no tiene GL_EXT_blend_func_extended; Nebula la hace en el shader con
+GL_ARM_shader_framebuffer_fetch. La prueba dibuja escenas fijas con y sin esa ruta y las compara con:
+  - la mezcla de GX calculada en la CPU (cada pixel de las escenas "exactas"),
+  - la referencia hecha en la PC con GL_EXT_blend_func_extended (carpeta referencia/).
+
+Como usarla:
+  1. Copiar "Prueba mezcla GX.sh" y la carpeta pruebamezcla a ports (KNULLI: /userdata/roms/ports).
+  2. Ejecutarla desde Ports. Tarda uno o dos minutos; la pantalla puede quedar negra mientras dibuja.
+  3. Los resultados quedan en pruebamezcla/resultados/<firmware>-<fecha>/:
+       log.txt          todo lo que escribio, con la memoria libre antes y despues
+       es32/, es32-hilo/, es30/   cada ruta (driver tal cual, con hilo de GL, GALAXY_GLES_FORCE_ES30=1)
+         plain/gl.txt, fetch/gl.txt   GL_VERSION, GL_EXTENSIONS, la ruta (3.2 o 3.0), framebuffer fetch,
+                                      el resultado por escena y la memoria
+         plain/*.png, fetch/*.png     el EFB de cada escena (y fondo-*.png: antes de mezclar)
+         metricas.txt                 cada modo contra la referencia: % de pixeles distintos, error medio y maximo
+         dif/                         imagenes de diferencias (x32)
+  4. Mandar la carpeta de resultados completa.
+
+Hacerlo una vez en KNULLI y otra en muOS: los resultados de un firmware no valen para el otro.

@@ -63,6 +63,12 @@ public:
     void resetAudioParams();
     bool setVolume(s32, s32);
     bool isPreLoading() const;
+#ifdef TARGET_PC
+    // Nebula: decoded audio buffers still waiting for the mixer (0 when the movie has no audio).
+    s32 queuedAudioBuffers() const;
+    // Nebula: the movie reached its natural end; the mixer may play the last decoded block with none behind it.
+    void setAudioDraining(bool draining) { mAudioDraining = draining; }
+#endif
     void setUnpauseFrameFlag();
 
     static THPSimplePlayerStaticAudio mStaticAudioPlayer;
@@ -155,5 +161,8 @@ public:
     /* 0x30F */ u8 _30F;
     /* 0x310 */ u8 _310;
     /* 0x314 */ s32 _314;
+#endif
+#ifdef TARGET_PC
+    volatile bool mAudioDraining = false;  // Nebula: setAudioDraining (read by the mixer's callback)
 #endif
 };

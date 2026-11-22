@@ -17,6 +17,7 @@
 #include "galaxy/gx/gpu_types.h"
 #include "galaxy/gx/gx_bitfields.h"
 #include "galaxy/gx/texture_backend.h"
+#include "galaxy/gx/texture_compact.h"
 
 #include <array>
 #include <condition_variable>
@@ -89,6 +90,9 @@ struct TexturePackPixels {
     std::vector<std::uint64_t> offsets;
     std::vector<std::uint32_t> pitches;
     std::uint32_t level_count = 0;
+    // GLES (texture_compact.h): the format it goes to the GPU in, chosen by the loader from level 0; a staged one is
+    // staged in it (the same offsets and pitches), unstaged levels stay RGBA8.
+    CompactFormat compact = CompactFormat::RGBA8;
 };
 // The upload layout of RGBA8 levels: each level at a placement-aligned offset, rows at pitch-aligned strides.
 // Returns the total size.

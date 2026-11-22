@@ -98,6 +98,8 @@ void UploadRing::begin_frame(unsigned frame_slot) {
     }
     active_slot_ = frame_slot;
     segment_allocation_pending_ = true;
+    borrowed_ = 0;
+    frame_used_before_ = 0;
     reused_bytes_ = 0;
     copied_bytes_ = 0;
     immutable_upload_calls_ = 0;
@@ -115,21 +117,25 @@ UploadRing::Allocation UploadRing::allocate(std::size_t size, std::size_t alignm
     }
     // Unsigned negation gives the exact padding without cursor+alignment
     // overflow. Prove both padding and payload fit before forming addresses.
-    const std::size_t padding = (std::size_t{0} - cursor_) & (alignment - 1u);
-    const std::size_t remaining = bytes_per_frame_ - (cursor_ - segment_base_);
+    std::size_t padding = (std::size_t{0} - cursor_) & (alignment - 1u);
+    std::size_t remaining = bytes_per_frame_ - (cursor_ - segment_base_);
+    if ((padding > remaining || size > remaining - padding) && continue_in_next_slot(size, alignment)) {
+        padding = (std::size_t{0} - cursor_) & (alignment - 1u);
+        remaining = bytes_per_frame_;
+    }
     if (padding > remaining || size > remaining - padding)
         throw std::runtime_error(
             std::string("UploadRing '") + name_ + "' exhausted: request " +
             std::to_string(size) + " B at frame-used " +
-            std::to_string(cursor_ - segment_base_) + "/" +
-            std::to_string(bytes_per_frame_) + " B");
+            std::to_string(frame_used_before_ + (cursor_ - segment_base_)) + "/" +
+            std::to_string(bytes_per_frame_ * (borrowed_ + 1u)) + " B");
     const std::size_t aligned = cursor_ + padding;
     cursor_ = aligned + size;
     // Peak within the segment, i.e. the bytes of this frame's segment that were
     // actually handed out. This is the only sound floor for shrinking
     // `bytes_per_frame_`, and it is what separates the ring's reserved size from
     // the physical memory it really backs.
-    const std::size_t frame_used = cursor_ - segment_base_;
+    const std::size_t frame_used = frame_used_before_ + (cursor_ - segment_base_);
     if (frame_used > peak_bytes_per_frame_) {
         peak_bytes_per_frame_ = frame_used;
     }
@@ -139,11 +145,42 @@ UploadRing::Allocation UploadRing::allocate(std::size_t size, std::size_t alignm
         ++slot_generations_[active_slot_];
         segment_allocation_pending_ = false;
     }
+    if (size != 0) {
+        gpu::note_upload_write(gpu_base_ + static_cast<gpu::Address>(aligned), size);
+    }
     return Allocation{
         mapped_ + aligned,
         gpu_base_ + static_cast<gpu::Address>(aligned),
         aligned
     };
+}
+
+bool UploadRing::continue_in_next_slot(std::size_t size, std::size_t alignment) {
+    // A request no segment can hold, or no handler, or every other slot already taken: exhaustion.
+    if (!borrow_ || borrowed_ + 1u >= frames_in_flight_ || alignment > bytes_per_frame_ ||
+        size > bytes_per_frame_ - (alignment - 1u)) {
+        return false;
+    }
+    const unsigned slot = (active_slot_ + 1u + borrowed_) % frames_in_flight_;
+    if (!borrow_(slot)) {
+        return false;
+    }
+    const std::size_t used = frame_used_before_ + (cursor_ - segment_base_);
+    frame_used_before_ = used;
+    segment_base_ = static_cast<std::size_t>(slot) * bytes_per_frame_;
+    cursor_ = segment_base_;
+    ++borrowed_;
+    ++overflows_;
+    // That segment's old contents are gone: no immutable upload may reuse them (its next frame's tokens
+    // compare against a later generation) and none recorded before this point matches the new identity
+    // (this frame's spill offsets are not where the next use of this slot puts them).
+    ++slot_generations_[slot];
+    resource_identity_ = g_upload_ring_identity.fetch_add(1, std::memory_order_relaxed);
+    if (overflows_ <= 8u) {
+        std::cout << "[ring] " << name_ << ": a frame needed more than " << (bytes_per_frame_ >> 20u) * borrowed_
+                  << " MiB (" << used << " B used, " << size << " B more); it continues in slot " << slot << '\n';
+    }
+    return true;
 }
 
 UploadRing::Allocation UploadRing::upload_immutable(

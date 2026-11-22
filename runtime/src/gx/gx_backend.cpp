@@ -71,8 +71,18 @@
 #include <unordered_set>
 #include <vector>
 
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
 #if defined(NEBULA_GPU_GLES)
+#include "galaxy/gx/gles/gles_context.h"
 #include "galaxy/gx/gles/ultra_gles.h"
+#endif
+
+// NEBULA_MEMTRACE (platform/knulli/game/memtrace_knulli.cpp, only in the console's executable): its report.
+#if defined(__GNUC__) && !defined(_WIN32)
+extern "C" void nebula_memtrace_report() __attribute__((weak));
+#define NEBULA_HAS_MEMTRACE 1
 #endif
 
 namespace galaxy::gx {
@@ -856,6 +866,9 @@ bool pe_preclassify_enabled() {
 
 bool display_list_dirty_invalidate_enabled() {
     static const bool enabled = [] {
+        if (display_list_mark_mode() != 0) {
+            return true;  // GALAXY_GX_DL_MARCAR: the flushes mark the lists (fifo_parser.h)
+        }
         char value[16]{};
         std::size_t length = 0;
         if (getenv_s(
@@ -5393,7 +5406,7 @@ bool GxBackend::ensure_resident_vertex_buffer() {
     release_resident_vertex_buffer();
     resident_vertex_device_ = device;
     UploadBuffer buffer = renderer_.create_upload_buffer(
-        static_cast<std::size_t>(kResidentDecodedVertexCapacity) * sizeof(GxVertexOut),
+        static_cast<std::size_t>(resident_decoded_vertex_capacity()) * sizeof(GxVertexOut),
         "GX resident decoded vertices");
     if (!buffer) {
         // Not fatal: every hit keeps using the per-frame ring upload.
@@ -5405,11 +5418,127 @@ bool GxBackend::ensure_resident_vertex_buffer() {
     resident_vertex_mapped_ = buffer.cpu;
     resident_vertex_gpu_ = buffer.gpu;
     resident_vertex_buffer_ = std::move(buffer);
-    resident_vertices_.reset(kResidentDecodedVertexCapacity, kFramesInFlight);
+    resident_vertices_.reset(resident_decoded_vertex_capacity(), kFramesInFlight);
     renderer_.set_resident_vertices(resident_vertex_gpu_,
-                                    static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) *
+                                    static_cast<std::uint64_t>(resident_decoded_vertex_capacity()) *
                                         sizeof(GxVertexOut));
     return true;
+}
+
+bool GxBackend::batch_rings_fit(std::uint64_t vertices) {
+    // Upper bounds for one primitive: lines expand to quads (4 vertices, 6 indices a vertex at most).
+    const std::size_t n = static_cast<std::size_t>(vertices);
+    return renderer_.vertex_ring().fits(n * 4u * sizeof(GxVertexOut), 16u) &&
+           renderer_.index_ring().fits(n * 6u * sizeof(std::uint16_t), sizeof(std::uint16_t));
+}
+
+void GxBackend::log_memory_census() {
+    static const std::int64_t period_s = [] {
+        char value[16]{};
+        std::size_t length = 0;
+        if (getenv_s(&length, value, sizeof(value), "GALAXY_GX_MEMORY_LOG") != 0 || length <= 1u) {
+            return std::int64_t{60};
+        }
+        return static_cast<std::int64_t>(std::max(0L, std::strtol(value, nullptr, 10)));
+    }();
+    if (period_s == 0) {
+        return;
+    }
+    const std::int64_t now = std::chrono::duration_cast<std::chrono::nanoseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if (memory_census_next_ns_ == 0) {
+        memory_census_next_ns_ = now + 10'000'000'000;  // the first 10 s after the first frame
+        return;
+    }
+    if (now < memory_census_next_ns_) {
+        return;
+    }
+    memory_census_next_ns_ = now + period_s * 1'000'000'000;
+    long rss_kib = -1;
+    long available_kib = -1;
+    const auto read_kib = [](const char* path, const char* key) {
+        long kib = -1;
+        if (std::FILE* file = std::fopen(path, "r")) {
+            char line[160];
+            const std::size_t length = std::strlen(key);
+            while (std::fgets(line, sizeof(line), file) != nullptr) {
+                if (std::strncmp(line, key, length) == 0) {
+                    kib = std::strtol(line + length, nullptr, 10);
+                    break;
+                }
+            }
+            std::fclose(file);
+        }
+        return kib;
+    };
+    rss_kib = read_kib("/proc/self/status", "VmRSS:");
+    available_kib = read_kib("/proc/meminfo", "MemAvailable:");
+    // VmRSS split: anonymous (the heap, guest memory, caches), file (on the Mali also the GPU's mappings), shmem.
+    const long anon_kib = read_kib("/proc/self/status", "RssAnon:");
+    const long file_kib = read_kib("/proc/self/status", "RssFile:");
+    const long swap_kib = read_kib("/proc/meminfo", "SwapFree:");
+    long heap_kib = -1;
+#if defined(__GLIBC__)
+    {
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#endif
+        const struct mallinfo heap = mallinfo();  // glibc 2.27 on the console: no mallinfo2
+#if defined(__clang__) || defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        heap_kib = (static_cast<long>(static_cast<unsigned>(heap.uordblks)) +
+                    static_cast<long>(static_cast<unsigned>(heap.hblkhd))) / 1024;
+    }
+#endif
+    const auto mib = [](std::uint64_t bytes) { return static_cast<double>(bytes) / (1024.0 * 1024.0); };
+    const TextureCache::MemoryStats textures = texture_cache_.memory_stats();
+    char line[768];
+    int used = std::snprintf(
+        line, sizeof(line),
+        "[memoria] VmRSS %ld MiB (anonima %ld, archivos y GPU %ld; malloc %ld), libre %ld MiB, swap libre %ld MiB; "
+        "listas %.1f + %.1f + %.1f MiB (dibujo, dependencias, eventos); "
+        "texturas decodificadas %.1f, contenido %.1f, reciclables %.1f, subida %.1f MiB; vertices decodificados %.1f MiB, "
+        "rangos inmutables %.1f MiB",
+        rss_kib >= 0 ? rss_kib / 1024 : -1, anon_kib >= 0 ? anon_kib / 1024 : -1,
+        file_kib >= 0 ? file_kib / 1024 : -1, heap_kib >= 0 ? heap_kib / 1024 : -1,
+        available_kib >= 0 ? available_kib / 1024 : -1, swap_kib >= 0 ? swap_kib / 1024 : -1,
+        mib(parser_.display_list_cache_bytes()), mib(dependency_parser_.display_list_cache_bytes()),
+        mib(event_parser_.display_list_cache_bytes()), mib(textures.decoded_bytes), mib(textures.content_bytes),
+        mib(textures.pool_bytes), mib(textures.upload_bytes), mib(decoded_packet_run_cache_bytes_),
+        mib(immutable_range_cache_bytes_));
+#if defined(NEBULA_GPU_GLES)
+    if (used > 0 && static_cast<std::size_t>(used) < sizeof(line)) {
+        std::snprintf(line + used, sizeof(line) - static_cast<std::size_t>(used),
+                      "; GL: %llu texturas %.1f MiB, buffers %.1f MiB, copias del EFB %.1f MiB",
+                      static_cast<unsigned long long>(
+                          gles::Context::live_texture_count.load(std::memory_order_relaxed)),
+                      mib(gles::Context::live_texture_bytes.load(std::memory_order_relaxed)),
+                      mib(gles::Context::live_buffer_bytes.load(std::memory_order_relaxed)),
+                      mib(renderer_.efb_copy_dest_bytes()));
+    }
+#else
+    (void)used;
+#endif
+#if defined(__GLIBC__)
+    // Return the heap's free pages to the system (glibc keeps them after a galaxy's load peak; with no swap on the
+    // RG35XX H the next load can then run out). A few ms on this thread every census period.
+    const long anon_before = anon_kib;
+    (void)malloc_trim(0);
+    const long anon_after = read_kib("/proc/self/status", "RssAnon:");
+    if (anon_before >= 0 && anon_after >= 0) {
+        const int length = static_cast<int>(std::strlen(line));
+        std::snprintf(line + length, sizeof(line) - static_cast<std::size_t>(length),
+                      "; malloc_trim: %ld MiB devueltos", std::max(0L, anon_before - anon_after) / 1024);
+    }
+#endif
+    std::fprintf(stderr, "%s\n", line);
+#if defined(NEBULA_HAS_MEMTRACE)
+    if (nebula_memtrace_report != nullptr) {
+        nebula_memtrace_report();
+    }
+#endif
 }
 
 void GxBackend::release_resident_vertex_buffer() noexcept {
@@ -5465,14 +5594,33 @@ bool GxBackend::make_decoded_entry_resident(DecodedPacketRunCacheEntry& entry) {
             static_cast<std::size_t>(*offset) * sizeof(GxVertexOut),
         entry.vertices.data(),
         static_cast<std::size_t>(units) * sizeof(GxVertexOut));
+    gpu::note_upload_write(
+        resident_vertex_gpu_ + static_cast<gpu::Address>(*offset) * sizeof(GxVertexOut),
+        static_cast<std::size_t>(units) * sizeof(GxVertexOut));
     entry.resident_epoch = resident_vertices_.epoch();
     entry.resident_offset = *offset;
     entry.resident_units = units;
     return true;
 }
 
+std::size_t GxBackend::decoded_packet_run_cache_max_bytes() {
+    static const std::size_t bytes = [] {
+        char value[16]{};
+        std::size_t length = 0;
+        if (getenv_s(&length, value, sizeof(value), "GALAXY_GX_DECODED_VERTEX_CACHE_MB") != 0 || length <= 1u) {
+            return kDecodedPacketRunCacheMaxBytes;
+        }
+        const long megabytes = std::strtol(value, nullptr, 10);
+        if (megabytes < 4 || megabytes > 1024) {
+            return kDecodedPacketRunCacheMaxBytes;
+        }
+        return static_cast<std::size_t>(megabytes) << 20u;
+    }();
+    return bytes;
+}
+
 void GxBackend::prune_decoded_packet_run_cache() {
-    if (decoded_packet_run_cache_bytes_ <= kDecodedPacketRunCacheMaxBytes ||
+    if (decoded_packet_run_cache_bytes_ <= decoded_packet_run_cache_max_bytes() ||
         decoded_packet_run_cache_.empty()) {
         return;
     }
@@ -5495,7 +5643,7 @@ void GxBackend::prune_decoded_packet_run_cache() {
         });
 
     for (const PruneCandidate& candidate : candidates) {
-        if (decoded_packet_run_cache_bytes_ <= kDecodedPacketRunCacheMaxBytes) {
+        if (decoded_packet_run_cache_bytes_ <= decoded_packet_run_cache_max_bytes()) {
             break;
         }
         const auto it = decoded_packet_run_cache_.find(candidate.key);
@@ -7582,7 +7730,7 @@ void GxBackend::sample_debake_model(std::uint64_t key, const DrawCall& call) {
     const std::uint32_t bytes = call.vertex_view.SizeInBytes;
     const std::byte* vertices = nullptr;
     const std::uint64_t resident_bytes =
-        static_cast<std::uint64_t>(kResidentDecodedVertexCapacity) * sizeof(GxVertexOut);
+        static_cast<std::uint64_t>(resident_decoded_vertex_capacity()) * sizeof(GxVertexOut);
     if (resident_vertex_mapped_ != nullptr && va >= resident_vertex_gpu_ && va + bytes <= resident_vertex_gpu_ + resident_bytes) {
         vertices = resident_vertex_mapped_ + (va - resident_vertex_gpu_);
     } else {
@@ -12491,7 +12639,14 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
         // Interpolation replays a game frame's draws until its ring segment
         // comes round again (after its fence): resident blocks and texture
         // resources then retire per game frame, over the segment count.
-        {
+#if defined(NEBULA_GPU_GLES)
+        // GALAXY_GLES_SLOT_POR_IMAGEN: a stretch that continues the renderer's slot recycles nothing of it (the
+        // GPU may still read what this slot's earlier stretches left).
+        const bool slot_rotated = renderer_.slot_rotated();
+#else
+        const bool slot_rotated = true;
+#endif
+        if (slot_rotated) {
             static_assert(kInterpSegments <= TextureCache::kMaxHoldSegments &&
                           kInterpSegments >= kFramesInFlight);
             const unsigned hold = renderer_.replay_hold_segment();
@@ -12509,8 +12664,10 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
                 resident_vertices_.advance_frame();
             }
         }
-        efb_copies_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
-        texture_cache_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
+        if (slot_rotated) {
+            efb_copies_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
+            texture_cache_.begin_frame(renderer_.frame_slot(), kFramesInFlight);
+        }
         const auto retirement_revision = texture_cache_.retirement_revision();
         if (retirement_revision != seen_texture_retirement_revision_) {
             // No descriptor allocation has happened yet this frame. Reclaimed
@@ -13390,6 +13547,7 @@ void GxBackend::render_frame_on_thread(FrameChunk& chunk) {
             context.backend->poll_completed_frame_effects();
         },
         &submission_context);
+    log_memory_census();
     if (chunk.present_swap_chain && present_swap_chain &&
         selected_xfb != nullptr) {
         present_epoch_ = current_present_epoch;
@@ -15979,6 +16137,11 @@ bool GxBackend::on_cached_packet_draw_run(
         append_to_pending = false;
         cached_draw_run_batch_compatible_known_ = false;
     }
+    if (append_to_pending && !batch_rings_fit(total_vertices)) {
+        // The rings would continue in another slot (UploadRing::set_overflow): not contiguous with the batch.
+        append_to_pending = false;
+        cached_draw_run_batch_compatible_known_ = false;
+    }
     if (pending_draw_batch_.active && !append_to_pending) {
         flush_pending_draw_batch();
         cached_draw_run_batch_compatible_known_ = false;
@@ -16394,6 +16557,11 @@ void GxBackend::on_cached_draw_run_draw(
         append_to_pending = false;
         cached_draw_run_batch_compatible_known_ = false;
     }
+    if (append_to_pending && !batch_rings_fit(source_vertex_count)) {
+        // The rings would continue in another slot (UploadRing::set_overflow): not contiguous with the batch.
+        append_to_pending = false;
+        cached_draw_run_batch_compatible_known_ = false;
+    }
     if (pending_draw_batch_.active && !append_to_pending) {
         flush_pending_draw_batch();
         cached_draw_run_batch_compatible_known_ = false;
@@ -16634,6 +16802,10 @@ void GxBackend::on_draw(
             static_cast<std::uint32_t>(source_vertex_count) >
             std::numeric_limits<std::uint16_t>::max()) {
         flush_pending_draw_batch();
+        append_to_pending = false;
+    }
+    if (append_to_pending && !batch_rings_fit(source_vertex_count)) {
+        // The rings would continue in another slot (UploadRing::set_overflow): not contiguous with the batch.
         append_to_pending = false;
     }
     if (pending_draw_batch_.active && !append_to_pending) {

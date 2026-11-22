@@ -33,6 +33,42 @@
 
 namespace galaxy::gx {
 
+int display_list_mark_mode() noexcept {
+    static const int mode = [] {
+        const char* value = std::getenv("GALAXY_GX_DL_MARCAR");
+        const int m = value != nullptr ? std::atoi(value) : 0;
+        if (m == 1 || m == 2) {
+            std::fprintf(stderr, "[gx] display lists: flushes mark them; %s (GALAXY_GX_DL_MARCAR=%d)\n",
+                         m == 1 ? "unmarked ones are not compared" : "all compared to verify", m);
+        }
+        return m == 1 || m == 2 ? m : 0;
+    }();
+    return mode;
+}
+
+// GALAXY_GX_DL_MARCAR_TODAS=1 (an experiment, 0 by default): the marks also spare the compares of the parsers that
+// never advance a memory generation (the PE event classifier on the game thread, the dependency scanner). Their
+// lists kept validated_generation at 0, so the "compared since" test below never held for them and they compared
+// every call (8-9 % of the game thread in AstroGalaxy, u140). `flushed` alone says it: it starts set, a flush sets
+// it, and only a compare that matched clears it.
+static bool display_list_mark_all() noexcept {
+    static const bool all = [] {
+        const char* value = std::getenv("GALAXY_GX_DL_MARCAR_TODAS");
+        const bool on = value != nullptr && value[0] == '1';
+        if (on && display_list_mark_mode() != 0) {
+            std::fprintf(stderr, "[gx] display lists: marks also for the parsers without generations "
+                                 "(GALAXY_GX_DL_MARCAR_TODAS=1)\n");
+        }
+        return on;
+    }();
+    return all;
+}
+
+namespace {
+std::atomic<std::uint64_t> g_dl_unmarked_changes{0};  // GALAXY_GX_DL_MARCAR=2
+std::atomic<std::uint64_t> g_dl_mark_compares{0};
+}  // namespace
+
 static constexpr std::uint32_t kMaxCachedDisplayListBytes = 4u * 1024u * 1024u;
 
 struct FifoTraceRange {
@@ -864,13 +900,39 @@ bool FifoParser::display_list_bytes_current(
 #endif
         return true;
     }
+    const int mark = display_list_mark_mode();
+    const bool compared_since = !cached.flushed && (cached.validated_generation != 0u || display_list_mark_all());
+    if (mark == 1 && compared_since) {
+        // No flush of the game over it since its bytes last matched (GALAXY_GX_DL_MARCAR=1).
+#if defined(NEBULA_GPU_GLES)
+        ultra::add(ultra::kDisplayListCompareSkips, 1u);
+#endif
+        cached.validated_generation = memory_generation_;
+        return true;
+    }
 #if defined(NEBULA_GPU_GLES)
     ultra::add(ultra::kDisplayListCompares, 1u);
     ultra::add(ultra::kDisplayListCompareBytes, bytes.size());
 #endif
+    const std::uint64_t compares =
+        mark == 2 ? g_dl_mark_compares.fetch_add(1u, std::memory_order_relaxed) + 1u : 0u;
     if (!bytes.empty() && std::memcmp(bytes.data(), cached.bytes.data(), bytes.size()) != 0) {
+        if (mark == 2 && compared_since) {
+            const std::uint64_t n = g_dl_unmarked_changes.fetch_add(1u, std::memory_order_relaxed) + 1u;
+            if (n <= 30u || n % 1000u == 0u) {
+                std::fprintf(stderr, "[gx] lista sin aviso: %08x (%u bytes) cambio sin flush; %llu de %llu "
+                             "comparaciones\n", cached.guest_addr, static_cast<unsigned>(cached.byte_size),
+                             static_cast<unsigned long long>(n), static_cast<unsigned long long>(compares));
+            }
+        }
         return false;
     }
+    if (mark == 2 && compares % 200000u == 0u) {
+        std::fprintf(stderr, "[gx] listas verificadas: %llu comparaciones, %llu sin aviso\n",
+                     static_cast<unsigned long long>(compares),
+                     static_cast<unsigned long long>(g_dl_unmarked_changes.load(std::memory_order_relaxed)));
+    }
+    cached.flushed = false;
     cached.validated_generation = memory_generation_;
     return true;
 }
@@ -1426,6 +1488,10 @@ std::size_t FifoParser::invalidate_display_list_cache_range(
                 size,
                 cached.guest_addr,
                 cached.byte_size)) {
+            continue;
+        }
+        if (display_list_mark_mode() != 0) {
+            cached.flushed = true;  // GALAXY_GX_DL_MARCAR: compared at its next use, not dropped
             continue;
         }
         invalidate_display_list_cache_index(index);

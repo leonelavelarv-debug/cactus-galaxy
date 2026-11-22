@@ -68,6 +68,7 @@ add_library(galaxy_gx_vk STATIC
     ${rt}/gx/texture_cache.cpp
     ${rt}/gx/texture_pack.cpp
     ${rt}/gx/texture_pack_codecs.cpp
+    ${rt}/gx/texture_compact.cpp
     ${rt}/gx/movie_replacement.cpp
     ${rt}/gx/vertex_loader.cpp
     ${rt}/gx/shader_keys.cpp

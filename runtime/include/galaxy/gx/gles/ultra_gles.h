@@ -63,6 +63,21 @@ struct FrameSample {
     std::int64_t gl_sync_wait_ns = 0;
     std::uint32_t gl_syncs = 0;
     std::uint32_t gl_commands = 0;
+    // The GL thread's fences (frame-slot waits): slot_wait_ns split into "fence not yet inserted by the GL thread"
+    // and "inserted, not yet published"; the mean submit->insert and insert->publish of the fences checked at the
+    // frames' starts (fences_timed of them); and the GL thread's swap time with fences unpublished.
+    std::int64_t slot_wait_queue_ns = 0;
+    std::int64_t slot_wait_gpu_ns = 0;
+    std::int64_t fence_queue_ns = 0;
+    std::int64_t fence_gpu_ns = 0;
+    std::uint32_t fences_timed = 0;
+    // Those fences' life split by a GPU timestamp issued just before each: insert->the GPU there, then ->published
+    // (fences_gpu_timed of them; fences_gpu_bad: a timestamp outside the fence's life, left out).
+    std::int64_t fence_gpu_end_ns = 0;
+    std::int64_t fence_publish_ns = 0;
+    std::uint32_t fences_gpu_timed = 0;
+    std::uint32_t fences_gpu_bad = 0;
+    std::int64_t gl_swap_pending_ns = 0;
 };
 
 // The render thread, after each present.

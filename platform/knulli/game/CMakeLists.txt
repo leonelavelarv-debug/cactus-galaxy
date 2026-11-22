@@ -14,38 +14,62 @@ set(NEBULA_GLSLANG_SOURCE_DIR "${NEBULA_DEPS}/glslang" CACHE PATH "glslang sourc
 set(NEBULA_SPIRV_CROSS_DIR "${NEBULA_DEPS}/SPIRV-Cross" CACHE PATH "SPIRV-Cross source")
 set(NEBULA_SDL2_PREFIX "" CACHE PATH "An SDL2 install (include/SDL2, lib/libSDL2-2.0.so) to build against")
 
-# glslang with its HLSL front end and the SPIR-V optimizer (the HLSL legalization needs it).
-set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
-set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
-set(ENABLE_OPT ON CACHE BOOL "" FORCE)
-set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
-set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
-set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
-set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
-set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
-set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
-add_subdirectory("${NEBULA_GLSLANG_SOURCE_DIR}" glslang EXCLUDE_FROM_ALL)
-file(GLOB glslang_spirv_headers "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.h" "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.hpp")
-file(COPY ${glslang_spirv_headers} DESTINATION "${CMAKE_BINARY_DIR}/glslang-include/glslang/SPIRV")
+# The HLSL translator (glslang + SPIRV-Cross, shader_translate_gles.h). OFF (the console's build: armar.sh) leaves it
+# out of the binary: every shader comes from the GLSL library made on the PC (shader_library_gles.h, nebula_glsl_aot).
+option(NEBULA_GLES_TRANSLATOR "Translate HLSL to GLSL at run time (glslang + SPIRV-Cross)" ON)
 
-# SPIRV-Cross, its GLSL back end only.
-add_library(nebula_spirv_cross STATIC
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_cfg.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross_parsed_ir.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_parser.cpp"
-    "${NEBULA_SPIRV_CROSS_DIR}/spirv_glsl.cpp")
-target_include_directories(nebula_spirv_cross PUBLIC "${NEBULA_SPIRV_CROSS_DIR}")
-target_compile_definitions(nebula_spirv_cross PUBLIC SPIRV_CROSS_NAMESPACE_OVERRIDE=spirv_cross)
+# zlib (the GLSL library's blocks): its sources directly, as nebula-pak does.
+set(zlib_dir "${nebula_root}/third_party/archive/zlib")
+file(MAKE_DIRECTORY "${CMAKE_BINARY_DIR}/zlib")
+configure_file("${zlib_dir}/zconf.h.in" "${CMAKE_BINARY_DIR}/zlib/zconf.h" COPYONLY)
+add_library(nebula_zlib STATIC
+    ${zlib_dir}/adler32.c ${zlib_dir}/compress.c ${zlib_dir}/crc32.c ${zlib_dir}/deflate.c ${zlib_dir}/inffast.c
+    ${zlib_dir}/inflate.c ${zlib_dir}/inftrees.c ${zlib_dir}/trees.c ${zlib_dir}/uncompr.c ${zlib_dir}/zutil.c)
+target_include_directories(nebula_zlib PUBLIC "${CMAKE_BINARY_DIR}/zlib" "${zlib_dir}")
+target_compile_definitions(nebula_zlib PRIVATE HAVE_UNISTD_H PUBLIC Z_PREFIX)
+target_compile_options(nebula_zlib PRIVATE -w)
 
 add_library(nebula_gles_deps INTERFACE)
-target_include_directories(nebula_gles_deps INTERFACE
-    "${nebula_root}/third_party/khronos"
-    "${CMAKE_BINARY_DIR}/glslang-include" "${NEBULA_GLSLANG_SOURCE_DIR}"
-    "${NEBULA_GLSLANG_SOURCE_DIR}/External/spirv-tools/include")
+target_include_directories(nebula_gles_deps INTERFACE "${nebula_root}/third_party/khronos")
 target_compile_definitions(nebula_gles_deps INTERFACE NEBULA_GPU_GLES)
-target_link_libraries(nebula_gles_deps INTERFACE glslang SPIRV glslang-default-resource-limits SPIRV-Tools-opt
-    SPIRV-Tools-static nebula_spirv_cross)
+target_link_libraries(nebula_gles_deps INTERFACE nebula_zlib)
+
+if(NEBULA_GLES_TRANSLATOR)
+    # glslang with its HLSL front end and the SPIR-V optimizer (the HLSL legalization needs it).
+    set(ENABLE_GLSLANG_BINARIES OFF CACHE BOOL "" FORCE)
+    set(ENABLE_HLSL ON CACHE BOOL "" FORCE)
+    set(ENABLE_OPT ON CACHE BOOL "" FORCE)
+    set(GLSLANG_TESTS OFF CACHE BOOL "" FORCE)
+    set(GLSLANG_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    set(SPIRV_SKIP_TESTS ON CACHE BOOL "" FORCE)
+    set(SPIRV_SKIP_EXECUTABLES ON CACHE BOOL "" FORCE)
+    set(SPIRV_TOOLS_BUILD_STATIC ON CACHE BOOL "" FORCE)
+    set(SPIRV_WERROR OFF CACHE BOOL "" FORCE)
+    add_subdirectory("${NEBULA_GLSLANG_SOURCE_DIR}" glslang EXCLUDE_FROM_ALL)
+    file(GLOB glslang_spirv_headers "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.h" "${NEBULA_GLSLANG_SOURCE_DIR}/SPIRV/*.hpp")
+    file(COPY ${glslang_spirv_headers} DESTINATION "${CMAKE_BINARY_DIR}/glslang-include/glslang/SPIRV")
+
+    # SPIRV-Cross, its GLSL back end only.
+    add_library(nebula_spirv_cross STATIC
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_cfg.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_cross_parsed_ir.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_parser.cpp"
+        "${NEBULA_SPIRV_CROSS_DIR}/spirv_glsl.cpp")
+    target_include_directories(nebula_spirv_cross PUBLIC "${NEBULA_SPIRV_CROSS_DIR}")
+    target_compile_definitions(nebula_spirv_cross PUBLIC SPIRV_CROSS_NAMESPACE_OVERRIDE=spirv_cross)
+
+    target_include_directories(nebula_gles_deps INTERFACE
+        "${CMAKE_BINARY_DIR}/glslang-include" "${NEBULA_GLSLANG_SOURCE_DIR}"
+        "${NEBULA_GLSLANG_SOURCE_DIR}/External/spirv-tools/include")
+    target_link_libraries(nebula_gles_deps INTERFACE glslang SPIRV glslang-default-resource-limits SPIRV-Tools-opt
+        SPIRV-Tools-static nebula_spirv_cross)
+    set(gles_translator_sources ${nebula_root}/runtime/src/gx/vk/shader_compile_vk.cpp
+        ${nebula_root}/runtime/src/gx/gles/shader_translate_gles.cpp)
+else()
+    target_compile_definitions(nebula_gles_deps INTERFACE NEBULA_GLES_NO_TRANSLATOR)
+    set(gles_translator_sources)
+endif()
 
 # Uber shader sources as NUL-terminated char arrays, as in the root build.
 set(galaxy_uber_embed_cpp "${CMAKE_CURRENT_BINARY_DIR}/generated/uber_shader_embed.cpp")
@@ -70,6 +94,7 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/gx/texture_cache.cpp
     ${rt}/gx/texture_pack.cpp
     ${rt}/gx/texture_pack_codecs.cpp
+    ${rt}/gx/texture_compact.cpp
     ${rt}/gx/movie_replacement.cpp
     ${rt}/gx/vertex_loader.cpp
     ${rt}/gx/shader_keys.cpp
@@ -94,14 +119,16 @@ add_library(galaxy_gx_gles STATIC
     ${rt}/frame_telemetry.cpp
     ${rt}/perf_hint.cpp
     ${rt}/gx/game_asset_extract.cpp
-    ${rt}/gx/vk/shader_compile_vk.cpp
+    ${gles_translator_sources}
+    ${rt}/gx/gles/shader_library_gles.cpp
+    ${rt}/gx/gles/shader_sources_gles.cpp
     ${rt}/gx/gles/gles_context.cpp
     ${rt}/gx/gles/gl_thread.cpp
-    ${rt}/gx/gles/shader_translate_gles.cpp
     ${rt}/gx/gles/texture_backend_gles.cpp
     ${rt}/gx/gles/pipeline_cache_gles.cpp
     ${rt}/gx/gles/renderer_gles.cpp
     ${rt}/gx/gles/ultra_gles.cpp
+    ${rt}/gx/gles/nopal_depurar.cpp
     ${rt}/frame_cadence_diagnostics.cpp
     ${rt}/runtime_settings.cpp
     ${rt}/input_bindings.cpp
@@ -133,8 +160,15 @@ endif()
 
 # The shader translation against the live driver: every uber variant and the renderer's own shaders, translated and
 # linked (EGL, no window; GALAXY_GLES_TEST_DUMP=<dir> writes the GLSL).
-add_executable(nebula_gles_shader_tests "${CMAKE_CURRENT_SOURCE_DIR}/gles_shader_tests.cpp")
-target_link_libraries(nebula_gles_shader_tests PRIVATE galaxy_gx_gles)
+if(NEBULA_GLES_TRANSLATOR)
+    add_executable(nebula_gles_shader_tests "${CMAKE_CURRENT_SOURCE_DIR}/gles_shader_tests.cpp")
+    target_link_libraries(nebula_gles_shader_tests PRIVATE galaxy_gx_gles)
+
+    # The GLSL library (shader_library_gles.h), made on the PC: nebula_glsl_aot <out> <keys...> translates every shader
+    # the keys use, the uber shaders and the renderer's own, in each form a driver may need.
+    add_executable(nebula_glsl_aot "${CMAKE_CURRENT_SOURCE_DIR}/glsl_aot.cpp")
+    target_link_libraries(nebula_glsl_aot PRIVATE galaxy_gx_gles)
+endif()
 
 # ULTRA-GLES's profiler on made-up frames (no GL): GALAXY_ULTRA=bench GALAXY_ULTRA_DIR=<dir> nebula_ultra_gles_tests
 add_executable(nebula_ultra_gles_tests "${CMAKE_CURRENT_SOURCE_DIR}/ultra_gles_tests.cpp"
@@ -146,7 +180,23 @@ target_link_libraries(nebula_ultra_gles_tests PRIVATE Threads::Threads)
 add_executable(nebula_gl_thread_tests "${CMAKE_CURRENT_SOURCE_DIR}/gl_thread_tests.cpp")
 target_link_libraries(nebula_gl_thread_tests PRIVATE galaxy_gx_gles)
 
+# Nopal's debug channel (nopal_depurar.h) against a client on localhost (no GL).
+add_executable(nebula_nopal_depurar_tests "${CMAKE_CURRENT_SOURCE_DIR}/nopal_depurar_tests.cpp"
+    "${nebula_root}/runtime/src/gx/gles/nopal_depurar.cpp")
+target_include_directories(nebula_nopal_depurar_tests PRIVATE "${nebula_root}/runtime/include")
+target_link_libraries(nebula_nopal_depurar_tests PRIVATE Threads::Threads)
+
+# The shake button (wii_shake.h) against a simulation of the game's swing detector (no GL, no SDL).
+add_executable(nebula_wii_shake_tests "${CMAKE_CURRENT_SOURCE_DIR}/wii_shake_tests.cpp"
+    "${nebula_root}/runtime/src/native_input.cpp")
+target_include_directories(nebula_wii_shake_tests PRIVATE "${nebula_root}/runtime/include" "${nebula_root}/runtime/src")
+
 # The display-list cache's byte check once per batch of guest writes (FifoParser::advance_memory_generation).
+# The prerendered movies' timing (native/petari/include/Game/Screen/NebulaMovieEvents.hpp): events of skipped frames,
+# repeated frames, restarts, the natural end's drain and the mixer's last block. No game, no GL.
+add_executable(nebula_movie_events_tests "${CMAKE_CURRENT_SOURCE_DIR}/movie_events_tests.cpp")
+target_include_directories(nebula_movie_events_tests PRIVATE "${nebula_root}/native/petari/include")
+
 add_executable(nebula_fifo_display_list_tests "${CMAKE_CURRENT_SOURCE_DIR}/fifo_display_list_tests.cpp")
 target_link_libraries(nebula_fifo_display_list_tests PRIVATE galaxy_gx_gles)
 
@@ -160,8 +210,16 @@ if(NEBULA_SDL2_PREFIX)
         "${CMAKE_CURRENT_SOURCE_DIR}/host_window_knulli.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/native_game_host_knulli.cpp"
         "${nebula_root}/platform/sdl/display_clock.cpp"
-        "${nebula_root}/platform/sdl/thread_sampler.cpp")
+        "${nebula_root}/platform/sdl/thread_sampler.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/memtrace_knulli.cpp")
     set_target_properties(nebula_knulli PROPERTIES OUTPUT_NAME nebula)
+    # NEBULA_MEMTRACE (memtrace_knulli.cpp): the executable's malloc family in front of glibc's for every module.
+    target_link_options(nebula_knulli PRIVATE
+        "LINKER:--export-dynamic-symbol=malloc" "LINKER:--export-dynamic-symbol=free"
+        "LINKER:--export-dynamic-symbol=calloc" "LINKER:--export-dynamic-symbol=realloc"
+        "LINKER:--export-dynamic-symbol=memalign" "LINKER:--export-dynamic-symbol=aligned_alloc"
+        "LINKER:--export-dynamic-symbol=posix_memalign" "LINKER:--export-dynamic-symbol=nebula_memtrace_report"
+        "LINKER:--export-dynamic-symbol=nebula_memtrace_note")
     target_include_directories(nebula_knulli PRIVATE "${nebula_root}/native/include" "${nebula_root}/runtime/include"
         "${nebula_root}/platform/sdl")
     target_compile_definitions(nebula_knulli PRIVATE NEBULA_HOST_RENDERER=1 NEBULA_HOST_SDL=1 NEBULA_HOST_SDL2=1)
@@ -178,4 +236,25 @@ if(NEBULA_SDL2_PREFIX)
     target_include_directories(nebula_gles_renderer_tests PRIVATE "${nebula_root}/native/include"
         "${nebula_root}/platform/sdl")
     target_link_libraries(nebula_gles_renderer_tests PRIVATE galaxy_gx_gles nebula_sdl2)
+
+    # GX blending with the TEV's alpha (dual source): plain, framebuffer fetch and the SRC1 reference, image by image
+    # (docs/GX_ES_VISUAL_REGRESSION.md).
+    add_executable(nebula_gles_blend_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/gles_blend_tests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/host_window_knulli.cpp"
+        "${nebula_root}/platform/sdl/display_clock.cpp")
+    target_include_directories(nebula_gles_blend_tests PRIVATE "${nebula_root}/native/include"
+        "${nebula_root}/platform/sdl")
+    target_link_libraries(nebula_gles_blend_tests PRIVATE galaxy_gx_gles nebula_sdl2)
+    # It also runs on the console (the step-2 test pack): only $ORIGIN, no build machine paths.
+    set_target_properties(nebula_gles_blend_tests PROPERTIES BUILD_WITH_INSTALL_RPATH ON INSTALL_RPATH "\$ORIGIN")
+
+    # Compact textures (texture_compact.h): the choices and conversions, and each format through the backend.
+    add_executable(nebula_texture_compact_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/texture_compact_tests.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/host_window_knulli.cpp"
+        "${nebula_root}/platform/sdl/display_clock.cpp")
+    target_include_directories(nebula_texture_compact_tests PRIVATE "${nebula_root}/native/include"
+        "${nebula_root}/platform/sdl")
+    target_link_libraries(nebula_texture_compact_tests PRIVATE galaxy_gx_gles nebula_sdl2)
 endif()

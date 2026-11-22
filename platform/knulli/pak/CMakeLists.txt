@@ -48,6 +48,13 @@ target_link_libraries(nebula-pak PRIVATE pak_zlib pak_lzma pak_zstd pak_bzip2 pt
 target_compile_options(nebula-pak PRIVATE -O2 -Wall -Wextra)
 target_link_options(nebula-pak PRIVATE -static-libstdc++ -static-libgcc -Wl,--gc-sections)
 
+# cactus-ruso: the Russian translation made for the Switch release, brought to the Wii game as a mod (text and
+# fonts), from the player's own .zip of it and game.pak.
+add_executable(cactus-ruso cactus_ruso.cpp)
+target_link_libraries(cactus-ruso PRIVATE pak_zlib)
+target_compile_options(cactus-ruso PRIVATE -O2 -Wall -Wextra)
+target_link_options(cactus-ruso PRIVATE -static-libstdc++ -static-libgcc -Wl,--gc-sections)
+
 # Cactus Galaxy Wrapper (platform/knulli/cactus): the console's interface around nebula-pak, against an SDL2 install
 # (include/SDL2, lib/libSDL2-2.0.so; the console's own libSDL2-2.0.so.0 at run time).
 set(CACTUS_SDL2_PREFIX "" CACHE PATH "SDL2 install for cactus-galaxy-wrapper (empty: not built)")

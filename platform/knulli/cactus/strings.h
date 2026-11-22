@@ -1,5 +1,5 @@
 // Cactus Galaxy Wrapper's texts in the languages of KNULLI's menu it follows (system.language): Spanish, English,
-// French, Portuguese, Italian and German. Each line fits the panel (22 characters at the body size) or is wrapped.
+// French, Portuguese, Italian, German and Russian. Each line fits the panel (22 characters at the body size) or is wrapped.
 #pragma once
 
 enum Str {
@@ -8,13 +8,16 @@ enum Str {
   S_CHANGE_LATER, S_INSTALL, S_BACK, S_CONVERTING, S_CANCELLING, S_READING, S_LEFT, S_DONT_TURN_OFF, S_CANCEL,
   S_DONE, S_PAK_CREATED, S_IN, S_DISC_DELETED, S_BLOOMED, S_STARTS_IN, S_PLAY_NOW, S_OUCH, S_COULD_NOT,
   S_ERR_RUN, S_ERR_EXIT, S_ERR_SPACE, S_ERR_SPACE_SHORT, S_ERR_FAT32, S_ERR_INCOMPLETE, S_ERR_DOL, S_ERR_CANCELLED,
-  S_ERR_PATCH, S_NEED_DISC, S_NEED_DISC_HELP, S_SEARCHING, S_PLAY, S_REINSTALL, S_PAK_READY, S_COUNT
+  S_ERR_PATCH, S_NEED_DISC, S_NEED_DISC_HELP, S_SEARCHING, S_PLAY, S_REINSTALL, S_PAK_READY, S_NO_PATCHES, S_MAKE_MOD,
+  S_SETTINGS, S_RESOLUTION, S_VIBRATION, S_AUTO_RES, S_RECOMMENDED, S_APPLIES, S_ERR_MOD,
+  S_CONTROLS, S_PROFILE, S_PROFILE_DEFAULT, S_PROFILE_CUSTOM, S_SHAKE, S_RECENTER, S_PRESS_BUTTON, S_AS_BEFORE,
+  S_ASSIGN, S_CLEAR, S_SAVE, S_STICKS_SAME, S_MODS, S_NO_MODS, S_COUNT
 };
 
-enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_COUNT };
+enum UiLanguage { UI_ES, UI_EN, UI_FR, UI_PT, UI_IT, UI_DE, UI_RU, UI_COUNT };
 
 // "es", "en"... as system.language starts.
-inline const char* const kUiCodes[UI_COUNT] = {"es", "en", "fr", "pt", "it", "de"};
+inline const char* const kUiCodes[UI_COUNT] = {"es", "en", "fr", "pt", "it", "de", "ru"};
 
 inline const char* const kText[UI_COUNT][S_COUNT] = {
     {  // Español
@@ -30,8 +33,13 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "La tarjeta está en FAT32, que no admite archivos de más de 4 GB: usa exFAT o ext4.",
         "La imagen del disco está incompleta o dañada: vuelve a copiarla.",
         "main.dol no es el original: la imagen puede estar dañada.", "Conversión cancelada.",
-        "Este disco no es el que espera el parche PT-BR: hace falta el Super Mario Galaxy USA original, sin modificar.",
+        "Este disco no es el que espera el parche de traducción: hace falta el Super Mario Galaxy USA original, sin modificar.",
         "Falta el juego", "Copia tu disco de Super Mario Galaxy (USA), en ISO o RVZ, a la carpeta:\nports/smg/gamedata\n(o a roms/wii). Aparecerá aquí solo.", "Buscando el disco…", "Jugar", "Se reinstala desde:", "game.pak listo ✓",
+        "Sin parches: original", "Se prepara el parche",
+        "Ajustes", "Resolución", "Vibración", "Auto (dinámica)", "recomendada", "Se aplica al jugar",
+        "No se pudo preparar el parche de idioma. Detalles en log.txt.",
+        "Mandos", "Perfil", "Predeterminado", "Personalizado", "Giro", "Recentrar", "Pulsa un botón", "original", "Asignar", "Quitar", "Guardar", "Los sticks no cambian",
+        "Mods", "No hay mods. Pon el .zip del mod junto al instalador y ábrelo."
     },
     {  // English
         "Choose your disc:", "No disc found",
@@ -46,8 +54,13 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "The card is FAT32, which cannot hold files over 4 GB: use exFAT or ext4.",
         "The disc image is incomplete or damaged: copy it again.",
         "main.dol is not the original one: the image may be damaged.", "Conversion cancelled.",
-        "This disc is not the one the PT-BR patch expects: it needs the original, unmodified USA Super Mario Galaxy.",
+        "This disc is not the one the translation patch expects: it needs the original, unmodified USA Super Mario Galaxy.",
         "Game missing", "Copy your Super Mario Galaxy (USA) disc, as ISO or RVZ, to the folder:\nports/smg/gamedata\n(or roms/wii). It will show up here.", "Looking for the disc…", "Play", "Reinstalls from:", "game.pak ready ✓",
+        "No patches: original", "Patch will be prepared",
+        "Settings", "Resolution", "Vibration", "Auto (dynamic)", "recommended", "Applies when you play",
+        "The language patch could not be prepared. Details in log.txt.",
+        "Controls", "Profile", "Default", "Custom", "Spin", "Recenter", "Press a button", "default", "Assign", "Clear", "Save", "Sticks stay the same",
+        "Mods", "No mods yet. Put the mod's .zip next to the installer and run it."
     },
     {  // Français
         "Choisis ton disque :", "Aucun disque trouvé",
@@ -62,8 +75,13 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "La carte est en FAT32, qui n'accepte pas les fichiers de plus de 4 Go : utilise exFAT ou ext4.",
         "L'image du disque est incomplète ou abîmée : recopie-la.",
         "main.dol n'est pas l'original : l'image est peut-être abîmée.", "Conversion annulée.",
-        "Ce disque n'est pas celui qu'attend le patch PT-BR : il faut le Super Mario Galaxy USA original, non modifié.",
+        "Ce disque n'est pas celui qu'attend le patch de traduction : il faut le Super Mario Galaxy USA original, non modifié.",
         "Jeu manquant", "Copie ton disque de Super Mario Galaxy (USA), en ISO ou RVZ, dans le dossier :\nports/smg/gamedata\n(ou roms/wii). Il apparaîtra ici.", "Recherche du disque…", "Jouer", "Réinstallé depuis :", "game.pak prêt ✓",
+        "Sans patch : original", "Le patch sera préparé",
+        "Réglages", "Résolution", "Vibration", "Auto (dynamique)", "recommandée", "S'applique en jeu",
+        "Le patch de langue n'a pas pu être préparé. Détails dans log.txt.",
+        "Manettes", "Profil", "Par défaut", "Personnalisé", "Toupie", "Recentrer", "Appuie sur un bouton", "origine", "Assigner", "Effacer", "Valider", "Sticks inchangés",
+        "Mods", "Aucun mod. Mets le .zip du mod à côté de l'installateur et lance-le."
     },
     {  // Português
         "Escolha seu disco:", "Nenhum disco encontrado",
@@ -78,8 +96,13 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "O cartão está em FAT32, que não aceita arquivos de mais de 4 GB: use exFAT ou ext4.",
         "A imagem do disco está incompleta ou danificada: copie de novo.",
         "main.dol não é o original: a imagem pode estar danificada.", "Conversão cancelada.",
-        "Este disco não é o que o patch PT-BR espera: é preciso o Super Mario Galaxy USA original, sem modificações.",
+        "Este disco não é o que o patch de tradução espera: é preciso o Super Mario Galaxy USA original, sem modificações.",
         "Falta o jogo", "Copie seu disco de Super Mario Galaxy (USA), em ISO ou RVZ, para a pasta:\nports/smg/gamedata\n(ou roms/wii). Ele aparece aqui.", "Procurando o disco…", "Jogar", "Reinstala a partir de:", "game.pak pronto ✓",
+        "Sem patches: original", "O patch será preparado",
+        "Ajustes", "Resolução", "Vibração", "Auto (dinâmica)", "recomendada", "Vale ao jogar",
+        "Não foi possível preparar o patch de idioma. Detalhes no log.txt.",
+        "Controles", "Perfil", "Padrão", "Personalizado", "Giro", "Recentrar", "Aperte um botão", "padrão", "Atribuir", "Limpar", "Salvar", "Os sticks não mudam",
+        "Mods", "Nenhum mod. Coloque o .zip do mod junto ao instalador e abra-o."
     },
     {  // Italiano
         "Scegli il disco:", "Nessun disco trovato",
@@ -94,8 +117,13 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "La scheda è in FAT32, che non accetta file oltre 4 GB: usa exFAT o ext4.",
         "L'immagine del disco è incompleta o danneggiata: ricopiala.",
         "main.dol non è l'originale: l'immagine potrebbe essere danneggiata.", "Conversione annullata.",
-        "Questo disco non è quello che si aspetta la patch PT-BR: serve il Super Mario Galaxy USA originale, non modificato.",
+        "Questo disco non è quello che si aspetta la patch di traduzione: serve il Super Mario Galaxy USA originale, non modificato.",
         "Manca il gioco", "Copia il disco di Super Mario Galaxy (USA), in ISO o RVZ, nella cartella:\nports/smg/gamedata\n(o roms/wii). Apparirà qui.", "Ricerca del disco…", "Gioca", "Si reinstalla da:", "game.pak pronto ✓",
+        "Senza patch: originale", "La patch sarà creata",
+        "Impostazioni", "Risoluzione", "Vibrazione", "Auto (dinamica)", "consigliata", "Vale in gioco",
+        "Impossibile preparare la patch della lingua. Dettagli in log.txt.",
+        "Controlli", "Profilo", "Predefinito", "Personalizzato", "Giravolta", "Ricentra", "Premi un pulsante", "di base", "Assegna", "Togli", "Salva", "Gli stick non cambiano",
+        "Mod", "Nessuna mod. Metti lo .zip della mod accanto all'installer e aprilo."
     },
     {  // Deutsch
         "Wähle deine Disc:", "Keine Disc gefunden",
@@ -110,7 +138,33 @@ inline const char* const kText[UI_COUNT][S_COUNT] = {
         "Die Karte ist FAT32 und kann keine Dateien über 4 GB speichern: nimm exFAT oder ext4.",
         "Das Disc-Abbild ist unvollständig oder beschädigt: kopiere es neu.",
         "main.dol ist nicht das Original: das Abbild ist vielleicht beschädigt.", "Umwandlung abgebrochen.",
-        "Diese Disc passt nicht zum PT-BR-Patch: nötig ist das unveränderte Original von Super Mario Galaxy (USA).",
+        "Diese Disc passt nicht zum Übersetzungs-Patch: nötig ist das unveränderte Original von Super Mario Galaxy (USA).",
         "Spiel fehlt", "Kopiere deine Disc von Super Mario Galaxy (USA) als ISO oder RVZ in den Ordner:\nports/smg/gamedata\n(oder roms/wii). Sie erscheint dann hier.", "Suche nach der Disc…", "Spielen", "Neu installiert aus:", "game.pak bereit ✓",
+        "Ohne Patch: Original", "Patch wird erstellt",
+        "Einstellungen", "Auflösung", "Vibration", "Auto (dynamisch)", "empfohlen", "Gilt beim Spielen",
+        "Der Sprachpatch konnte nicht erstellt werden. Details in log.txt.",
+        "Steuerung", "Profil", "Standard", "Eigenes", "Drehung", "Zentrieren", "Drück eine Taste", "Standard", "Zuweisen", "Löschen", "Sichern", "Sticks bleiben gleich",
+        "Mods", "Keine Mods. Lege die .zip des Mods neben den Installer und starte ihn."
+    },
+    {  // Русский
+        "Выбери диск:", "Диск не найден",
+        "Положи ISO или RVZ Super Mario Galaxy (USA) в roms/ports/smg/gamedata или в roms/wii и открой снова.",
+        "проверка…", "другая игра", "не диск Wii", "Язык: ", "Свободно: ", "Есть game.pak · ", "game.pak уже готов",
+        " (мало)", "Создать", "Выход", "Удалить диск: ", "Да", "Нет", "Язык игры", "Language · Idioma",
+        "Потом: держи SELECT", "Установить", "Назад", "Конвертация", "Отмена…", "Чтение диска…", "Осталось %s",
+        "Не выключай консоль", "Отмена", "ГОТОВО!", "game.pak создан", "за %s", "Диск удалён", "Твой кактус расцвёл",
+        "Старт через %d с", "Играть", "ОЙ!", "Не удалось создать", "Не удалось запустить nebula-pak.",
+        "nebula-pak завершился с кодом %d.", "Мало места: нужно %s, свободно %s.", "На карте закончилось место.",
+        "Карта в FAT32, а он не держит файлы больше 4 ГБ: используй exFAT или ext4.",
+        "Образ диска неполный или повреждён: скопируй его заново.",
+        "main.dol не оригинальный: образ может быть повреждён.", "Конвертация отменена.",
+        "Этот диск не подходит к патчу перевода: нужен оригинальный, неизменённый Super Mario Galaxy USA.",
+        "Нет игры",
+        "Скопируй свой диск Super Mario Galaxy (USA), ISO или RVZ, в папку:\nports/smg/gamedata\n(или roms/wii). Он появится здесь сам.",
+        "Ищу диск…", "Играть", "Переустановка с:", "game.pak готов ✓", "Без патчей: оригинал",
+        "Патч будет подготовлен", "Настройки", "Разрешение", "Вибрация", "Авто (динамика)", "оптимально",
+        "Применится в игре", "Не удалось подготовить языковой патч. Подробности в log.txt.",
+        "Управление", "Профиль", "Стандартный", "Свой", "Вращение", "Центровка", "Нажми кнопку", "как было", "Назначить", "Сбросить", "Сохранить", "Стики не меняются",
+        "Моды", "Модов нет. Положи .zip мода рядом с установщиком и запусти его."
     },
 };

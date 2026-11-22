@@ -1,7 +1,52 @@
-# Super Mario Galaxy (Anbernic RG H700 con KNULLI/muOS, R36S RK3326 con ArkOS/dArkOS)
+## Notes
 
-Super Mario Galaxy con gráficos en la consola: el código descompilado de Petari compilado nativo para ARM64, el host
-de Nebula y su renderer GX en OpenGL ES 3.2 (Mali-G31). Primera versión de prueba.
+Thanks to Nintendo EAD Tokyo for creating Super Mario Galaxy! Gracias también a SMGCommunity por la decompilación
+Petari, a keepvaibin por Nebula, a Brazilian Warriors y Nintendo BR por la traducción al portugués de Brasil
+(Ray, xujozer, Joelson Kamppello, Angel Forgotten y ERT_Ganon; https://joao13traducoes.com/2018/01/wii-super-mario-galaxy-brazilian-warriors-e-nintendo-br/)
+y a reWiision, СаХаР y N69 por la rusa.
+
+Port nativo por Señor Cactus: el código de Petari compilado para ARM64, el host de Nebula y su renderer GX en OpenGL
+ES 3.2 (Mali-G31). No trae ningún dato de Nintendo: el juego sale de tu propio disco (Super Mario Galaxy USA, RMGE01),
+que Cactus Galaxy Wrapper convierte en la consola la primera vez. Probado en la RG35XX H con KNULLI.
+
+Para revisores: el lanzador toca el sistema a propósito y lo devuelve todo al salir: la CPU en "performance" y la GPU
+y la memoria a su frecuencia más alta según el chip (perfiles medidos en la H700), y la combinación para salir según
+el firmware. Las variables `NEBULA_*` y `GALAXY_*` no son restos de pruebas: las fija el propio lanzador desde
+`smg/opciones.cfg` (lo que se elige en Cactus Galaxy Wrapper) y `smg/ajustes.cfg`. Del swap solo informa si hay
+zram; no lo activa. `smg/gamelist.py` da la ficha y la portada en el idioma del juego en cada firmware.
+
+## Controls
+
+| Botón | Acción |
+|---|---|
+| Stick izquierdo | Mover (Nunchuk) |
+| A | Saltar |
+| B | Saltar / atrás |
+| X, Y, R2 | Giro |
+| L1 | Disparar trozos de estrella (B del Wii Remote) |
+| L2 | Agacharse (Z) |
+| Stick derecho | Puntero |
+| R1 | Centrar el puntero |
+| Cruceta | Cámara |
+| START / SELECT | + / − |
+| MENU + START (KNULLI, muOS) o SELECT + START (ArkOS, dArkOS) | Salir |
+
+Hacen falta dos sticks analógicos y cruceta. Los botones se pueden cambiar en Cactus Galaxy Wrapper (SELECT).
+
+## Compile
+
+En Linux o WSL, desde el código de esta versión (`cactus-galaxy-fuente-<commit>.tar.gz`):
+
+```
+AARCH64_XTOOLS=<x-tools/aarch64-rpi3-linux-gnu> platform/knulli/smg/armar.sh --deps <deps>
+AARCH64_XTOOLS=<...> NEBULA_DEPS=<deps> platform/knulli/smg/armar.sh <salida>
+```
+
+Compila el módulo del juego, Nebula, nebula-pak, cactus-ruso y Cactus Galaxy Wrapper para aarch64, traduce los
+shaders a GLSL y deja `<salida>/paquete` con `smg.zip` e `Instalar Super Mario Galaxy.sh`. Las variables están al
+principio de `armar.sh`.
+
+## Instalación y uso
 
 1. Instálalo (hace falta PortMaster en la consola). Cada firmware guarda los ports en un sitio: el lanzador
    `Super Mario Galaxy.sh` donde el menú lo lista y la carpeta `smg/` en la carpeta de datos de PortMaster.
@@ -24,10 +69,13 @@ de Nebula y su renderer GX en OpenGL ES 3.2 (Mali-G31). Primera versión de prue
 2. Ejecuta **Super Mario Galaxy** desde Ports. La primera vez se abre **Cactus Galaxy Wrapper** (va dentro del port):
    - Sin el juego, te pide el disco: copia tu ISO o RVZ (también WIA, WBFS, GCZ o CISO) de Super Mario Galaxy USA
      (RMGE01) a `smg/gamedata/` (o a `roms/wii/`) y aparece solo. Eliges el idioma del juego (Español, English,
-     Français y, con el parche de la traducción en `smg/patches/`, Português do Brasil, que se aplica al convertir)
+     Français y, con la traducción en `smg/patches/`, Português do Brasil o Русский, que van como mods: elegir
+     un idioma propio del juego los desactiva al instante)
      y lo convierte ahí mismo en `smg/gamedata/game.pak` con `smg/nebula-pak` (sin Termux ni otro equipo). Tarda lo
      que la tarjeta en escribir ~4 GB; hacen falta ~3.4 GB libres (ext4) o ~4.3 GB (exFAT; FAT32 no sirve).
-   - Con el juego ya en `smg/gamedata/`, te ofrece los idiomas del juego.
+   - Con el juego ya en `smg/gamedata/`, te ofrece los idiomas del juego; con X, Ajustes: resolución (Auto, 50 %,
+     75 % recomendada o 100 %) y vibración (sí/no), guardados en `smg/opciones.cfg`; con SELECT, los mandos:
+     perfil predeterminado o uno personalizado con los botones que quieras (`smg/mandos.cfg`).
    Después el juego arranca directamente; **mantén SELECT (o L1) al abrirlo** para volver a las opciones. Sale en el
    idioma de tu KNULLI. `NEBULA_PAK_DELETE_IMAGE=1` en el lanzador borra la imagen al terminar.
    - También se puede hacer fuera: `bash tools/cactus-galaxy-wrapper.sh <imagen> [carpeta smg]` en Termux, Linux o
@@ -49,12 +97,23 @@ de Nebula y su renderer GX en OpenGL ES 3.2 (Mali-G31). Primera versión de prue
    arrancar. La primera vez queda una copia en `ports/gamelist.xml.antes-smg`. `smg/gameinfo.xml` es la misma ficha
    para PortMaster.
 
+Shaders: `smg/shaders-gles.bin` trae todos los shaders del juego ya en GLSL (hechos en la PC): Nebula se los da directo
+al driver de OpenGL y no traduce nada en la consola. Si a uno le falta, se dibuja con el shader genérico y queda anotado
+en `smg/data/shadercache/`; `nopal nebula shaders` (Nopal, en la PC) los agrega.
+Texturas: Nebula guarda las del juego en 8 o 16 bits cuando caben sin cambiar nada (`GALAXY_TEXTURE_COMPACT=exacto`
+en `smg/ajustes.cfg`; `16bits` ahorra más, `no` lo apaga). Un pack de texturas va en `smg/data/TexturePacks/`; uno HD
+hay que reducirlo antes en la PC (`nopal texturas reducir` de Nopal), porque no cabe en 1 GB. Un `.zip` con
+`TexturePacks/RMGE01/` junto al instalador se instala solo (sustituye el pack anterior y se borra el zip).
+Mods: un `.zip`, `.7z` o `.rar` con archivos del juego (`.arc`, `.szs`...) o `riivolution/` junto al instalador va a
+`smg/mods/<nombre del archivo>/` (7z y rar con el `7zzs` de PortMaster). Se encienden y apagan en Cactus Galaxy
+Wrapper: SELECT al abrir, X (Ajustes) > Mods. Apagado = movido a `smg/mods-desactivados/` (nunca se borra); al
+encender uno se apagan los que cambian los mismos archivos (p. ej. dos mods de personaje), y el instalador hace lo
+mismo con uno nuevo.
+Con `NOPAL_DEPURAR=5555` en `smg/ajustes.cfg`, el Depurador de Nopal Estudio se conecta desde la PC (por WiFi) y
+muestra los FPS, el tiempo de cada frame, la memoria y log.txt en vivo, y pausa el juego.
+
 La primera vez cada efecto nuevo compila su shader y el juego se detiene un momento (tirones); se guardan en
 `smg/data/shadercache` y la siguiente vez cargan rápido.
-
-Controles (esquema Nintendo): stick izquierdo = Nunchuk, A = saltar, B = saltar/atrás, X/Y/R2 = giro, L1 = Wii B
-(disparar trozos de estrella), L2 = Z (agacharse), stick derecho = puntero, R1 = centrar puntero, cruceta = cámara,
-START = +, SELECT = −. `NEBULA_PAD_SCHEME=xbox` en el lanzador cambia A y B de lado.
 
 El lanzador adapta los controles al firmware y a la consola (lo que dice PortMaster; queda en la primera línea de
 `smg/log.txt`):
@@ -71,9 +130,6 @@ Si en tu firmware A y B salen cambiados, pon `NEBULA_FACE_LAYOUT=labels` al prin
 `NEBULA_QUIT_COMBO=menu|select|both` fuerza la combinación para salir. Cactus Galaxy Wrapper usa el mismo perfil.
 
 Para diagnóstico manda `smg/log.txt`, `smg/crashes/` y alguna captura de `smg/shots/` (cada 30 s, formato PPM).
-
-Traducción al portugués de Brasil: Brazilian Warriors y Nintendo BR (Ray, xujozer, Joelson Kamppello, Angel Forgotten y ERT_Ganon); en João13 Traduções:
-https://joao13traducoes.com/2018/01/wii-super-mario-galaxy-brazilian-warriors-e-nintendo-br/
 
 Contiene código de Nebula (GPL-3.0), Petari (CC0), glslang (BSD/Apache-2.0), SPIRV-Cross (Apache-2.0) y
 SPIRV-Tools (Apache-2.0); ningún dato de Nintendo: el juego viene de tu disco.

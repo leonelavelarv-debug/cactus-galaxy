@@ -658,6 +658,22 @@ std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std
             }
         }
     }
+#if defined(NEBULA_GPU_GLES)
+    if (!result->failed && !result->pixels.levels.empty()) {
+        static const unsigned compact_mode = texture_compact_mode();
+        TexturePackPixels& pixels = result->pixels;
+        // Every level as it will be uploaded (generated, or a custom _mip<n> put in above): in "exacto" the format must
+        // hold all of them exactly (a lower level with alpha the base lacks keeps it), not just level 0's texels.
+        std::vector<const std::uint8_t*> level_data(pixels.levels.size());
+        std::vector<std::size_t> level_texels(pixels.levels.size());
+        for (std::size_t l = 0; l < pixels.levels.size(); ++l) {
+            level_data[l] = pixels.levels[l].data();
+            level_texels[l] = static_cast<std::size_t>(std::max(1u, pixels.width >> l)) * std::max(1u, pixels.height >> l);
+        }
+        pixels.compact = compact_for_replacement_levels(compact_mode, level_data.data(), level_texels.data(),
+                                                        level_data.size());
+    }
+#endif
     if (!result->failed && stager_) {
         // Staged here: the render thread then only records the copies (a 2048x8192 chain is 89 MB to write).
         TexturePackPixels& pixels = result->pixels;
@@ -671,8 +687,9 @@ std::unique_ptr<TexturePacks::Load> TexturePacks::load(const Record& record, std
                     const std::uint32_t lw = std::max<std::uint32_t>(1u, pixels.width >> l);
                     const std::uint32_t lh = std::max<std::uint32_t>(1u, pixels.height >> l);
                     for (std::uint32_t row = 0; row < lh; ++row) {
-                        std::memcpy(chunk.cpu_base + pixels.offsets[l] + static_cast<std::uint64_t>(row) * pixels.pitches[l],
-                                    pixels.levels[l].data() + static_cast<std::size_t>(row) * lw * 4u, lw * 4u);
+                        // A compact one in its own format (texture_compact.h), at the same pitches.
+                        compact_convert(pixels.compact, pixels.levels[l].data() + static_cast<std::size_t>(row) * lw * 4u,
+                                        lw, chunk.cpu_base + pixels.offsets[l] + static_cast<std::uint64_t>(row) * pixels.pitches[l]);
                     }
                 }
                 pixels.levels.clear();

@@ -179,6 +179,7 @@ const Glyph kExtra[] = {
     {0x2713, {"........", ".......#", "......##", ".....##.", "#...##..", "##.##...", ".###....", "..#....."}},  // check
     {0x2717, {"........", "##....##", ".##..##.", "..####..", "...##...", "..####..", ".##..##.", "##....##"}},  // cross
     {0x2192, {"........", "....#...", "....##..", "#######.", "#######.", "....##..", "....#...", "........"}},  // ->
+    {0x2190, {"........", "...#....", "..##....", ".#######", ".#######", "..##....", "...#....", "........"}},  // <-
     {0x2191, {"...##...", "..####..", ".######.", "...##...", "...##...", "...##...", "...##...", "........"}},  // up
     {0x2193, {"...##...", "...##...", "...##...", "...##...", ".######.", "..####..", "...##...", "........"}},  // down
     {0x25C4, {"........", ".....##.", "...####.", ".######.", ".######.", "...####.", ".....##.", "........"}},  // <
@@ -186,9 +187,95 @@ const Glyph kExtra[] = {
     {0x2026, {"........", "........", "........", "........", "........", "........", "##.##.##", "##.##.##"}},  // ...
 };
 
+// Cyrillic of our own (Russian: the interface's and the game's), in font8x8's style; letters shaped like Latin ones
+// are those (А = A, ё = ë...).
+struct CyrillicGlyph {
+  u32 code, latin;
+  const char* rows[8];
+};
+const CyrillicGlyph kCyrillic[] = {
+    {0x0410, 0x41, {}},  // А
+    {0x0411, 0, {"######..", "##......", "##......", "#####...", "##..##..", "##..##..", "#####...", "........"}},  // Б
+    {0x0412, 0x42, {}},  // В
+    {0x0413, 0, {"######..", "##......", "##......", "##......", "##......", "##......", "##......", "........"}},  // Г
+    {0x0414, 0, {"..####..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", "#######.", "##...##."}},  // Д
+    {0x0415, 0x45, {}},  // Е
+    {0x0401, 0xCB, {}},  // Ё
+    {0x0416, 0, {"##.##.##", "##.##.##", ".######.", "..####..", ".######.", "##.##.##", "##.##.##", "........"}},  // Ж
+    {0x0417, 0, {".####...", "##..##..", "....##..", "..###...", "....##..", "##..##..", ".####...", "........"}},  // З
+    {0x0418, 0, {"##...##.", "##..###.", "##.####.", "#######.", "####.##.", "###..##.", "##...##.", "........"}},  // И
+    {0x0419, 0, {"..###...", "##...##.", "##..###.", "##.####.", "####.##.", "###..##.", "##...##.", "........"}},  // Й
+    {0x041A, 0x4B, {}},  // К
+    {0x041B, 0, {"..####..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", ".##.##..", "##..##..", "........"}},  // Л
+    {0x041C, 0x4D, {}},  // М
+    {0x041D, 0x48, {}},  // Н
+    {0x041E, 0x4F, {}},  // О
+    {0x041F, 0, {"#######.", "##...##.", "##...##.", "##...##.", "##...##.", "##...##.", "##...##.", "........"}},  // П
+    {0x0420, 0x50, {}},  // Р
+    {0x0421, 0x43, {}},  // С
+    {0x0422, 0x54, {}},  // Т
+    {0x0423, 0, {"##...##.", "##...##.", "##...##.", ".######.", ".....##.", "##...##.", ".#####..", "........"}},  // У
+    {0x0424, 0, {"...##...", ".######.", "##.##.##", "##.##.##", ".######.", "...##...", "...##...", "........"}},  // Ф
+    {0x0425, 0x58, {}},  // Х
+    {0x0426, 0, {"##..##..", "##..##..", "##..##..", "##..##..", "##..##..", "#######.", ".....##.", "........"}},  // Ц
+    {0x0427, 0, {"##...##.", "##...##.", "##...##.", ".######.", ".....##.", ".....##.", ".....##.", "........"}},  // Ч
+    {0x0428, 0, {"##.##.##", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", "........"}},  // Ш
+    {0x0429, 0, {"##.##.##", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", ".......#", "........"}},  // Щ
+    {0x042A, 0, {"###.....", ".##.....", ".##.....", ".####...", ".##.##..", ".##.##..", ".####...", "........"}},  // Ъ
+    {0x042B, 0, {"##....##", "##....##", "##....##", "####..##", "##.##.##", "##.##.##", "####..##", "........"}},  // Ы
+    {0x042C, 0, {"##......", "##......", "##......", "#####...", "##..##..", "##..##..", "#####...", "........"}},  // Ь
+    {0x042D, 0, {".####...", "##..##..", "....##..", "..####..", "....##..", "##..##..", ".####...", "........"}},  // Э
+    {0x042E, 0, {"##..###.", "##.##.##", "####..##", "####..##", "####..##", "##.##.##", "##..###.", "........"}},  // Ю
+    {0x042F, 0, {".######.", "##...##.", "##...##.", ".######.", "..##.##.", ".##..##.", "##...##.", "........"}},  // Я
+    {0x0430, 0x61, {}},  // а
+    {0x0431, 0, {"..####..", ".##.....", "##......", "#####...", "##..##..", "##..##..", ".####...", "........"}},  // б
+    {0x0432, 0, {"........", "........", "#####...", "##..##..", "#####...", "##..##..", "#####...", "........"}},  // в
+    {0x0433, 0, {"........", "........", "######..", "##......", "##......", "##......", "##......", "........"}},  // г
+    {0x0434, 0, {"........", "........", "..####..", ".##.##..", ".##.##..", ".##.##..", "#######.", "##...##."}},  // д
+    {0x0435, 0x65, {}},  // е
+    {0x0451, 0xEB, {}},  // ё
+    {0x0436, 0, {"........", "........", "##.##.##", ".######.", "..####..", ".######.", "##.##.##", "........"}},  // ж
+    {0x0437, 0, {"........", "........", ".####...", "....##..", "..###...", "....##..", ".####...", "........"}},  // з
+    {0x0438, 0, {"........", "........", "##...##.", "##..###.", "##.####.", "####.##.", "##...##.", "........"}},  // и
+    {0x0439, 0, {"........", "..###...", "##...##.", "##..###.", "##.####.", "####.##.", "##...##.", "........"}},  // й
+    {0x043A, 0, {"........", "........", "##..##..", "##.##...", "####....", "##.##...", "##..##..", "........"}},  // к
+    {0x043B, 0, {"........", "........", "..####..", ".##.##..", ".##.##..", ".##.##..", "##..##..", "........"}},  // л
+    {0x043C, 0, {"........", "........", "##...##.", "###.###.", "#######.", "##.#.##.", "##...##.", "........"}},  // м
+    {0x043D, 0, {"........", "........", "##..##..", "##..##..", "######..", "##..##..", "##..##..", "........"}},  // н
+    {0x043E, 0x6F, {}},  // о
+    {0x043F, 0, {"........", "........", "######..", "##..##..", "##..##..", "##..##..", "##..##..", "........"}},  // п
+    {0x0440, 0x70, {}},  // р
+    {0x0441, 0x63, {}},  // с
+    {0x0442, 0, {"........", "........", "######..", "..##....", "..##....", "..##....", "..##....", "........"}},  // т
+    {0x0443, 0x79, {}},  // у
+    {0x0444, 0, {"...##...", "...##...", ".######.", "##.##.##", "##.##.##", ".######.", "...##...", "...##..."}},  // ф
+    {0x0445, 0x78, {}},  // х
+    {0x0446, 0, {"........", "........", "##..##..", "##..##..", "##..##..", "##..##..", "#######.", ".....##."}},  // ц
+    {0x0447, 0, {"........", "........", "##..##..", "##..##..", ".#####..", "....##..", "....##..", "........"}},  // ч
+    {0x0448, 0, {"........", "........", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", "........"}},  // ш
+    {0x0449, 0, {"........", "........", "##.##.##", "##.##.##", "##.##.##", "##.##.##", "########", ".......#"}},  // щ
+    {0x044A, 0, {"........", "........", "###.....", ".##.....", ".####...", ".##.##..", ".####...", "........"}},  // ъ
+    {0x044B, 0, {"........", "........", "##....##", "##....##", "####..##", "##.##.##", "####..##", "........"}},  // ы
+    {0x044C, 0, {"........", "........", "##......", "##......", "#####...", "##..##..", "#####...", "........"}},  // ь
+    {0x044D, 0, {"........", "........", ".####...", "....##..", "..####..", "....##..", ".####...", "........"}},  // э
+    {0x044E, 0, {"........", "........", "##..###.", "##.##.##", "####..##", "##.##.##", "##..###.", "........"}},  // ю
+    {0x044F, 0, {"........", "........", ".#####..", "##..##..", ".#####..", "..#.##..", "##..##..", "........"}},  // я
+};
+
 void glyph_bits(u32 code, unsigned char out[8]) {
   if (code < 128) { memcpy(out, font8x8_basic[code], 8); return; }
   if (code >= 0xA0 && code <= 0xFF) { memcpy(out, font8x8_ext_latin[code - 0xA0], 8); return; }
+  if (code >= 0x401 && code <= 0x451) {
+    for (const CyrillicGlyph& g : kCyrillic) {
+      if (g.code != code) continue;
+      if (g.latin) { glyph_bits(g.latin, out); return; }
+      for (int r = 0; r < 8; ++r) {
+        out[r] = 0;
+        for (int c = 0; c < 8; ++c) if (g.rows[r][c] == '#') out[r] |= u32(1) << c;
+      }
+      return;
+    }
+  }
   for (const Glyph& g : kExtra) {
     if (g.code != code) continue;
     for (int r = 0; r < 8; ++r) {
@@ -487,7 +574,16 @@ void panel(Canvas& cv) {
   text_center(cv, kCenter, kPanelY + 90, "ISO · RVZ \xE2\x86\x92 game.pak", 2, kMuted);
 }
 
+int key_width(const char* label) { return utf8(label).size() > 1 ? text_width(label, 2) + 12 : 22; }
+
 void button(Canvas& cv, int x, int y, const char* label, u32 color) {
+  if (utf8(label).size() > 1) {  // START, SELECT: a pill
+    const int w = key_width(label);
+    cv.rrect(x + 1, y - 3, w, 22, 11, 0x05020c, 0.5f);
+    cv.rrect(x, y - 4, w, 22, 11, color);
+    text(cv, x + w / 2 - text_width(label, 2) / 2, y, label, 2, 0x140c2a, 1.0f, false);
+    return;
+  }
   cv.circle(float(x) + 11.0f, float(y) + 8.0f, 11.5f, 0x05020c, 0.5f);
   cv.circle(float(x) + 10.0f, float(y) + 7.0f, 11.0f, color);
   text(cv, x + 10 - text_width(label, 2) / 2, y, label, 2, 0x140c2a, 1.0f, false);
@@ -496,13 +592,13 @@ void button(Canvas& cv, int x, int y, const char* label, u32 color) {
 // "(A) Convertir   (B) Salir" centered in a row.
 void hints(Canvas& cv, int y, const std::vector<std::pair<std::string, std::string>>& items) {
   int total = 0;
-  for (const auto& [key, label] : items) total += 22 + 6 + text_width(label, 2) + 18;
+  for (const auto& [key, label] : items) total += key_width(key.c_str()) + 6 + text_width(label, 2) + 18;
   total -= 18;
   int x = kCenter - total / 2;
   for (const auto& [key, label] : items) {
     const u32 color = key == "A" ? 0xff6b6b : key == "B" ? 0xffcf5a : key == "X" ? 0x6fb8ff : 0xc9c0dc;
     button(cv, x, y, key.c_str(), color);
-    x += 28;
+    x += key_width(key.c_str()) + 6;
     x += text(cv, x, y, label, 2, kWhite) + 18;
   }
 }
@@ -594,8 +690,8 @@ std::string detect_ui_language() {
 
 std::string mib_text(double mib) {
   char b[64];
-  if (mib >= 1024.0) snprintf(b, sizeof(b), "%.1f %s", mib / 1024.0, g_ui == UI_FR ? "Go" : "GB");
-  else snprintf(b, sizeof(b), "%.0f %s", mib, g_ui == UI_FR ? "Mo" : "MB");
+  if (mib >= 1024.0) snprintf(b, sizeof(b), "%.1f %s", mib / 1024.0, g_ui == UI_FR ? "Go" : g_ui == UI_RU ? "ГБ" : "GB");
+  else snprintf(b, sizeof(b), "%.0f %s", mib, g_ui == UI_FR ? "Mo" : g_ui == UI_RU ? "МБ" : "MB");
   std::string s = b;
   if (g_ui != UI_EN) std::replace(s.begin(), s.end(), '.', ',');
   return s;
@@ -623,9 +719,10 @@ std::string translate_error(const std::string& e) {
 std::string duration_text(double seconds) {
   char b[64];
   const long s = long(seconds + 0.5);
-  if (s >= 3600) snprintf(b, sizeof(b), "%ld h %02ld min", s / 3600, s / 60 % 60);
-  else if (s >= 60) snprintf(b, sizeof(b), "%ld min %02ld s", s / 60, s % 60);
-  else snprintf(b, sizeof(b), "%ld s", s);
+  const bool ru = g_ui == UI_RU;
+  if (s >= 3600) snprintf(b, sizeof(b), ru ? "%ld ч %02ld мин" : "%ld h %02ld min", s / 3600, s / 60 % 60);
+  else if (s >= 60) snprintf(b, sizeof(b), ru ? "%ld мин %02ld с" : "%ld min %02ld s", s / 60, s % 60);
+  else snprintf(b, sizeof(b), ru ? "%ld с" : "%ld s", s);
   return b;
 }
 
@@ -735,6 +832,7 @@ struct Job {
   std::string error, last_line;
   double started = 0;
   int language = 0, patch_slot = -1;
+  bool mod = false;  // making a translation's mod (nebula-pak --patch-mod or cactus-ruso), not game.pak
 };
 
 double now_seconds() {
@@ -746,30 +844,61 @@ double now_seconds() {
 // ---------------------------------------------------------------------------------------------------------------
 // The app.
 
-enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed };
+enum class Screen { NeedDisc, Menu, Language, Converting, Done, Viva, Failed, Settings, Controls, Mods };
+
+// The custom controls profile: the game's Wii buttons that can be given another button of the handheld (the sticks
+// stay: Mario and the pointer), and the handheld's buttons as the game's bindings name them (Nintendo and Xbox
+// schemes: NEBULA_PAD_SCHEME picks one in the game, both are written). Positions as the game reads SDL's buttons.
+struct WiiButton { const char* id; const char* label; Str text; };  // label, or text when it has words
+const WiiButton kWiiButtons[] = {
+    {"a", "Wii A", S_COUNT}, {"b", "Wii B", S_COUNT}, {"z", "Wii Z", S_COUNT}, {"c", "Wii C", S_COUNT},
+    {"shake", nullptr, S_SHAKE}, {"plus", "Wii +", S_COUNT}, {"minus", "Wii -", S_COUNT},
+    {"one", "Wii 1", S_COUNT}, {"two", "Wii 2", S_COUNT},
+    {"dpad_up", "Wii \xE2\x86\x91", S_COUNT}, {"dpad_down", "Wii \xE2\x86\x93", S_COUNT},
+    {"dpad_left", "Wii \xE2\x86\x90", S_COUNT}, {"dpad_right", "Wii \xE2\x86\x92", S_COUNT},
+    {"pointer_recenter", nullptr, S_RECENTER},
+};
+constexpr int kWiiButtonCount = int(sizeof(kWiiButtons) / sizeof(kWiiButtons[0]));
+enum Phys { kSouth, kEast, kWest, kNorth, kL1, kR1, kL2, kR2, kL3, kR3, kSelectBtn, kDUp, kDDown, kDLeft, kDRight, kPhysCount };
+const char* const kPhysLabel[kPhysCount] = {"B", "A", "Y", "X", "L1", "R1", "L2", "R2", "L3", "R3", "SELECT",
+    "\xE2\x86\x91", "\xE2\x86\x93", "\xE2\x86\x90", "\xE2\x86\x92"};
+const char* const kPhysSwitch[kPhysCount] = {"B", "A", "Y", "X", "L", "R", "ZL", "ZR", "LS", "RS", "Minus",
+    "DpadUp", "DpadDown", "DpadLeft", "DpadRight"};
+const char* const kPhysXbox[kPhysCount] = {"A", "B", "X", "Y", "LB", "RB", "LT", "RT", "LS", "RS", "View",
+    "DpadUp", "DpadDown", "DpadLeft", "DpadRight"};
 
 // The languages of the USA disc, as GALAXY_LANGUAGE names them (the launcher reads smg/idioma.txt), and Brazilian
-// Portuguese: the disc patched on the way with a translation's xdelta (smg/patches/), into one of those three slots.
+// Portuguese and Russian: the disc patched on the way with a translation's xdelta (smg/patches/), into one of those
+// three slots (Russian in the interface's own Cyrillic).
 struct Language {
   const char* key;
   const char* name;
   const char* note;
+  const char* tag;  // for the patched ones: shown while converting and in the log
 };
 const Language kLanguages[] = {
-    {"spanish", "Español", "textos y menús"},
-    {"english", "English", "texts and menus"},
-    {"french", "Français", "textes et menus"},
-    {"ptbr", "Português", "Brasil · tradução"},
+    {"spanish", "Español", "textos y menús", ""},
+    {"english", "English", "texts and menus", ""},
+    {"french", "Français", "textes et menus", ""},
+    {"ptbr", "Português", "Brasil · tradução", "PT-BR"},
+    {"ru", "Русский", "русский перевод", "RU"},
 };
-constexpr int kPtBr = 3;
+constexpr int kPtBr = 3, kRu = 4;
+constexpr int kPatchedFirst = kPtBr, kPatchedCount = 2;
+inline bool is_patched(int language) { return language >= kPatchedFirst && language < kPatchedFirst + kPatchedCount; }
+int patched_of(const std::string& key) {
+  for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) if (key == kLanguages[i].key) return i;
+  return -1;
+}
 
 // The send-off before the game's very first start, in the game's language (Spanish, English, French, Brazilian
-// Portuguese); "Cabrones" only in Spanish, the other languages say the two vivas.
-const char* const kViva[4][3] = {
+// Portuguese, Russian); "Cabrones" only in Spanish, the other languages say the two vivas.
+const char* const kViva[5][3] = {
     {"¡Viva México, Viva Sonora, Cabrones!", "En breve iniciará el juego.", "Jugar ya"},
     {"Long live Mexico, long live Sonora!", "The game will start shortly.", "Play now"},
     {"Vive le Mexique, vive Sonora !", "Le jeu va bientôt commencer.", "Jouer"},
     {"Viva o México, viva Sonora!", "O jogo vai começar em breve.", "Jogar já"},
+    {"Да здравствуют Мексика и Сонора!", "Игра скоро начнётся.", "Играть"},
 };
 
 // Cool sunglasses and a grin on the full-grown saguaro (draw_cactus at growth 1).
@@ -836,9 +965,140 @@ struct App {
   bool quit = false;
   int result = 1;
   int language = 0, language_choice = 0;
-  std::string language_file, patch_file, pak_language_file;
-  int pak_patched_slot = -1;  // the game.pak was made with the PT-BR patch, its text in this slot (0-2)
+  std::string language_file, pak_language_file;
+  std::string patch_files[kPatchedCount];  // the translations' xdelta found (PT-BR, RU), empty if not there
+  // Russian from the Switch release's .zip or its .rusmg (smg/patches/): cactus-ruso makes its mod from game.pak.
+  std::string ru_zip, ruso_tool;
+  // Translations are mods over the disc's own game.pak (smg/patches/idioma-<key>, the files they change; the
+  // launcher puts the chosen one in smg/mods and takes the others out), so the game's languages are always there and
+  // a translation is turned on or off at once. An xdelta's mod is made once from the disc (nebula-pak --patch-mod),
+  // Russian's from game.pak (cactus-ruso). A game.pak made before with a patch inside (game.pak.idioma) still works:
+  // its language replaced there needs the disc converted again.
+  int pak_patch = -1;         // that older game.pak's translation (kPtBr, kRu)...
+  int pak_patched_slot = -1;  // ...its text in this slot (0-2)
   Image pending;  // the disc waiting for its language
+  // Settings (X on the language screen): the game's internal resolution and vibration, in smg/opciones.cfg (the
+  // launcher reads it before ajustes.cfg and ultra.cfg, which still win).
+  std::string options_file;
+  int opt_resolution = 2;  // kResolutions: auto, 50, 75 (the medium profile's), 100
+  bool opt_resolution_set = false;  // chosen (or in the file): only then written (the profiles keep their own)
+  bool opt_vibration = true;
+  int settings_row = 0;
+  bool failed_mod = false;  // the failure shown is a translation's mod's (game.pak is fine)
+  // Controls (SELECT, or the Settings row): the default profile (the game's own) or the custom one, smg/mandos.cfg.
+  std::string controls_file;
+  // Mods (Ajustes > Mods): los de smg/mods/ (activos) y smg/mods-desactivados/ (apagados), sin los de idioma.
+  struct Mod { std::string name; bool on; };
+  std::vector<Mod> mods;
+  int mods_row = 0;
+  std::string mods_on_dir() const { return smg + "/mods"; }
+  std::string mods_off_dir() const { return smg + "/mods-desactivados"; }
+  void scan_mods() {
+    mods.clear();
+    for (const bool on : {true, false}) {
+      if (DIR* d = opendir((on ? mods_on_dir() : mods_off_dir()).c_str())) {
+        while (dirent* e = readdir(d)) {
+          const std::string n = e->d_name;
+          if (n.empty() || n[0] == '.' || n.rfind("idioma-", 0) == 0) continue;
+          struct stat st{};
+          if (stat(((on ? mods_on_dir() : mods_off_dir()) + "/" + n).c_str(), &st) == 0 && S_ISDIR(st.st_mode)) mods.push_back({n, on});
+        }
+        closedir(d);
+      }
+    }
+    std::sort(mods.begin(), mods.end(), [](const Mod& a, const Mod& b) { return lower(a.name) < lower(b.name); });
+    mods_row = std::clamp(mods_row, 0, std::max(0, int(mods.size()) - 1));
+  }
+  int mods_active() const { int n = 0; for (const Mod& m : mods) n += m.on; return n; }
+  // Apagar = mover la carpeta a smg/mods-desactivados/ (Nebula solo carga smg/mods/); encender, al reves.
+  // Los archivos de un mod por su nombre en minusculas (sin notas): dos mods que comparten uno cambian lo mismo del
+  // disco (los sueltos van al archivo de su nombre) y no deben estar encendidos a la vez.
+  static void mod_files(const std::string& dir, std::vector<std::string>& out) {
+    if (DIR* d = opendir(dir.c_str())) {
+      while (dirent* e = readdir(d)) {
+        const std::string n = e->d_name;
+        if (n == "." || n == "..") continue;
+        const std::string path = dir + "/" + n;
+        struct stat st{};
+        if (stat(path.c_str(), &st) != 0) continue;
+        if (S_ISDIR(st.st_mode)) { mod_files(path, out); continue; }
+        const std::string l = lower(n);
+        const size_t dot = l.rfind('.');
+        const std::string ext = dot == std::string::npos ? "" : l.substr(dot);
+        if (ext == ".txt" || ext == ".md" || ext == ".png" || ext == ".jpg" || ext == ".pdf" || ext == ".xml") continue;
+        out.push_back(l);
+      }
+      closedir(d);
+    }
+  }
+  std::string mod_path(const Mod& m) const { return (m.on ? mods_on_dir() : mods_off_dir()) + "/" + m.name; }
+  bool move_mod(Mod& m, bool on) {
+    if (m.on == on) return true;
+    const std::string dir = on ? mods_on_dir() : mods_off_dir();
+    mkdir(dir.c_str(), 0755);
+    if (rename(mod_path(m).c_str(), (dir + "/" + m.name).c_str()) != 0) return false;
+    m.on = on;
+    printf("[cactus] mod %s: %s\n", m.name.c_str(), on ? "activo" : "apagado");
+    fflush(stdout);
+    return true;
+  }
+  // Encender uno apaga antes los encendidos que cambian sus mismos archivos (p. ej. dos mods de personaje).
+  void toggle_mod(int i) {
+    if (i < 0 || i >= int(mods.size())) return;
+    Mod& m = mods[i];
+    if (m.on) { move_mod(m, false); return; }
+    std::vector<std::string> mine;
+    mod_files(mod_path(m), mine);
+    std::sort(mine.begin(), mine.end());
+    for (Mod& other : mods) {
+      if (&other == &m || !other.on) continue;
+      std::vector<std::string> theirs;
+      mod_files(mod_path(other), theirs);
+      for (const std::string& f : theirs) {
+        if (std::binary_search(mine.begin(), mine.end(), f)) { move_mod(other, false); break; }
+      }
+    }
+    move_mod(m, true);
+  }
+  bool opt_custom_controls = false;
+  int controls_map[kWiiButtonCount];  // the handheld's button for each Wii button (Phys), -1: the game's own
+  int controls_saved[kWiiButtonCount];
+  bool controls_saved_custom = false;
+  int controls_row = 0, controls_scroll = 0;
+  bool capturing = false;
+  Screen controls_from = Screen::Language;
+  double started_at = now_seconds();
+  std::string chain_image;    // the disc whose translation's mod follows its conversion
+  bool chain_delete = false;  // ...deleted after that
+
+  const std::string& patch_file(int which) const { return patch_files[which - kPatchedFirst]; }
+  bool have_xdelta(int which) const { return is_patched(which) && !patch_file(which).empty(); }
+  bool ru_mod() const { return !ru_zip.empty(); }  // Russian from the .rusmg/.zip (no disc needed)
+  bool have_patch(int which) const { return have_xdelta(which) || (which == kRu && ru_mod()); }
+  // A translation's mod made from the disc (an xdelta), not from game.pak.
+  bool mod_needs_disc(int which) const { return is_patched(which) && !(which == kRu && ru_mod()); }
+  std::string mod_dir(int which) const { return smg + "/patches/idioma-" + kLanguages[which].key; }
+  std::string mod_active(int which) const { return smg + "/mods/idioma-" + kLanguages[which].key; }
+  bool mod_made(int which) const {
+    struct stat st;
+    return is_patched(which) && (stat(mod_dir(which).c_str(), &st) == 0 || stat(mod_active(which).c_str(), &st) == 0);
+  }
+  // The game language whose files a translation's mod changes (english unless its patch said otherwise).
+  int mod_slot(int which) const {
+    const std::vector<std::string> w = words(mod_dir(which) + ".ranura");
+    const int slot = w.empty() ? -1 : slot_of(w[0]);
+    return slot >= 0 ? slot : 1;
+  }
+  void save_mod_slot(int which, int slot) {
+    if (FILE* f = fopen((mod_dir(which) + ".ranura").c_str(), "w")) {
+      fprintf(f, "%s\n", kLanguages[slot >= 0 ? slot : 1].key);
+      fclose(f);
+    }
+  }
+  bool any_translation() const {
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) if (have_patch(i) || mod_made(i)) return true;
+    return pak_patch >= 0;
+  }
 
   static std::vector<std::string> words(const std::string& path) {
     std::vector<std::string> out;
@@ -853,39 +1113,147 @@ struct App {
     for (int i = 0; i < 3; ++i) if (key == kLanguages[i].key) return i;
     return -1;
   }
+  static constexpr const char* kResolutions[4] = {"auto", "50", "75", "100"};
+  void load_options() {
+    if (FILE* f = fopen(options_file.c_str(), "r")) {
+      char line[160];
+      while (fgets(line, sizeof(line), f)) {
+        std::string l(line);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        const size_t eq = l.find('=');
+        if (eq == std::string::npos || l[0] == '#') continue;
+        const std::string key = l.substr(0, eq), value = lower(l.substr(eq + 1));
+        if (key == "GALAXY_GLES_RESOLUTION") {
+          for (int i = 0; i < 4; ++i) if (value == kResolutions[i]) { opt_resolution = i; opt_resolution_set = true; }
+        } else if (key == "NEBULA_VIBRACION") {
+          opt_vibration = value != "0";
+        } else if (key == "NEBULA_MANDOS") {
+          opt_custom_controls = value == "personalizado";
+        }
+      }
+      fclose(f);
+    }
+  }
+  void save_options() {
+    const std::string temporary = options_file + ".tmp";
+    if (FILE* f = fopen(temporary.c_str(), "w")) {
+      fprintf(f, "# Cactus Galaxy Wrapper: Ajustes (X en la pantalla de idiomas). ajustes.cfg y ultra.cfg mandan sobre esto.\n");
+      if (opt_resolution_set) fprintf(f, "GALAXY_GLES_RESOLUTION=%s\n", kResolutions[opt_resolution]);
+      fprintf(f, "NEBULA_VIBRACION=%d\nNEBULA_MANDOS=%s\n", opt_vibration ? 1 : 0,
+              opt_custom_controls ? "personalizado" : "predeterminado");
+      fclose(f);
+      rename(temporary.c_str(), options_file.c_str());
+    }
+    printf("[cactus] ajustes: resolucion %s, vibracion %s, mandos %s\n", kResolutions[opt_resolution],
+           opt_vibration ? "si" : "no", opt_custom_controls ? "personalizados" : "predeterminados");
+    fflush(stdout);
+  }
+  void load_controls() {
+    for (int& m : controls_map) m = -1;
+    if (FILE* f = fopen(controls_file.c_str(), "r")) {
+      char line[160];
+      while (fgets(line, sizeof(line), f)) {
+        std::string l(line);
+        while (!l.empty() && (l.back() == '\n' || l.back() == '\r' || l.back() == ' ')) l.pop_back();
+        const std::string prefix = "bind.switch_pro.";
+        const size_t eq = l.find('=');
+        if (l.rfind(prefix, 0) != 0 || eq == std::string::npos) continue;
+        const std::string id = l.substr(prefix.size(), eq - prefix.size()), value = l.substr(eq + 1);
+        for (int w = 0; w < kWiiButtonCount; ++w) {
+          if (id != kWiiButtons[w].id) continue;
+          for (int k = 0; k < kPhysCount; ++k) if (value == kPhysSwitch[k]) controls_map[w] = k;
+        }
+      }
+      fclose(f);
+    }
+  }
+  void save_controls() {
+    const std::string temporary = controls_file + ".tmp";
+    if (FILE* f = fopen(temporary.c_str(), "w")) {
+      fprintf(f, "# Cactus Galaxy Wrapper: mandos personalizados (SELECT). bind.<esquema>.<boton del Wii>=<boton>;\n"
+                 "# lo que no aparece queda como en el juego. Se usa con NEBULA_MANDOS=personalizado (smg/opciones.cfg).\n");
+      for (int w = 0; w < kWiiButtonCount; ++w) {
+        if (controls_map[w] < 0) continue;
+        fprintf(f, "bind.switch_pro.%s=%s\nbind.xbox.%s=%s\n", kWiiButtons[w].id, kPhysSwitch[controls_map[w]],
+                kWiiButtons[w].id, kPhysXbox[controls_map[w]]);
+      }
+      fclose(f);
+      rename(temporary.c_str(), controls_file.c_str());
+    }
+  }
+  void open_controls() {
+    controls_from = screen;
+    std::copy(std::begin(controls_map), std::end(controls_map), std::begin(controls_saved));
+    controls_saved_custom = opt_custom_controls;
+    controls_row = 0;
+    controls_scroll = 0;
+    capturing = false;
+    screen = Screen::Controls;
+  }
+  void close_controls(bool keep) {
+    if (keep) {
+      save_controls();
+      save_options();
+    } else {
+      std::copy(std::begin(controls_saved), std::end(controls_saved), std::begin(controls_map));
+      opt_custom_controls = controls_saved_custom;
+    }
+    capturing = false;
+    screen = controls_from;
+  }
+  // A button of the handheld while capturing: given to the Wii button of the row, and taken from any other.
+  void capture(int phys) {
+    if (!capturing || controls_row < 1) return;
+    for (int& m : controls_map) if (m == phys) m = -1;
+    controls_map[controls_row - 1] = phys;
+    capturing = false;
+  }
+  std::string wii_button_name(int w) const {
+    return kWiiButtons[w].label ? std::string(kWiiButtons[w].label) : std::string(T(kWiiButtons[w].text));
+  }
+
   void load_language() {
     // Not chosen yet: the menu's language for a new install (spanish, english, french; Portuguese when the patch is
     // there), Spanish if game.pak is already there (what the launcher uses without smg/idioma.txt).
-    language = have_pak ? 0 : (g_ui == UI_ES ? 0 : g_ui == UI_FR ? 2 : (g_ui == UI_PT && !patch_file.empty()) ? kPtBr : 1);
-    const std::vector<std::string> pak = words(pak_language_file);  // "ptbr english"
-    pak_patched_slot = pak.size() >= 2 && pak[0] == "ptbr" && have_pak ? slot_of(pak[1]) : -1;
-    const std::vector<std::string> chosen = words(language_file);   // "english" or "english ptbr"
+    language = have_pak ? 0 : (g_ui == UI_ES ? 0 : g_ui == UI_FR ? 2 : (g_ui == UI_PT && have_patch(kPtBr)) ? kPtBr
+                                 : (g_ui == UI_RU && have_patch(kRu)) ? kRu : 1);
+    const std::vector<std::string> pak = words(pak_language_file);  // an older game.pak with a patch: "ptbr english"
+    pak_patch = pak.size() >= 2 && have_pak ? patched_of(pak[0]) : -1;
+    pak_patched_slot = pak_patch >= 0 ? slot_of(pak[1]) : -1;
+    if (pak_patched_slot < 0) pak_patch = -1;
+    const std::vector<std::string> chosen = words(language_file);   // "english", "english ptbr" or "english ru"
     if (!chosen.empty() && slot_of(chosen[0]) >= 0) language = slot_of(chosen[0]);
-    if (chosen.size() >= 2 && chosen[1] == "ptbr" && pak_patched_slot >= 0) language = kPtBr;
+    const int patched = chosen.size() >= 2 ? patched_of(chosen[1]) : -1;
+    if (patched >= 0 && have_pak && (patched == pak_patch || mod_made(patched))) language = patched;
   }
   void save_language(int which) {
     language = which;
-    const int slot = which == kPtBr ? std::max(0, pak_patched_slot) : which;
+    const bool patched = is_patched(which);
+    const int slot = !patched ? which : which == pak_patch ? std::max(0, pak_patched_slot) : mod_slot(which);
     const std::string temporary = language_file + ".tmp";
     if (FILE* f = fopen(temporary.c_str(), "w")) {
-      fprintf(f, "%s%s\n", kLanguages[slot].key, which == kPtBr ? " ptbr" : "");
+      fprintf(f, "%s%s%s\n", kLanguages[slot].key, patched ? " " : "", patched ? kLanguages[which].key : "");
       fclose(f);
       rename(temporary.c_str(), language_file.c_str());
     }
-    printf("[cactus] idioma del juego: %s%s\n", kLanguages[slot].key, which == kPtBr ? " (PT-BR)" : "");
+    printf("[cactus] idioma del juego: %s%s%s%s\n", kLanguages[slot].key, patched ? " (" : "",
+           patched ? kLanguages[which].tag : "", patched ? ")" : " (sin parches)");
     fflush(stdout);
   }
-  // The languages the menu's left/right cycle through: those this game.pak has (a PT-BR one replaced a slot).
+  // The languages that need nothing made (the menu's left/right cycle through them): the game's own (but the one an
+  // older game.pak's patch replaced) and the translations whose mod is made.
   std::vector<int> menu_languages() const {
     std::vector<int> out;
-    if (pak_patched_slot >= 0) out.push_back(kPtBr);
+    if (pak_patched_slot >= 0) out.push_back(pak_patch);
     for (int i = 0; i < 3; ++i) if (i != pak_patched_slot) out.push_back(i);
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i)
+      if (i != pak_patch && have_pak && mod_made(i)) out.push_back(i);
     return out;
   }
   // The languages a new install can have.
   std::vector<int> install_languages() const {
     std::vector<int> out = {0, 1, 2};
-    if (!patch_file.empty()) out.push_back(kPtBr);
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) if (have_patch(i) || mod_made(i)) out.push_back(i);
     return out;
   }
   static int step(const std::vector<int>& list, int current, int delta) {
@@ -899,28 +1267,34 @@ struct App {
     language_choice = std::find(list.begin(), list.end(), language) != list.end() ? language : list[0];
     screen = Screen::Language;
   }
-  // With game.pak already made (no disc chosen): its languages, plus those that need it made again (PT-BR when the
-  // patch is there, or the language the PT-BR one replaced) if a valid disc is at hand.
+  // With game.pak already made (no disc chosen): its languages, plus those that need it made again (a translation
+  // whose patch is there, or the language a translation replaced) if a valid disc is at hand.
   bool pak_mode() const { return pending.path.empty(); }
   const Image* valid_disc() {
     for (const Image& im : images) if (im.status == 0) return &im;
     return nullptr;
   }
+  // With game.pak there: the languages ready, plus what can be made: a translation's mod (Russian's from game.pak;
+  // an xdelta's from the disc, if there is one) and the language an older game.pak's patch replaced (the disc
+  // converted again).
   std::vector<int> language_options() {
     if (!pak_mode()) return install_languages();
     std::vector<int> out = menu_languages();
     std::lock_guard<std::mutex> lock(images_mutex);
-    if (valid_disc() != nullptr) {
-      if (pak_patched_slot >= 0) out.push_back(pak_patched_slot);
-      else if (!patch_file.empty()) out.push_back(kPtBr);
+    const bool disc = valid_disc() != nullptr;
+    if (disc && pak_patched_slot >= 0) out.push_back(pak_patched_slot);
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i) {
+      if (std::find(out.begin(), out.end(), i) != out.end()) continue;
+      if ((i == kRu && ru_mod()) || (have_xdelta(i) && disc)) out.push_back(i);
     }
     return out;
   }
   bool needs_reinstall(int which) const {
-    if (!pak_mode()) return false;
+    if (!pak_mode() || is_patched(which)) return false;
     const std::vector<int> have = menu_languages();
     return std::find(have.begin(), have.end(), which) == have.end();
   }
+  bool needs_mod(int which) const { return pak_mode() && is_patched(which) && which != pak_patch && !mod_made(which); }
   void show_installed_languages() {
     pending = Image();
     language_choice = language;
@@ -928,6 +1302,19 @@ struct App {
   }
   std::vector<std::string> scan_dirs;
   double rescan_at = 0;
+  // Which translation an .xdelta's name is (lowercase name): kPtBr, kRu or -1. Russian by "rus"/"russian"/"русск"
+  // or "ru" as a word of its own (ru.xdelta, smg-ru.xdelta, SMG_RU_v1.xdelta), not inside another word.
+  static int patch_of_name(const std::string& name) {
+    const auto has = [&](const char* w) { return name.find(w) != std::string::npos; };
+    if (has("pt-br") || has("ptbr") || has("pt_br") || has("portug")) return kPtBr;
+    if (has("rus") || has("\xD1\x80\xD1\x83\xD1\x81") || has("\xD0\xA0\xD1\x83\xD1\x81")) return kRu;  // рус, Рус
+    for (size_t at = name.find("ru"); at != std::string::npos; at = name.find("ru", at + 1)) {
+      const bool before = at == 0 || !isalnum((unsigned char)name[at - 1]);
+      const bool after = at + 2 >= name.size() || !isalpha((unsigned char)name[at + 2]);
+      if (before && after) return kRu;
+    }
+    return -1;
+  }
   void find_patch() {
     for (const std::string& dir : {smg + "/patches", gamedata, smg}) {
       DIR* d = opendir(dir.c_str());
@@ -935,13 +1322,20 @@ struct App {
       while (dirent* e = readdir(d)) {
         const std::string name = lower(e->d_name);
         const bool xdelta = name.size() > 7 && name.compare(name.size() - 7, 7, ".xdelta") == 0;
-        const bool pt = name.find("pt-br") != std::string::npos || name.find("ptbr") != std::string::npos ||
-                        name.find("pt_br") != std::string::npos || name.find("portug") != std::string::npos;
-        if (xdelta && pt && patch_file.empty()) patch_file = dir + "/" + e->d_name;
+        const int which = xdelta ? patch_of_name(name.substr(0, name.size() - 7)) : -1;
+        if (which >= 0 && patch_files[which - kPatchedFirst].empty()) patch_files[which - kPatchedFirst] = dir + "/" + e->d_name;
+        // The Switch release's .zip, or what cactus-ruso --extraer keeps of it (.rusmg, what the port ships).
+        const size_t dot = name.rfind('.');
+        const std::string ext = dot == std::string::npos ? std::string() : name.substr(dot);
+        if ((ext == ".zip" || ext == ".rusmg") && patch_of_name(name.substr(0, dot)) == kRu &&
+            (ru_zip.empty() || ext == ".rusmg"))
+          ru_zip = dir + "/" + e->d_name;
       }
       closedir(d);
     }
-    if (!patch_file.empty()) printf("[cactus] parche PT-BR: %s\n", patch_file.c_str());
+    for (int i = kPatchedFirst; i < kPatchedFirst + kPatchedCount; ++i)
+      if (have_xdelta(i)) printf("[cactus] parche %s: %s\n", kLanguages[i].tag, patch_file(i).c_str());
+    if (ru_mod()) printf("[cactus] traducción rusa de Switch (mod): %s\n", ru_zip.c_str());
   }
 
   void refresh_disk() {
@@ -982,26 +1376,40 @@ struct App {
     });
   }
 
+  // game.pak, always the disc's own (a translation is a mod over it: made next, from this disc or game.pak).
   void start_conversion(const Image& im, int chosen) {
+    const bool then_mod = is_patched(chosen);
+    chain_image = then_mod ? im.path : std::string();
+    chain_delete = then_mod && delete_after && mod_needs_disc(chosen);
+    printf("[cactus] convirtiendo %s -> %s\n", im.path.c_str(), output.c_str());
+    start_job({tool, im.path, output}, chosen, im.name, false, im.path, delete_after && !chain_delete);
+  }
+  // A translation's mod: Russian's from game.pak (cactus-ruso), an xdelta's from the disc (nebula-pak --patch-mod).
+  void start_mod(int which, const std::string& disc, bool remove_disc) {
+    if (which == kRu && ru_mod()) {
+      printf("[cactus] traducción rusa -> %s\n", mod_dir(kRu).c_str());
+      start_job({ruso_tool, ru_zip, output, mod_dir(kRu)}, kRu, ru_zip.substr(ru_zip.rfind('/') + 1), true, "", false);
+    } else {
+      printf("[cactus] parche %s como mod -> %s\n", kLanguages[which].tag, mod_dir(which).c_str());
+      start_job({tool, "--patch-mod", patch_file(which), disc, mod_dir(which)}, which,
+                disc.substr(disc.rfind('/') + 1), true, disc, remove_disc);
+    }
+  }
+  void start_job(const std::vector<std::string>& args, int chosen, const std::string& name, bool mod,
+                 const std::string& image_path, bool remove_image) {
     job = std::make_unique<Job>();
     job->language = chosen;
+    job->mod = mod;
     job->started = now_seconds();
-    converted_name = im.name;
+    converted_name = name;
     speed = 0; speed_mib = 0; speed_at = job->started;
     cancelling = false;
     Job* j = job.get();
     int fd = -1;
-    std::vector<std::string> args = {tool};
-    if (chosen == kPtBr) { args.push_back("--patch"); args.push_back(patch_file); }
-    args.push_back(im.path);
-    args.push_back(output);
     j->pid = spawn(args, &fd);
-    if (j->pid < 0) { error = T(S_ERR_RUN); screen = Screen::Failed; return; }
+    if (j->pid < 0) { error = T(S_ERR_RUN); screen = Screen::Failed; job.reset(); return; }
     screen = Screen::Converting;
-    printf("[cactus] convirtiendo %s -> %s\n", im.path.c_str(), output.c_str());
     fflush(stdout);
-    const std::string image_path = im.path;
-    const bool remove_image = delete_after;
     j->thread = std::thread([this, j, fd, image_path, remove_image] {
       const int code = read_lines(fd, j->pid, [j](const std::string& l) {
         printf("%s\n", l.c_str());
@@ -1020,7 +1428,7 @@ struct App {
       });
       std::lock_guard<std::mutex> lock(j->mutex);
       j->exit_code = code;
-      if (code == 0 && remove_image) deleted = unlink(image_path.c_str()) == 0;
+      if (code == 0 && remove_image && !image_path.empty()) deleted = unlink(image_path.c_str()) == 0;
       j->finished = true;
     });
   }
@@ -1031,32 +1439,53 @@ struct App {
     took = now_seconds() - job->started;
     refresh_disk();
     if (job->exit_code == 0 && have_pak) {
+      if (job->mod) {
+        // The translation's mod: which game language its files are (an xdelta's says it; Russian's is English).
+        save_mod_slot(job->language, job->patch_slot);
+      } else {
+        // game.pak just made from the disc: its own languages, no older patch inside any more.
+        pak_patch = -1;
+        pak_patched_slot = -1;
+        unlink(pak_language_file.c_str());
+        if (is_patched(job->language) && have_patch(job->language)) {  // (a mod made before, with no source: kept)
+          const double started = job->started;
+          const int which = job->language;
+          const std::string disc = chain_image;
+          job.reset();
+          start_mod(which, disc, chain_delete);
+          if (job) job->started = started;  // the time is the whole install's
+          return;
+        }
+      }
       screen = Screen::Done;
       result = 0;
       done_at = now_seconds();
-      // The language goes with the game.pak just made; a PT-BR one remembers which slot holds the Portuguese.
-      if (job->language == kPtBr) {
-        pak_patched_slot = job->patch_slot >= 0 ? job->patch_slot : 1;
-        if (FILE* f = fopen(pak_language_file.c_str(), "w")) {
-          fprintf(f, "ptbr %s\n", kLanguages[pak_patched_slot].key);
-          fclose(f);
-        }
-      } else {
-        pak_patched_slot = -1;
-        unlink(pak_language_file.c_str());
-      }
       save_language(job->language);
     } else {
       error = job->error.empty() ? (cancelling ? std::string(T(S_ERR_CANCELLED)) : job->last_line) : translate_error(job->error);
       if (error.empty()) error = format(T(S_ERR_EXIT), job->exit_code);
+      // A translation's mod that failed for a reason with no text of its own: said in the interface's language (the
+      // tools' detail, in Spanish, stays in log.txt and is added in Spanish).
+      failed_mod = job->mod;
+      if (job->mod && !cancelling && (job->error.empty() || error == job->error)) {
+        error = std::string(T(S_ERR_MOD)) + (g_ui == UI_ES && !job->error.empty() ? " " + job->error : std::string());
+      }
       screen = Screen::Failed;
     }
     job.reset();
   }
-
   // Buttons: confirm (A/START), back (B/SELECT), toggle (X), up, down.
-  enum Key { kConfirm, kBack, kToggle, kUp, kDown, kPrev, kNext };
+  enum Key { kConfirm, kBack, kToggle, kUp, kDown, kPrev, kNext, kStart, kMap };
   void press(Key key) {
+    // SELECT: the controls (anywhere but while converting); START: confirm (on the controls screen, save).
+    if (key == kMap) {
+      if (screen == Screen::Language || screen == Screen::Menu || screen == Screen::Settings ||
+          screen == Screen::NeedDisc || screen == Screen::Done) {
+        if (now_seconds() - started_at > 1.0) open_controls();  // not the SELECT held to open the wrapper
+      }
+      return;
+    }
+    if (key == kStart && screen != Screen::Controls) key = kConfirm;
     switch (screen) {
       case Screen::Menu: {
         std::lock_guard<std::mutex> lock(images_mutex);
@@ -1071,6 +1500,12 @@ struct App {
         break;
       }
       case Screen::Language: {
+        if (key == kToggle && pak_mode()) {  // X: the settings
+          settings_row = 0;
+          scan_mods();
+          screen = Screen::Settings;
+          break;
+        }
         const std::vector<int> options = language_options();
         if (key == kUp || key == kPrev) language_choice = step(options, language_choice, -1);
         if (key == kDown || key == kNext) language_choice = step(options, language_choice, 1);
@@ -1081,6 +1516,13 @@ struct App {
         if (key == kConfirm) {
           if (!pak_mode()) {
             start_conversion(pending, language_choice);
+          } else if (needs_mod(language_choice)) {
+            // The translation's mod over this game.pak (Russian's in seconds; an xdelta's reads the disc), then the game.
+            images_mutex.lock();
+            const Image* disc = valid_disc();
+            const std::string path = disc ? disc->path : std::string();
+            images_mutex.unlock();
+            if (!mod_needs_disc(language_choice) || !path.empty()) start_mod(language_choice, path, false);
           } else if (!needs_reinstall(language_choice)) {
             save_language(language_choice);  // the game starts in it
             result = 0;
@@ -1101,6 +1543,52 @@ struct App {
       case Screen::Converting:
         if (key == kBack && job && !cancelling) { cancelling = true; kill(job->pid, SIGTERM); }
         break;
+      case Screen::Settings:
+        if (key == kUp) settings_row = (settings_row + 3) % 4;
+        if (key == kDown) settings_row = (settings_row + 1) % 4;
+        if ((key == kPrev || key == kNext || key == kToggle || key == kConfirm) && settings_row == 3) {  // the mods' list
+          save_options();
+          scan_mods();
+          mods_row = 0;
+          screen = Screen::Mods;
+          break;
+        }
+        if (key == kPrev || key == kNext || (key == kToggle)) {
+          const int d = key == kPrev ? -1 : 1;
+          if (settings_row == 0) { opt_resolution = (opt_resolution + d + 4) % 4; opt_resolution_set = true; }
+          else if (settings_row == 1) opt_vibration = !opt_vibration;
+          else opt_custom_controls = !opt_custom_controls;
+        }
+        if (key == kConfirm && settings_row == 2) {  // the custom mapping
+          save_options();
+          open_controls();
+          break;
+        }
+        if (key == kConfirm || key == kBack) {
+          save_options();
+          screen = Screen::Language;
+        }
+        break;
+      case Screen::Mods: {
+        const int n = int(mods.size());
+        if (n > 0 && key == kUp) mods_row = (mods_row + n - 1) % n;
+        if (n > 0 && key == kDown) mods_row = (mods_row + 1) % n;
+        if (key == kPrev || key == kNext || key == kToggle || key == kConfirm) toggle_mod(mods_row);
+        if (key == kBack) screen = Screen::Settings;
+        break;
+      }
+      case Screen::Controls: {
+        if (capturing) break;  // the next button goes to the row (main loop)
+        const int rows = opt_custom_controls ? kWiiButtonCount + 1 : 1;
+        if (key == kUp) controls_row = (controls_row + rows - 1) % rows;
+        if (key == kDown) controls_row = (controls_row + 1) % rows;
+        if ((key == kPrev || key == kNext) && controls_row == 0) opt_custom_controls = !opt_custom_controls;
+        if (key == kConfirm && controls_row > 0) capturing = true;
+        if (key == kToggle && controls_row > 0) controls_map[controls_row - 1] = -1;
+        if (key == kStart) close_controls(true);
+        if (key == kBack) close_controls(false);
+        break;
+      }
       case Screen::Done:  // the game starts only on A
         if (key == kConfirm && result == 0 && viva_pending()) show_viva();
         else if (key == kConfirm) quit = true;
@@ -1194,6 +1682,9 @@ struct App {
       case Screen::NeedDisc: draw_need_disc(cv, time); break;
       case Screen::Menu: draw_menu(cv); break;
       case Screen::Language: draw_language(cv, time); break;
+      case Screen::Settings: draw_settings(cv, time); break;
+      case Screen::Mods: draw_mods(cv, time); break;
+      case Screen::Controls: draw_controls(cv, time); break;
       case Screen::Converting: draw_converting(cv, time); break;
       case Screen::Done: draw_done(cv); break;
       case Screen::Viva: draw_viva(cv); break;
@@ -1277,26 +1768,141 @@ struct App {
     hints(cv, 430, {{"B", T(S_EXIT)}});
   }
 
+  void draw_settings(Canvas& cv, float time) {
+    text_center(cv, kCenter, 128, T(S_SETTINGS), 2, kGold);
+    const std::string res_value = opt_resolution == 0 ? std::string(T(S_AUTO_RES)) : std::string(kResolutions[opt_resolution]) + " %";
+    static const char* const kSizes[4] = {"50-100 %", "320x264", "480x396", "640x528"};
+    const std::string res_note = opt_resolution == 2 ? std::string(kSizes[2]) + " · " + T(S_RECOMMENDED) : kSizes[opt_resolution];
+    const std::string mods_value = mods.empty() ? std::string("-") : format("%d / %d", mods_active(), int(mods.size()));
+    const struct { const char* label; std::string value, note; } rows[4] = {
+        {T(S_RESOLUTION), res_value, res_note},
+        {T(S_VIBRATION), T(opt_vibration ? S_YES : S_NO), ""},
+        {T(S_CONTROLS), T(opt_custom_controls ? S_PROFILE_CUSTOM : S_PROFILE_DEFAULT), ""},
+        {T(S_MODS), mods_value, ""},
+    };
+    static constexpr int kRowY[4] = {152, 230, 286, 342};
+    for (int row = 0; row < 4; ++row) {
+      const int y = kRowY[row];
+      const bool sel = row == settings_row;
+      if (sel) {
+        cv.rrect(kLeft + 10, y - 6, kPanelW - 52, row == 0 ? 72 : 52, 10, 0x2f7d3e, 0.55f);
+        cv.rrect_outline(kLeft + 10, y - 6, kPanelW - 52, row == 0 ? 72 : 52, 10, 2, 0x7fd88a, 0.9f);
+        cv.star(float(kLeft + 30), float(y + 8), 9.0f, 0xffe066, 1.0f, time * 2.0f);
+      }
+      text(cv, kLeft + 50, y, rows[row].label, 2, sel ? kGreen : kMuted);
+      const std::string value = "\xE2\x97\x84 " + rows[row].value + " \xE2\x96\xBA";
+      const int scale = text_width(value, 3) <= kPanelW - 40 ? 3 : 2;  // "Auto (dynamique)" does not fit large
+      text_center(cv, kCenter, y + 24 + (scale == 2 ? 4 : 0), fit(value, scale == 3 ? 15 : 22), scale, sel ? kWhite : kMuted);
+      if (!rows[row].note.empty()) text_center(cv, kCenter, y + 52, fit(rows[row].note, 22), 2, sel ? kGold : 0x8f82a8);
+    }
+    text_center(cv, kCenter, 398, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
+    hints(cv, 418, {{"SELECT", T(S_CONTROLS)}});
+    hints(cv, 440, {{"A", settings_row == 2 ? T(S_ASSIGN) : settings_row == 3 ? T(S_MODS) : T(S_BACK)}, {"B", T(S_BACK)}});
+  }
+
+  // Ajustes > Mods: cada mod con Si/No (se aplica la proxima vez que se abra el juego).
+  void draw_mods(Canvas& cv, float time) {
+    text_center(cv, kCenter, 128, T(S_MODS), 2, kGold);
+    if (mods.empty()) {
+      int y = 190;
+      for (const std::string& line : wrap(T(S_NO_MODS), 22)) { text_center(cv, kCenter, y, line, 2, kMuted); y += 22; }
+    } else {
+      constexpr int kVisible = 5;
+      const int first = std::clamp(mods_row - kVisible / 2, 0, std::max(0, int(mods.size()) - kVisible));
+      for (int i = first; i < std::min(int(mods.size()), first + kVisible); ++i) {
+        const int y = 160 + (i - first) * 44;
+        const bool sel = i == mods_row;
+        if (sel) {
+          cv.rrect(kLeft + 10, y - 8, kPanelW - 52, 38, 10, 0x2f7d3e, 0.55f);
+          cv.rrect_outline(kLeft + 10, y - 8, kPanelW - 52, 38, 10, 2, 0x7fd88a, 0.9f);
+          cv.star(float(kLeft + 30), float(y + 10), 8.0f, 0xffe066, 1.0f, time * 2.0f);
+        }
+        text(cv, kLeft + 46, y + 2, fit(mods[i].name, 13), 2, sel ? kWhite : kMuted);
+        const std::string value = T(mods[i].on ? S_YES : S_NO);
+        text(cv, kLeft + kPanelW - 60 - text_width(value, 2), y + 2, value, 2, mods[i].on ? kGreen : 0x8f82a8);
+      }
+      if (int(mods.size()) > kVisible) text_center(cv, kCenter, 382, format("%d / %d", mods_row + 1, int(mods.size())), 2, 0x8f82a8);
+    }
+    text_center(cv, kCenter, 398, fit(T(S_APPLIES), 22), 2, 0x8f82a8);
+    hints(cv, 432, {{"A", std::string(T(S_YES)) + "/" + T(S_NO)}, {"B", T(S_BACK)}});
+  }
+
+  void draw_controls(Canvas& cv, float time) {
+    text_center(cv, kCenter, 128, T(S_CONTROLS), 2, kGold);
+    {  // the profile
+      const int y = 152;
+      const bool sel = controls_row == 0;
+      if (sel) {
+        cv.rrect(kLeft + 10, y - 5, kPanelW - 52, 28, 10, 0x2f7d3e, 0.55f);
+        cv.rrect_outline(kLeft + 10, y - 5, kPanelW - 52, 28, 10, 2, 0x7fd88a, 0.9f);
+      }
+      const std::string value = "\xE2\x97\x84 " + std::string(T(opt_custom_controls ? S_PROFILE_CUSTOM : S_PROFILE_DEFAULT)) +
+                                " \xE2\x96\xBA";
+      text_center(cv, kCenter, y + 2, fit(value, 22), 2, sel ? kWhite : kMuted);
+    }
+    if (!opt_custom_controls) {
+      text_center(cv, kCenter, 230, fit(T(S_AS_BEFORE), 22), 2, kGreen);
+    } else {
+      constexpr int kVisible = 8;
+      const int sel = controls_row - 1;
+      if (sel >= 0 && sel < controls_scroll) controls_scroll = sel;
+      if (sel >= controls_scroll + kVisible) controls_scroll = sel - kVisible + 1;
+      for (int i = controls_scroll; i < std::min(kWiiButtonCount, controls_scroll + kVisible); ++i) {
+        const int y = 184 + (i - controls_scroll) * 23;
+        const bool on = i == sel;
+        if (on) {
+          cv.rrect(kLeft + 10, y - 4, kPanelW - 52, 22, 8, capturing ? 0x7d5a2f : 0x2f7d3e, 0.55f);
+          cv.star(float(kLeft + 22), float(y + 7), 6.0f, 0xffe066, 1.0f, time * 2.0f);
+        }
+        text(cv, kLeft + 34, y, fit(wii_button_name(i), 11), 2, on ? kWhite : kMuted);  // 11 + 8 fit the row
+        const std::string value = on && capturing ? std::string("\xE2\x80\xA6")
+                                  : controls_map[i] >= 0 ? std::string(kPhysLabel[controls_map[i]]) : std::string(T(S_AS_BEFORE));
+        const std::string shown = fit(value, 8);
+        text(cv, kPanelX + kPanelW - 36 - text_width(shown, 2), y, shown, 2,
+             on && capturing ? kGold : controls_map[i] >= 0 ? kGreen : 0x8f82a8);
+      }
+      if (controls_scroll > 0) text_center(cv, kCenter, 176, "\xE2\x86\x91", 1, kMuted);
+      if (controls_scroll + kVisible < kWiiButtonCount) text_center(cv, kCenter, 368, "\xE2\x86\x93", 1, kMuted);
+    }
+    if (capturing) {  // the prompt in full, in the interface's language (the row in orange is the Wii button)
+      text_center(cv, kCenter, 384, fit(T(S_PRESS_BUTTON), 22), 2, kGold);
+    } else {
+      text_center(cv, kCenter, 384, fit(T(S_STICKS_SAME), 22), 2, 0x8f82a8);
+    }
+    if (capturing) {
+      hints(cv, 432, {{"START", T(S_CANCEL)}});
+    } else {
+      if (controls_row > 0) hints(cv, 410, {{"A", T(S_ASSIGN)}, {"X", T(S_CLEAR)}});
+      hints(cv, 434, {{"START", T(S_SAVE)}, {"B", T(S_BACK)}});
+    }
+  }
+
   void draw_language(Canvas& cv, float time) {
     text_center(cv, kCenter, 128, T(S_GAME_LANGUAGE), 2, kGold);
     text_center(cv, kCenter, 150, T(S_GAME_LANGUAGE_SUB), 2, kMuted);
     const std::vector<int> list = language_options();
-    const int spacing = list.size() > 3 ? 46 : 58, box = list.size() > 3 ? 44 : 50;
-    for (size_t row = 0; row < list.size(); ++row) {
-      const int i = list[row];
-      const int y = (list.size() > 3 ? 178 : 184) + int(row) * spacing;
+    // Up to four rows with their note under the name; five or more (both translations) only the names, closer.
+    const int n = int(list.size());
+    const bool compact = n > 4;
+    const int spacing = compact ? std::min(36, 156 / (n - 1)) : n > 3 ? 46 : 58;
+    const int box = compact ? spacing - 2 : n > 3 ? 44 : 50;
+    for (int row = 0; row < n; ++row) {
+      const int i = list[size_t(row)];
+      const int y = (n > 3 ? (compact ? 180 : 178) : 184) + row * spacing;
       const bool sel = i == language_choice;
       if (sel) {
         cv.rrect(kLeft + 10, y - 5, kPanelW - 52, box, 10, 0x2f7d3e, 0.55f);
         cv.rrect_outline(kLeft + 10, y - 5, kPanelW - 52, box, 10, 2, 0x7fd88a, 0.9f);
-        cv.star(float(kLeft + 30), float(y + 16), 9.0f, 0xffe066, 1.0f, time * 2.0f);
+        cv.star(float(kLeft + 30), float(y + (compact ? box / 2 - 5 : 16)), 9.0f, 0xffe066, 1.0f, time * 2.0f);
       }
       text(cv, kLeft + 50, y, kLanguages[i].name, 3, sel ? kWhite : kMuted);
-      text(cv, kLeft + 50, y + 24, kLanguages[i].note, 2, sel ? kGreen : 0x8f82a8);
+      if (!compact) text(cv, kLeft + 50, y + 24, kLanguages[i].note, 2, sel ? kGreen : 0x8f82a8);
     }
+    // A game language with translations at hand: no patch, the game's own text.
+    const bool native = !is_patched(language_choice) && any_translation();
     if (!pak_mode()) {
       text_center(cv, kCenter, 364, fit(pending.name, 22), 2, kMuted);
-      text_center(cv, kCenter, 384, fit(T(S_CHANGE_LATER), 22), 2, 0x8f82a8);
+      text_center(cv, kCenter, 384, fit(T(native ? S_NO_PATCHES : S_CHANGE_LATER), 22), 2, native ? kGold : 0x8f82a8);
       hints(cv, 430, {{"A", T(S_INSTALL)}, {"B", T(S_BACK)}});
     } else if (needs_reinstall(language_choice)) {
       std::string disc;
@@ -1306,10 +1912,13 @@ struct App {
       }
       text_center(cv, kCenter, 364, fit(T(S_REINSTALL), 22), 2, kGold);
       text_center(cv, kCenter, 384, fit(disc, 22), 2, kMuted);
+      hints(cv, 404, {{"X", T(S_SETTINGS)}});
       hints(cv, 430, {{"A", T(S_INSTALL)}, {"B", T(S_EXIT)}});
     } else {
-      text_center(cv, kCenter, 364, fit(T(S_PAK_READY), 22), 2, kGreen);
-      text_center(cv, kCenter, 384, fit(T(S_CHANGE_LATER), 22), 2, 0x8f82a8);
+      text_center(cv, kCenter, 364, fit(T(needs_mod(language_choice) ? S_MAKE_MOD : S_PAK_READY), 22), 2,
+                  needs_mod(language_choice) ? kGold : kGreen);
+      text_center(cv, kCenter, 384, fit(T(native ? S_NO_PATCHES : S_CHANGE_LATER), 22), 2, native ? kGold : 0x8f82a8);
+      hints(cv, 404, {{"X", T(S_SETTINGS)}});
       hints(cv, 430, {{"A", T(S_PLAY)}, {"B", T(S_EXIT)}});
     }
   }
@@ -1327,16 +1936,17 @@ struct App {
       speed = speed <= 0 ? sp : speed * 0.6 + sp * 0.4;
       speed_mib = done; speed_at = t;
     }
-    const bool ptbr = job && job->language == kPtBr;
-    text_center(cv, kCenter, 134, fit(cancelling ? T(S_CANCELLING) : std::string(T(S_CONVERTING)) + (ptbr || demo_ptbr ? " · PT-BR" : ""), 22), 2, kGold);
+    const int patched = job && is_patched(job->language) ? job->language : demo_patched;
+    const std::string tag = patched >= 0 ? std::string(" · ") + kLanguages[patched].tag : std::string();
+    text_center(cv, kCenter, 134, fit(cancelling ? T(S_CANCELLING) : std::string(T(S_CONVERTING)) + tag, 22), 2, kGold);
     text_center(cv, kCenter, 156, fit(converted_name, 22), 2, kMuted);
     text_center(cv, kCenter, 188, format("%d%%", int(percent)), 6, kWhite);
     progress_bar(cv, kLeft + 4, 252, kPanelW - 40, 32, float(percent / 100.0), time);
-    const char* unit = g_ui == UI_FR ? "Mo" : "MB";
+    const char* unit = g_ui == UI_FR ? "Mo" : g_ui == UI_RU ? "МБ" : "MB";
     if (total > 0) text_center(cv, kCenter, 300, format("%.0f / %.0f %s", done, total, unit), 2, kWhite);
     else text_center(cv, kCenter, 300, fit(T(S_READING), 22), 2, kWhite);
     if (speed > 0.05 && total > 0) {
-      text_center(cv, kCenter, 324, mib_text(speed) + "/s", 2, kMuted);
+      text_center(cv, kCenter, 324, mib_text(speed) + (g_ui == UI_RU ? "/с" : "/s"), 2, kMuted);
       text_center(cv, kCenter, 348, fit(format(T(S_LEFT), duration_text((total - done) / speed).c_str()), 22), 2, kMuted);
     }
     const float pulse = 0.65f + 0.35f * std::sin(time * 3.0f);
@@ -1360,7 +1970,7 @@ struct App {
   }
 
   void draw_viva(Canvas& cv) {
-    const int g = std::clamp(language, 0, 3);
+    const int g = std::clamp(language, 0, 4);
     const u32 flag[3] = {0x3fd36a, 0xffffff, 0xff5a5a};
     const std::vector<std::string> lines = wrap(kViva[g][0], 14);
     int y = 124;
@@ -1375,8 +1985,10 @@ struct App {
 
   void draw_failed(Canvas& cv) {
     text_center(cv, kCenter, 132, T(S_OUCH), 5, kRed);
-    text_center(cv, kCenter, 184, fit(T(S_COULD_NOT), 22), 2, kWhite);
-    text_center(cv, kCenter, 204, "game.pak", 2, kWhite);
+    if (!failed_mod) {  // game.pak itself (a translation's mod failing leaves game.pak as it was)
+      text_center(cv, kCenter, 184, fit(T(S_COULD_NOT), 22), 2, kWhite);
+      text_center(cv, kCenter, 204, "game.pak", 2, kWhite);
+    }
     int y = 240;
     std::vector<std::string> lines = wrap(error, 22);
     if (lines.size() > 7) { lines.resize(7); lines.back() = fit(lines.back() + " xx", 21); }
@@ -1386,7 +1998,7 @@ struct App {
 
   // Demo values (--demo).
   double demo_percent = -1, demo_done = 0, demo_total = 0, demo_speed = 0;
-  bool demo_ptbr = false;
+  int demo_patched = -1;
   float demo_growth = -1, demo_bloom = 0, demo_wilt = 0;
 };
 
@@ -1418,7 +2030,8 @@ int demo(const std::string& out) {
   Image c; c.name = "smg-copia.iso"; c.format = "ISO"; c.mib = 4482; c.status = -1;
   Image d; d.name = "notas.iso"; d.mib = 1; d.status = 3;
   app.images = {a, b, c, d};
-  app.patch_file = "patches/pt-br.xdelta";  // the demo shows the PT-BR option
+  app.patch_files[kPtBr - kPatchedFirst] = "patches/pt-br.xdelta";  // the demo shows the translations
+  app.patch_files[kRu - kPatchedFirst] = "patches/smg-ru.xdelta";
   app.load_language();  // no smg/idioma.txt here: the game's language follows the interface's
   app.screen = Screen::NeedDisc;
   app.draw(cv, scene, 0.9f);
@@ -1434,6 +2047,10 @@ int demo(const std::string& out) {
   app.language_choice = kPtBr;
   app.draw(cv, scene, 2.0f);
   save_png(cv, out + "/1c-idioma-ptbr.png");
+  app.language_choice = kRu;
+  app.draw(cv, scene, 2.1f);
+  save_png(cv, out + "/1c-idioma-ru.png");
+  const int saved_menu_language = app.language;
   app.have_pak = true;  // game.pak already made: its languages, PT-BR to reinstall with the patch
   app.show_installed_languages();
   app.draw(cv, scene, 2.2f);
@@ -1441,6 +2058,57 @@ int demo(const std::string& out) {
   app.language_choice = kPtBr;
   app.draw(cv, scene, 2.4f);
   save_png(cv, out + "/1e-reinstalar-ptbr.png");
+  app.screen = Screen::Settings;  // X: resolution and vibration
+  app.settings_row = 0;
+  app.draw(cv, scene, 2.5f);
+  save_png(cv, out + "/1g-ajustes.png");
+  app.opt_resolution = 0;
+  app.draw(cv, scene, 2.52f);
+  save_png(cv, out + "/1g2-ajustes-auto.png");
+  app.opt_resolution = 3;
+  app.draw(cv, scene, 2.53f);
+  save_png(cv, out + "/1g3-ajustes-100.png");
+  app.opt_resolution = 2;
+  app.settings_row = 1; app.opt_vibration = false;
+  app.draw(cv, scene, 2.55f);
+  save_png(cv, out + "/1h-ajustes-vibracion.png");
+  app.opt_vibration = true;
+  app.settings_row = 2; app.opt_custom_controls = true;
+  app.draw(cv, scene, 2.56f);
+  save_png(cv, out + "/1i-ajustes-mandos.png");
+  app.mods = {{"Mod de prueba con nombre largo", true}, {"Otro mod", false}, {"Tercero", true}};
+  app.settings_row = 3;
+  app.draw(cv, scene, 2.565f);
+  save_png(cv, out + "/1i2-ajustes-mods.png");
+  app.screen = Screen::Mods; app.mods_row = 1;
+  app.draw(cv, scene, 2.566f);
+  save_png(cv, out + "/1i3-mods.png");
+  app.mods.clear(); app.mods_row = 0;
+  app.draw(cv, scene, 2.567f);
+  save_png(cv, out + "/1i4-mods-vacio.png");
+  app.screen = Screen::Settings; app.settings_row = 2;
+  for (int& m : app.controls_map) m = -1;
+  app.controls_map[0] = kEast; app.controls_map[1] = kSouth; app.controls_map[4] = kR2;
+  app.screen = Screen::Controls; app.controls_row = 2; app.capturing = false;
+  app.draw(cv, scene, 2.57f);
+  save_png(cv, out + "/1j-mandos.png");
+  app.capturing = true;
+  app.draw(cv, scene, 2.58f);
+  save_png(cv, out + "/1k-mandos-captura.png");
+  app.capturing = false; app.controls_row = 14;
+  app.draw(cv, scene, 2.59f);
+  save_png(cv, out + "/1l-mandos-abajo.png");
+  app.opt_custom_controls = false; app.controls_row = 0;
+  app.draw(cv, scene, 2.6f);
+  save_png(cv, out + "/1m-mandos-predeterminado.png");
+  app.screen = Screen::Language;
+  app.pak_patch = kRu; app.pak_patched_slot = 1;  // a game.pak made with the Russian patch, in English's slot
+  app.language = kRu;
+  app.show_installed_languages();
+  app.draw(cv, scene, 2.6f);
+  save_png(cv, out + "/1f-idiomas-game-pak-ru.png");
+  app.pak_patch = -1; app.pak_patched_slot = -1;
+  app.language = saved_menu_language;
   app.have_pak = false;
   app.pending = a;
   app.screen = Screen::Converting;
@@ -1453,6 +2121,10 @@ int demo(const std::string& out) {
   app.demo_growth = 0.08f + 0.92f * 0.84f;
   app.draw(cv, scene, 3.4f);
   save_png(cv, out + "/3-convirtiendo-84.png");
+  app.demo_patched = kRu;
+  app.draw(cv, scene, 3.5f);
+  save_png(cv, out + "/3b-convirtiendo-ru.png");
+  app.demo_patched = -1;
   app.screen = Screen::Done; app.took = 231; app.auto_quit = true;
   app.demo_growth = 1.0f; app.demo_bloom = 1.0f;
   app.draw(cv, scene, 4.0f);
@@ -1461,9 +2133,12 @@ int demo(const std::string& out) {
   app.language = kPtBr;
   app.draw(cv, scene, 4.2f);
   save_png(cv, out + "/4b-listo-ptbr.png");
+  app.language = kRu;
+  app.draw(cv, scene, 4.3f);
+  save_png(cv, out + "/4c-listo-ru.png");
   app.screen = Screen::Viva;
   app.demo_bloom = 1.0f;
-  for (int g = 0; g < 4; ++g) {
+  for (int g = 0; g < 5; ++g) {
     app.language = g;
     app.draw(cv, scene, 4.6f + float(g) * 0.3f);
     save_png(cv, out + "/7-viva-" + std::string(kLanguages[g].key) + ".png");
@@ -1475,6 +2150,11 @@ int demo(const std::string& out) {
   app.demo_growth = 0.45f; app.demo_bloom = 0; app.demo_wilt = 1.0f;
   app.draw(cv, scene, 5.0f);
   save_png(cv, out + "/5-error.png");
+  app.error = T(S_ERR_MOD);
+  app.failed_mod = true;
+  app.draw(cv, scene, 5.1f);
+  app.failed_mod = false;
+  save_png(cv, out + "/5b-error-parche.png");
   // The growing cactus, frame by frame (for an animation).
   app.screen = Screen::Converting; app.demo_wilt = 0;
   for (int f = 0; f <= 90; ++f) {
@@ -1546,6 +2226,7 @@ int run_ui(App& app) {
   // ...unless the firmware maps them by label (NEBULA_FACE_LAYOUT=labels, from the launcher's profile).
   const char* face = getenv("NEBULA_FACE_LAYOUT");
   const bool swap = getenv("CACTUS_SWAP_AB") != nullptr || (face != nullptr && strcmp(face, "labels") == 0);
+  const bool face_labels = face != nullptr && strcmp(face, "labels") == 0;  // as the game reads the face buttons
   // The firmware's quit chord with Start: MENU (KNULLI, muOS), SELECT (ArkOS, dArkOS) or both.
   const char* combo = getenv("NEBULA_QUIT_COMBO");
   const bool quit_menu = combo == nullptr || strcmp(combo, "select") != 0;
@@ -1587,19 +2268,47 @@ int run_ui(App& app) {
         if (b == SDL_CONTROLLER_BUTTON_START && ((guide && quit_menu) || (select && quit_select))) {
           app.result = 1; app.quit = true; continue;  // the quit chord: out, no game
         }
-        if (b == (swap ? SDL_CONTROLLER_BUTTON_A : SDL_CONTROLLER_BUTTON_B) || b == SDL_CONTROLLER_BUTTON_START) app.press(App::kConfirm);
-        if (b == (swap ? SDL_CONTROLLER_BUTTON_B : SDL_CONTROLLER_BUTTON_A) || b == SDL_CONTROLLER_BUTTON_BACK) app.press(App::kBack);
+        if (app.capturing) {  // the custom controls: this button goes to the Wii button chosen (START: never mind)
+          if (b == SDL_CONTROLLER_BUTTON_START) { app.capturing = false; continue; }
+          static const int kFace[4] = {kSouth, kEast, kWest, kNorth};  // SDL A, B, X, Y as the game reads them
+          int phys = -1;
+          if (b >= SDL_CONTROLLER_BUTTON_A && b <= SDL_CONTROLLER_BUTTON_Y) {
+            phys = kFace[b - SDL_CONTROLLER_BUTTON_A];
+            if (face_labels) phys = phys == kSouth ? kEast : phys == kEast ? kSouth : phys == kWest ? kNorth : kWest;
+          }
+          if (b == SDL_CONTROLLER_BUTTON_LEFTSHOULDER) phys = kL1;
+          if (b == SDL_CONTROLLER_BUTTON_RIGHTSHOULDER) phys = kR1;
+          if (b == SDL_CONTROLLER_BUTTON_LEFTSTICK) phys = kL3;
+          if (b == SDL_CONTROLLER_BUTTON_RIGHTSTICK) phys = kR3;
+          if (b == SDL_CONTROLLER_BUTTON_BACK) phys = kSelectBtn;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) phys = kDUp;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) phys = kDDown;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT) phys = kDLeft;
+          if (b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) phys = kDRight;
+          if (phys >= 0) app.capture(phys);
+          continue;
+        }
+        if (b == SDL_CONTROLLER_BUTTON_START) app.press(App::kStart);
+        if (b == SDL_CONTROLLER_BUTTON_BACK) app.press(App::kMap);
+        if (b == (swap ? SDL_CONTROLLER_BUTTON_A : SDL_CONTROLLER_BUTTON_B)) app.press(App::kConfirm);
+        if (b == (swap ? SDL_CONTROLLER_BUTTON_B : SDL_CONTROLLER_BUTTON_A)) app.press(App::kBack);
         if (b == (swap ? SDL_CONTROLLER_BUTTON_X : SDL_CONTROLLER_BUTTON_Y)) app.press(App::kToggle);  // X (top)
         if (b == SDL_CONTROLLER_BUTTON_DPAD_UP) app.press(App::kUp);
         if (b == SDL_CONTROLLER_BUTTON_DPAD_DOWN) app.press(App::kDown);
         if (b == SDL_CONTROLLER_BUTTON_DPAD_LEFT) app.press(App::kPrev);
         if (b == SDL_CONTROLLER_BUTTON_DPAD_RIGHT) app.press(App::kNext);
       }
+      if (e.type == SDL_CONTROLLERAXISMOTION && app.capturing && e.caxis.value > 20000 &&
+          (e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT || e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERRIGHT)) {
+        app.capture(e.caxis.axis == SDL_CONTROLLER_AXIS_TRIGGERLEFT ? kL2 : kR2);  // L2/R2 as the game's ZL/ZR
+      }
       if (e.type == SDL_KEYDOWN) {  // gptokeyb or a keyboard
         switch (e.key.keysym.sym) {
           case SDLK_RETURN: case SDLK_a: app.press(App::kConfirm); break;
           case SDLK_ESCAPE: case SDLK_b: case SDLK_BACKSPACE: app.press(App::kBack); break;
           case SDLK_x: app.press(App::kToggle); break;
+          case SDLK_s: app.press(App::kStart); break;
+          case SDLK_m: case SDLK_TAB: app.press(App::kMap); break;
           case SDLK_UP: app.press(App::kUp); break;
           case SDLK_DOWN: app.press(App::kDown); break;
           case SDLK_LEFT: app.press(App::kPrev); break;
@@ -1658,6 +2367,10 @@ int main(int argc, char** argv) {
   mkdir(app.gamedata.c_str(), 0755);
   app.output = app.gamedata + "/game.pak";
   app.language_file = app.smg + "/idioma.txt";
+  app.options_file = app.smg + "/opciones.cfg";
+  app.load_options();
+  app.controls_file = app.smg + "/mandos.cfg";
+  app.load_controls();
   app.pak_language_file = app.output + ".idioma";
   app.viva_file = app.smg + "/.primer-arranque";
   {  // a game.pak made before this version: the game has started already, no send-off
@@ -1671,6 +2384,8 @@ int main(int argc, char** argv) {
   app.load_language();
   app.tool = dir_of_exe() + "/nebula-pak";
   if (access(app.tool.c_str(), X_OK) != 0) app.tool = app.smg + "/nebula-pak";
+  app.ruso_tool = dir_of_exe() + "/cactus-ruso";
+  if (access(app.ruso_tool.c_str(), X_OK) != 0) app.ruso_tool = app.smg + "/cactus-ruso";
   std::string ports = app.smg.substr(0, app.smg.rfind('/'));
   std::string roms = ports.substr(0, ports.rfind('/'));
   app.scan_dirs = {app.gamedata, app.smg, roms + "/wii", "/userdata/roms/wii", "/roms/wii", "/roms2/wii", "/storage/roms/wii"};

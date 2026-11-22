@@ -31,8 +31,8 @@ Los controles están pensados para consolas con **dos sticks analógicos y cruce
 | R36S y clones | Rockchip RK3326 (4× Cortex-A35 a 1.3 GHz), Mali-G31 | ArkOS, dArkOS, ROCKNIX | 🟡 Sin probar |
 
 En la R36S la CPU rinde aproximadamente un 65–75 % de la de la H700. Con el driver Mali de ArkOS y dArkOS (OpenGL ES
-3.2) debería funcionar igual. Con Panfrost (ROCKNIX, OpenGL ES 3.1) el renderer cambia a GLSL ES 3.10, pero además
-necesita `GL_EXT_buffer_storage`, y no está comprobado que Panfrost lo dé.
+3.2) debería funcionar igual. Con Panfrost (ROCKNIX, OpenGL ES 3.1) el renderer cambia a GLSL ES 3.10 y, si el driver
+no da `GL_EXT_buffer_storage`, usa copias en la CPU (ya no es un requisito). Sin probar en ninguno de los dos.
 
 ---
 
@@ -62,6 +62,40 @@ necesita `GL_EXT_buffer_storage`, y no está comprobado que Panfrost lo dé.
   `smg/ultra/compare.py` compara dos ajustes (ver `smg/ultra/LEEME.txt`).
 * **Instalador autoextraíble:** detecta el firmware y pone cada parte en su sitio. Al reinstalar conserva tu
   `game.pak`, el idioma y las partidas.
+
+---
+
+## 🧩 GX en OpenGL ES y compatibilidad de drivers
+
+El GX del Wii se dibuja con un renderer OpenGL ES propio (`runtime/src/gx/gles/`). Pide **OpenGL ES 3.0 como mínimo** y
+usa lo de 3.1/3.2 y `GL_EXT_buffer_storage` solo si el driver lo tiene.
+
+| Driver | Qué usa Nebula | Estado |
+|---|---|---|
+| Mali-G31, libmali r20p0 (RG35XX H, KNULLI): OpenGL ES 3.2 | GLSL ES 3.20, anillos de subida mapeados de forma persistente, hilo de GL | ✅ Juego completo de las 44 galaxias sin cierres |
+| Un driver OpenGL ES 3.1 (Panfrost en ROCKNIX) | GLSL ES 3.10 | 🟡 Sin probar |
+| Un driver solo OpenGL ES 3.0 | GLSL ES 3.00, buffers con copia en la CPU, matrices en una textura 2D | 🟡 Probado forzando ese camino en la Mali (`GALAXY_GLES_FORCE_ES30=1`): pasan las pruebas del renderer y de mezcla; jugar entero no está medido |
+
+**Mezcla de GX con alfa de doble fuente.** OpenGL ES no tiene `GL_EXT_blend_func_extended` (la Mali tampoco): 241 de los
+977 programas de Galaxy la necesitan. Nebula hace la mezcla en el shader leyendo el color de destino con
+`GL_ARM_shader_framebuffer_fetch` (o `GL_EXT_shader_framebuffer_fetch`). En la Mali de la RG35XX H, comparada con la
+mezcla de la CPU: 0 píxeles con diferencia mayor a 1 y 0 % de draws en el shader genérico. Sin ninguna de esas dos
+extensiones, vuelve a la mezcla fija de antes, que en 35 de esos 241 programas usa la alfa constante en vez de la del
+TEV. `GALAXY_GLES_BLEND_FETCH=0` la apaga.
+
+**Memoria (1 GB compartido con la GPU).** El anillo de índices se sube desde una copia en la CPU, porque el driver de la
+Mali crecía una tabla por cada rango de un buffer mapeado de forma persistente. Los bloques de subida de texturas
+se devuelven al empezar cada frame y las cachés tienen límite (display lists 24 MiB, vértices decodificados 24 MiB,
+texturas recicladas 8 MiB). Resultado en la consola, en un recorrido de las 44 galaxias: el máximo del montón bajó de
+379 MiB a 233 MiB y el mínimo de memoria libre subió de 36 MiB a 138 MiB.
+
+**La biblioteca de shaders** se hace en la PC (`smg/shaders-gles.bin`, 4894 shaders en cinco formas GLSL), así que la
+consola no lleva traductor. Si falta un programa, se dibuja con el genérico y la consola anota la clave en
+`smg/data/shadercache/RMGE01/gles_keys.bin` para la siguiente compilación.
+
+Detalles y pruebas: [`docs/GX-ES.md`](docs/GX-ES.md), [`docs/GX_ES_COMPATIBILITY.md`](docs/GX_ES_COMPATIBILITY.md),
+[`docs/GX_ES_FRAMEBUFFER_FETCH.md`](docs/GX_ES_FRAMEBUFFER_FETCH.md), [`docs/GX_ES_MEMORY_GROWTH.md`](docs/GX_ES_MEMORY_GROWTH.md)
+y [`docs/PHASE3_PROGRESS.md`](docs/PHASE3_PROGRESS.md).
 
 ---
 
@@ -123,7 +157,7 @@ La primera vez que aparece cada efecto se compila su shader y el juego se detien
 | Stick izquierdo | Stick del Nunchuk |
 | A | Saltar |
 | B | Saltar / atrás |
-| X, Y, R2 | Giro |
+| X, Y, R2 | Giro (mantenerlo apretado sigue sacudiendo: así Mario sube las enredaderas) |
 | L1 | Botón B del Wiimote (disparar trozos de estrella) |
 | L2 | Z (agacharse) |
 | Stick derecho | Puntero |
@@ -138,12 +172,14 @@ Se ponen al principio de `Super Mario Galaxy.sh`:
 
 | Variable | Valores | Qué hace |
 |---|---|---|
-| `NEBULA_PERFIL` | `bajo` (por defecto) · `normal` | Perfil de bajos recursos (salto de frames, cachés pequeñas) o sin saltos |
+| `NEBULA_PERFIL` | `medio` (por defecto) · `bajo` · `normal` | `medio`: resolución interna fija de 75 % (480x396), con salto de frames y cachés pequeñas; `bajo`: igual pero con resolución dinámica 50-100 %; `normal`: 100 % y sin saltos. Medido en la consola (44 galaxias, 5-nov): unos 39 FPS mostrados y 15 dibujados con el slot por imagen |
 | `GALAXY_FRAMESKIP` | `auto` · `0`–`3` | Salto de frames; `auto` mantiene 60, 30 o 20 imágenes por segundo |
 | `GALAXY_PEEK_MODE` | `async` · `sync` · `off` | Lecturas de la imagen (destellos del sol, puntero) sin esperar, exactas o ninguna |
 | `NEBULA_FACE_LAYOUT` | `positions` · `labels` | A/B por posición o por etiqueta (si en tu firmware salen cambiados) |
 | `NEBULA_QUIT_COMBO` | `menu` · `select` · `both` | Fuerza la combinación para salir |
 | `NEBULA_PAD_SCHEME` | `xbox` | Cambia A y B de lado |
+| `GALAXY_GLES_SLOT_POR_IMAGEN` | `1` (por defecto en `medio`) · `0` | El renderer cambia de slot al presentar cada imagen, no en cada trozo que manda el juego: +21-23 % FPS mostrados, +16-21 % dibujados, p95 −17 %, a cambio de 12-35 MiB menos de memoria libre |
+| `GALAXY_SHAKE_HOLD` | `1` (por defecto) · `0` | Mantener un botón de giro sigue sacudiendo (enredaderas y tallos con el botón apretado) o solo una sacudida por pulsación |
 | `NEBULA_PAK_DELETE_IMAGE` | `1` | Borra la imagen del disco al terminar de convertir |
 
 ### Diagnóstico

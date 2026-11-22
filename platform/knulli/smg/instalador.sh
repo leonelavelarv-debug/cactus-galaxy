@@ -83,13 +83,18 @@ if ! tail -n +"$start" "$self" | tar -xzf - -C "$work" 2>/dev/null; then
 fi
 [ -f "$work/Super Mario Galaxy.sh" ] && [ -f "$work/smg/nebula" ] || fail "el paquete no trae el juego"
 
+# Una portada o captura que ya haya en la consola (la caratula bajada o una del juego) no se cambia por la provisional
+# del paquete.
+for f in cover.png screenshot.png; do
+  [ -f "$ports/smg/$f" ] && [ ! -e "$ports/smg/$f.captura" ] && rm -f "$work/smg/$f" "$work/smg/$f.captura"
+done
 # smg/: lo nuevo encima de lo que haya (game.pak, idioma.txt, nand/ y data/ no vienen en el paquete y se quedan).
 mkdir -p "$ports/smg" || fail "no se puede crear $ports/smg"
 cp -rf "$work/smg/." "$ports/smg/" || fail "no se pudo copiar smg/ (espacio?)"
 cp -f "$work/Super Mario Galaxy.sh" "$scripts/Super Mario Galaxy.sh" || fail "no se pudo copiar el lanzador"
 # Restos de versiones anteriores: un .sh dentro de smg/ saldria como juego en algunos menus.
 rm -f "$ports/smg/cactus-galaxy-wrapper.sh"
-for tool in nebula nebula-pak cactus-galaxy-wrapper gamelist.py; do
+for tool in nebula nebula-pak cactus-ruso cactus-galaxy-wrapper gamelist.py; do
   [ -f "$ports/smg/$tool" ] && { chmod +x "$ports/smg/$tool" 2>/dev/null || $ESUDO chmod +x "$ports/smg/$tool"; }
 done
 chmod +x "$scripts/Super Mario Galaxy.sh" 2>/dev/null || $ESUDO chmod +x "$scripts/Super Mario Galaxy.sh"
@@ -97,6 +102,120 @@ chmod +x "$scripts/Super Mario Galaxy.sh" 2>/dev/null || $ESUDO chmod +x "$scrip
 [ "$(cd "$scripts" && pwd -P)" != "$(cd "$ports" && pwd -P)" ] && [ -f "$ports/Super Mario Galaxy.sh" ] &&
   rm -f "$ports/Super Mario Galaxy.sh"
 rm -rf "$work"
+sync
+
+# Pack de texturas (opcional): un .zip con TexturePacks/RMGE01/ junto a este instalador o en la carpeta de ports
+# (p. ej. "SMG1 HD x1 RG35XXH.zip", reducido en la PC para la consola) se pone en smg/data/ en lugar del que hubiera y
+# se borra el zip. El paquete del port no trae texturas: el pack lo pone cada uno. Si algo falla, el juego queda igual.
+pack_zip=""
+for z in "$(dirname "$self")"/*.zip "$ports"/*.zip; do
+  [ -f "$z" ] || continue
+  case "$(basename "$z")" in smg.zip) continue ;; esac
+  python3 -c 'import sys, zipfile; n = zipfile.ZipFile(sys.argv[1]).namelist(); sys.exit(0 if any(x.startswith("TexturePacks/RMGE01/") for x in n) else 1)' \
+    "$z" 2>/dev/null || continue
+  # Con varios, el mas reciente.
+  if [ -z "$pack_zip" ] || [ "$z" -nt "$pack_zip" ]; then pack_zip="$z"; fi
+done
+if [ -n "$pack_zip" ]; then
+  say "Instalando el pack de texturas $(basename "$pack_zip") ..."
+  pack_kb=$(python3 -c 'import sys, zipfile; print(sum(i.file_size for i in zipfile.ZipFile(sys.argv[1]).infolist()) // 1024 + 1024)' "$pack_zip" 2>/dev/null)
+  free_kb=$(df -Pk "$ports" 2>/dev/null | awk 'NR==2 {print $4}')
+  tp="$ports/smg/data/.texturas-instalando"
+  if [ -z "$pack_kb" ]; then
+    say "El pack de texturas esta danado (vuelve a copiarlo). El juego se instalo sin el."; sleep 5
+  elif [ -n "$free_kb" ] && [ "$free_kb" -lt "$pack_kb" ]; then
+    say "Faltan $(( (pack_kb - free_kb) / 1024 + 1 )) MB para el pack de texturas. El juego se instalo sin el."; sleep 5
+  elif rm -rf "$tp" && mkdir -p "$tp" &&
+       python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); z.extractall(sys.argv[2], [n for n in z.namelist() if n.startswith("TexturePacks/RMGE01/") and ".." not in n])' \
+         "$pack_zip" "$tp" && [ -d "$tp/TexturePacks/RMGE01" ]; then
+    mkdir -p "$ports/smg/data/TexturePacks"
+    rm -rf "$ports/smg/data/TexturePacks/RMGE01"
+    mv "$tp/TexturePacks/RMGE01" "$ports/smg/data/TexturePacks/RMGE01" && rm -rf "$tp" && sync &&
+      { [ "${SMG_CONSERVAR_INSTALADOR:-0}" = 1 ] || rm -f "$pack_zip"; } &&
+      say "Pack de texturas instalado en $ports/smg/data/TexturePacks/RMGE01."
+  else
+    rm -rf "$tp"
+    say "No se pudo descomprimir el pack de texturas (vuelve a copiarlo). El juego se instalo sin el."; sleep 5
+  fi
+fi
+
+# Mods (opcionales): un .zip, .7z o .rar con archivos del juego (.arc, .szs...) o riivolution/ junto a este
+# instalador va a smg/mods/<nombre del archivo>/, donde Nebula los carga (los sueltos, cada uno en el sitio de su
+# nombre en el disco); si trae una sola carpeta arriba, esa. El zip lo abre python; 7z y rar, el 7zzs de PortMaster.
+sevenz=""
+for c in "$controlfolder/7zzs.${DEVICE_ARCH:-aarch64}" "$controlfolder/7zzs"; do [ -x "$c" ] && { sevenz="$c"; break; }; done
+mod_dirs="$(dirname "$self")"
+[ "$(cd "$ports" && pwd -P)" != "$(cd "$mod_dirs" && pwd -P)" ] && mod_dirs="$mod_dirs
+$ports"
+printf '%s\n' "$mod_dirs" | while IFS= read -r dir; do
+  for a in "$dir"/*.zip "$dir"/*.ZIP "$dir"/*.7z "$dir"/*.rar "$dir"/*.RAR; do
+    [ -f "$a" ] || continue
+    case "$(basename "$a")" in smg.zip) continue ;; esac
+    case "$a" in *.zip|*.ZIP)
+      python3 -c 'import sys, zipfile; sys.exit(any(n.startswith("TexturePacks/") for n in zipfile.ZipFile(sys.argv[1]).namelist()))' \
+        "$a" 2>/dev/null || continue ;;
+    esac
+    nombre="$(basename "$a")"; nombre="${nombre%.*}"; nombre="${nombre#.}"
+    tmp="$ports/smg/mods/.mod-instalando"
+    rm -rf "$tmp" && mkdir -p "$tmp" || continue
+    case "$a" in
+      *.zip|*.ZIP) python3 -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "$a" "$tmp" 2>/dev/null ;;
+      *) if [ -n "$sevenz" ]; then "$sevenz" x -y -o"$tmp" "$a" >/dev/null 2>&1; else false; fi ;;
+    esac
+    ok=$?
+    # Packs de texturas (ya instalados arriba) y zips que no son de este juego: se dejan como estan.
+    if [ -d "$tmp/TexturePacks" ]; then rm -rf "$tmp"; continue; fi
+    if [ "$ok" != 0 ]; then
+      rm -rf "$tmp"
+      case "$a" in
+        *.zip|*.ZIP) ;;
+        *) [ -z "$sevenz" ] && say "No se pudo abrir $(basename "$a"): falta 7zzs de PortMaster. Descomprimelo en la PC dentro de smg/mods/." && sleep 5 ;;
+      esac
+      continue
+    fi
+    if [ -z "$(find "$tmp" -type f \( -iname '*.arc' -o -iname '*.szs' -o -iname '*.bcsv' -o -iname '*.bmg' -o -iname '*.thp' -o -iname '*.ast' -o -iname '*.brsar' \) | head -n 1)" ] &&
+       [ -z "$(find "$tmp" -type d -iname riivolution | head -n 1)" ]; then
+      rm -rf "$tmp"; continue
+    fi
+    # Una sola carpeta arriba (la del propio archivo) y a lo sumo notas: el mod es esa carpeta. Las carpetas del disco
+    # (ObjectData, files, riivolution...) Nebula ya las busca un nivel abajo.
+    # (Tantas veces como haga falta: un zip puede traer su carpeta y dentro la del mod.)
+    raiz="$tmp"
+    while :; do
+      subdirs=$(find "$raiz" -mindepth 1 -maxdepth 1 -type d | wc -l)
+      otros=$(find "$raiz" -mindepth 1 -maxdepth 1 -type f ! -iname '*.txt' ! -iname '*.md' ! -iname '*.png' ! -iname '*.jpg' ! -iname '*.pdf' | wc -l)
+      [ "$subdirs" = 1 ] && [ "$otros" = 0 ] || break
+      sub="$(find "$raiz" -mindepth 1 -maxdepth 1 -type d)"
+      case "$(basename "$sub" | tr '[:upper:]' '[:lower:]')" in
+        files|riivolution|textures|movies|objectdata|stagedata|layoutdata|audiores|particledata|systemdata|mappartsdata|moviedata|us*|eu*|jp*|kr*|cn*|tw*) break ;;
+      esac
+      raiz="$sub"
+    done
+    # Instalado de nuevo, entra activado (Cactus Galaxy Wrapper lo apaga moviendolo a smg/mods-desactivados/).
+    destino="$ports/smg/mods/$nombre"
+    rm -rf "$destino" "$ports/smg/mods-desactivados/$nombre"
+    if mv "$raiz" "$destino"; then
+      rm -rf "$tmp"
+      [ "${SMG_CONSERVAR_INSTALADOR:-0}" = 1 ] || rm -f "$a"
+      # Otro mod que cambia los mismos archivos sueltos (p. ej. dos que cambian a Mario) chocaria: el anterior se aparta
+      # a smg/mods-desactivados/ (no se borra; para volver a usarlo, se mueve de nuevo a smg/mods/).
+      nuevos=$(find "$destino" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; | tr '[:upper:]' '[:lower:]' | sort)
+      for otro in "$ports/smg/mods"/*/; do
+        otro="${otro%/}"; o="$(basename "$otro")"
+        [ "$o" = "$nombre" ] && continue
+        case "$o" in idioma-*|.*) continue ;; esac
+        viejos=$(find "$otro" -mindepth 1 -maxdepth 1 -type f -exec basename {} \; | tr '[:upper:]' '[:lower:]' | sort)
+        [ -n "$nuevos" ] && [ -n "$viejos" ] && printf '%s\n' "$viejos" | grep -qxF -f <(printf '%s\n' "$nuevos") || continue
+        mkdir -p "$ports/smg/mods-desactivados" && rm -rf "$ports/smg/mods-desactivados/$o" &&
+          mv "$otro" "$ports/smg/mods-desactivados/$o" && say "El mod $o cambia los mismos archivos: queda apagado (se enciende en Ajustes > Mods)."
+      done
+      say "Mod instalado: $nombre. Se enciende y apaga en Ajustes > Mods (manten SELECT al abrir el juego y pulsa X)."
+    else
+      rm -rf "$tmp"
+      say "No se pudo instalar el mod $nombre (espacio?)."; sleep 5
+    fi
+  done
+done
 sync
 
 # El instalador ya no hace falta (el gzip ya comprobo que llego entero).

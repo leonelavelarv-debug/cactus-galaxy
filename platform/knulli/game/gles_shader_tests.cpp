@@ -78,15 +78,16 @@ bool start_egl() {
             return false;
         }
     }
-    // 3.2, else 3.1 (an OpenGL ES 3.1 driver such as Panfrost: the shaders are then GLSL ES 3.10).
-    for (const EGLint minor : {2, 1}) {
+    // 3.2, else 3.1 (an OpenGL ES 3.1 driver such as Panfrost: the shaders are then GLSL ES 3.10), else 3.0
+    // (GLSL ES 3.00, the palette in a 2D texture).
+    for (const EGLint minor : {2, 1, 0}) {
         const EGLint context_attributes[] = {EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, minor, EGL_NONE};
         EGLContext context = create_context(display, config, EGL_NO_CONTEXT, context_attributes);
         if (context != EGL_NO_CONTEXT && make_current(display, EGL_NO_SURFACE, EGL_NO_SURFACE, context)) {
             return true;
         }
     }
-    std::fprintf(stderr, "no surfaceless ES 3.1 or 3.2 context\n");
+    std::fprintf(stderr, "no surfaceless OpenGL ES 3 context\n");
     return false;
 }
 
@@ -157,6 +158,23 @@ bool check_pair(const std::string& vs_hlsl, const std::string& ps_hlsl, gles::Sh
             std::fprintf(stderr, "FAIL link %s:\n%s\n", what.c_str(), log);
         } else {
             ok = true;
+            if (options.glsl_version == 300) {
+                // GLSL ES 3.00: the blocks and samplers get their bindings after linking (apply_bindings).
+                const std::string bindings = gles::bindings_of(vs, ps);
+                const bool has_block = (vs.find("uniform ") == std::string::npos &&
+                                        ps.find("uniform ") == std::string::npos) ||
+                    bindings.find("// nebula-bind ") != std::string::npos;
+                const bool named = bindings.find("  ") == std::string::npos;  // every line has its name
+                const bool has_palette = vs.find("usampler2D") == std::string::npos ||
+                    bindings.find(" " + std::to_string(gles::kPaletteTextureUnit) + "\n") != std::string::npos;
+                while (glGetError() != GL_NO_ERROR) {
+                }
+                gles::apply_bindings(program, bindings);
+                if (!has_block || !has_palette || !named || glGetError() != GL_NO_ERROR) {
+                    std::fprintf(stderr, "FAIL bindings %s:\n%s\n", what.c_str(), bindings.c_str());
+                    ok = false;
+                }
+            }
         }
         glDeleteProgram(program);
     }
@@ -201,8 +219,7 @@ int main() {
         g_dump = dump;
         std::filesystem::create_directories(g_dump);
     }
-    const int glsl = gles::glsl_version_for(gles::Context::get().caps().version_major,
-                                            gles::Context::get().caps().version_minor);
+    const int glsl = gles::Context::get().caps().glsl_version;
     std::fprintf(stderr, "GLSL ES %d\n", glsl);
     gles::TranslateOptions utility{};
     utility.glsl_version = glsl;
@@ -244,17 +261,32 @@ int main() {
         std::fprintf(stderr, "%u recorded keys\n", count);
     }
     for (const bool storage : {true, false}) {
+        if (glsl == 300 && storage) {
+            continue;  // GLSL ES 3.00 has one form: the palette in a 2D texture
+        }
         gles::TranslateOptions options{};
         options.palette_storage_block = storage;
         options.glsl_version = glsl;
-        const char* form = storage ? "ssbo" : "texbuf";
+        const char* form = glsl == 300 ? "tex2d" : storage ? "ssbo" : "texbuf";
         const std::string vs(uber_vs_source());
         for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
             check_pair(vs, uber_ps_hlsl(variant), gles::ShaderKind::Gx, options,
                        std::string("uber ") + form + " " + std::to_string(variant));
         }
         std::size_t index = 0;
+        std::size_t early_discard = 0, early_discard_writes = 0;
         for (const KeyRecord& record : keys) {
+            if (glsl == 300) {
+                // GLSL ES 3.00 has no early_fragment_tests: an early-Z program whose alpha test discards differs
+                // only if it also writes depth (BP 0x40: test enable bit 0, update bit 4). Counted, not hidden.
+                const std::string ps_text = generator.generate_ps(record.ps_key);
+                if (ps_text.find("[earlydepthstencil]") != std::string::npos &&
+                    ps_text.find("discard") != std::string::npos) {
+                    ++early_discard;
+                    const unsigned z = record.key.render_state.zmode_bits;
+                    if ((z & 0x1u) != 0u && (z & 0x10u) != 0u) ++early_discard_writes;
+                }
+            }
             const bool points = record.key.render_state.primitive_topology == 1u;
             std::string vs_hlsl = generator.generate_vs(record.vs_key);
             if (points) {
@@ -262,9 +294,13 @@ int main() {
             }
             check_pair(vs_hlsl, generator.generate_ps(record.ps_key), gles::ShaderKind::Gx, options,
                        std::string("key ") + form + " " + std::to_string(index++));
-            if (!storage && index > 40u) {
+            if (!storage && glsl != 300 && index > 40u) {
                 break;  // the texture-buffer form on a sample of the keys
             }
+        }
+        if (glsl == 300) {
+            std::printf("GLSL ES 3.00: %zu of %zu programs are early-Z with an alpha-test discard, %zu of them writing "
+                        "depth\n", early_discard, keys.size(), early_discard_writes);
         }
     }
     std::printf("gles shader tests: %d linked, %d failed; translate %.1f ms, driver %.1f ms\n", g_linked, g_failures,

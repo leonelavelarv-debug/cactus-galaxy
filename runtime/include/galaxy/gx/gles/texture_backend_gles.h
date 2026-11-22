@@ -6,6 +6,7 @@
 // GLES build decodes textures on the render thread, so the staging bytes are complete by then).
 
 #include "galaxy/gx/gles/gles_context.h"
+#include "galaxy/gx/texture_compact.h"
 
 #include <cstdint>
 #include <memory>
@@ -42,6 +43,14 @@ public:
     static void release_upload_chunk(UploadChunk& chunk) noexcept;
     [[nodiscard]] gpu::TextureRef create_texture(
         std::uint32_t width, std::uint32_t height, unsigned levels, std::uint64_t& allocation_bytes);
+    // Compact textures (texture_compact.h): a texture in `format`; record_upload converts the RGBA8 staging levels to
+    // it, record_upload_compact takes levels already in it (rows at the same pitches).
+    [[nodiscard]] gpu::TextureRef create_texture(std::uint32_t width, std::uint32_t height, unsigned levels,
+                                                 std::uint64_t& allocation_bytes, CompactFormat format);
+    void record_upload_compact(gles::Texture* texture, const UploadChunk& staging, std::uint64_t offset,
+                               std::uint32_t width, std::uint32_t height, unsigned levels,
+                               const std::uint64_t* offsets, const std::uint32_t* pitches);
+    [[nodiscard]] static CompactFormat compact_format(const gles::Texture* texture) noexcept;
     [[nodiscard]] static bool poolable(gles::Texture* texture, std::uint32_t& width, std::uint32_t& height,
                                        std::uint32_t& levels);
     [[nodiscard]] static bool alias_compatible(gles::Texture* texture, std::uint32_t& width, std::uint32_t& height);
@@ -63,6 +72,7 @@ private:
     std::shared_ptr<gles::Texture> null_texture_;
     bool upload_list_ = false;
     std::uint64_t uploaded_bytes_ = 0;
+    std::vector<std::uint8_t> compact_rows_;  // one level converted from RGBA8 (record_upload)
 };
 
 }  // namespace galaxy::gx

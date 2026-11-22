@@ -108,7 +108,7 @@ def write_gameinfo(smg, info):
     root = ET.Element("gameList")
     game = ET.SubElement(root, "game")
     for tag, value in [("path", GAME_SCRIPT)] + [(k, info[k]) for k in ("name", "desc", "releasedate", "developer",
-                                                                          "publisher", "genre", "players")]:
+                                                                          "publisher", "genre")]:
         ET.SubElement(game, tag).text = value
     ET.SubElement(game, "image").text = "./smg/cover.png"
     tree = ET.ElementTree(root)

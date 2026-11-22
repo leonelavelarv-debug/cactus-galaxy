@@ -1,0 +1,19 @@
+{
+  "version": 4,
+  "name": "pruebamezcla.zip",
+  "items": ["Prueba mezcla GX.sh", "pruebamezcla/"],
+  "items_opt": [],
+  "attr": {
+    "title": "Prueba mezcla GX (Nebula)",
+    "desc": "Paso 2 de GX-ES: mezcla de doble fuente de GX con y sin framebuffer fetch, en OpenGL ES 3.2 y 3.0, contra la referencia de la PC.",
+    "inst": "Copiar 'Prueba mezcla GX.sh' y la carpeta pruebamezcla a ports. Ejecutar; los resultados quedan en pruebamezcla/resultados/.",
+    "genres": ["other"],
+    "porter": ["Señor Cactus"],
+    "runtime": null,
+    "reqs": [],
+    "rtr": true,
+    "exp": true,
+    "arch": ["aarch64"],
+    "min_glibc": "2.27"
+  }
+}

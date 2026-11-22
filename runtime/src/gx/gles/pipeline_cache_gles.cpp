@@ -2,6 +2,8 @@
 // GX pipelines on OpenGL ES (pipeline_cache_gles.h).
 
 #include "galaxy/gx/gles/pipeline_cache_gles.h"
+#include "galaxy/gx/gles/shader_library_gles.h"
+#include "galaxy/gx/gles/shader_sources_gles.h"
 #include "galaxy/gx/gles/ultra_gles.h"
 
 #include "galaxy/gx/host_window.h"
@@ -108,15 +110,6 @@ GLenum to_alpha_blend(GLenum factor) {
     }
 }
 
-std::string uber_ps_hlsl(unsigned variant) {
-    std::string ps;
-    ps += uber_ps_variant_dual_source(variant) ? "#define UBER_DUAL_SRC 1\n" : "#define UBER_DUAL_SRC 0\n";
-    ps += uber_ps_variant_export_depth(variant) ? "#define UBER_EXPORT_DEPTH 1\n" : "#define UBER_EXPORT_DEPTH 0\n";
-    ps += uber_ps_variant_early_depth(variant) ? "#define UBER_EARLY_DEPTH 1\n" : "#define UBER_EARLY_DEPTH 0\n";
-    ps += uber_ps_source();
-    return ps;
-}
-
 std::string shader_log(GLuint object, bool program) {
     GLint length = 0;
     if (program) {
@@ -184,9 +177,9 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
                                    unsigned worker_count) {
     layout_ = layout;
     translate_options_.palette_storage_block = layout->palette_storage_block;
-    generator_options_.scalar_byte_masks = true;  // Mali (device_quirks_vk.cpp)
+    generator_options_ = gles::gles_generator_options();
     const gles::Capabilities& caps = gles::Context::get().caps();
-    translate_options_.glsl_version = gles::glsl_version_for(caps.version_major, caps.version_minor);
+    translate_options_.glsl_version = caps.glsl_version;
     driver_key_ = caps.renderer + " | " + caps.version;
     const std::uint64_t driver_hash = fnv1a64(driver_key_.data(), driver_key_.size());
     char folder[40];
@@ -203,6 +196,23 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
     if (const char* dump = std::getenv("GALAXY_GLES_SHADER_DUMP")) {
         shader_dump_dir_ = dump;
         std::filesystem::create_directories(shader_dump_dir_, error);
+    }
+    {
+        // Dual-source alpha: GL_EXT_blend_func_extended is not on the Mali-G31's driver (Nebula Probe 0.3), so the
+        // pipelines that blend with the TEV's alpha do it in the shader where the driver reads the framebuffer there.
+        // GALAXY_GLES_BLEND_FETCH=0 leaves them to fixed-function blending with location 0's alpha, as before.
+        const char* value = std::getenv("GALAXY_GLES_BLEND_FETCH");
+        const bool off = value != nullptr && value[0] == '0';
+        fetch_blend_ = off ? gles::FramebufferFetch::None
+            : caps.framebuffer_fetch_arm ? gles::FramebufferFetch::Arm
+            : caps.framebuffer_fetch_ext ? gles::FramebufferFetch::Ext
+                                         : gles::FramebufferFetch::None;
+        std::fprintf(stderr, "[gles-blend] dual-source alpha: %s\n",
+                     fetch_blend_ == gles::FramebufferFetch::Arm ? "blended in the shader (GL_ARM_shader_framebuffer_fetch)"
+                     : fetch_blend_ == gles::FramebufferFetch::Ext
+                         ? "blended in the shader (GL_EXT_shader_framebuffer_fetch)"
+                     : off ? "fixed-function blending with location 0's alpha (GALAXY_GLES_BLEND_FETCH=0)"
+                           : "fixed-function blending with location 0's alpha (the driver has no framebuffer fetch)");
     }
     {
         const char* value = std::getenv("GALAXY_GLES_PENDING");
@@ -238,12 +248,15 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
             }
         }
     }
-    if (pending_ == Pending::Uber) {
+    // Without the translator a GX program the GLSL library lacks is drawn with the uber shader, whatever the pending
+    // mode: the uber programs are always built then.
+    uber_needed_ = pending_ == Pending::Uber || !gles::translator_available();
+    if (uber_needed_) {
         // The uber programs now: every first use draws with one.
         const std::string vs(uber_vs_source());
         for (unsigned variant = 0; variant < kUberPsVariants; ++variant) {
             const std::string vs_glsl = translate(vs, gles::Stage::Vertex, "uber vertex shader");
-            const std::string ps_glsl = translate(uber_ps_hlsl(variant), gles::Stage::Fragment, "uber pixel shader");
+            const std::string ps_glsl = translate(gles::uber_pixel_hlsl(variant), gles::Stage::Fragment, "uber pixel shader");
             if (!vs_glsl.empty() && !ps_glsl.empty()) {
                 const std::uint64_t hash = combine64(fnv1a64(vs_glsl.data(), vs_glsl.size()),
                                                      fnv1a64(ps_glsl.data(), ps_glsl.size()));
@@ -251,10 +264,13 @@ bool PipelineCacheGles::initialize(gpu::Device*, const gles::GxLayout* layout, c
             }
         }
     }
-    std::fprintf(stderr, "[pipeline-cache-gles] keys=%zu prewarm=%zu workers=%zu pending=%s binaries=%s dir=%s\n",
+    const gles::LibraryStats library = gles::library_stats();
+    std::fprintf(stderr, "[pipeline-cache-gles] keys=%zu prewarm=%zu workers=%zu pending=%s binaries=%s glsl-library=%llu "
+                 "translator=%s dir=%s\n",
                  entries_.size(), prewarm, workers_.size(),
                  pending_ == Pending::Wait ? "wait" : pending_ == Pending::Skip ? "skip" : "uber",
-                 binaries_ ? "yes" : "no", cache_dir_.string().c_str());
+                 binaries_ ? "yes" : "no", static_cast<unsigned long long>(library.entries),
+                 gles::translator_available() ? "yes" : "no", cache_dir_.string().c_str());
     // The context goes to the render thread now (GxBackend starts it next): release it here.
     host_window::gles_make_current(nullptr, false);
     gles::Context::get().clear_owner_thread();
@@ -291,13 +307,18 @@ void PipelineCacheGles::shutdown() {
     }
     programs_.clear();
     published_.clear();
+    missed_.clear();
     uber_pipelines_.clear();
     memo_pipeline_ = nullptr;
     ready_ = false;
 }
 
 PipelineCacheGles::PairKey PipelineCacheGles::pair_for(const PsoKey& key, bool points) const noexcept {
-    return PairKey{key.vs_hash, key.ps_hash, points ? 1u : 0u};
+    const std::uint32_t bb = key.render_state.blend_bits;
+    // RenderStateKey bit 27 (dual source) comes with blending on, no subtract (shader_keys.cpp needs_dual_src_alpha).
+    const bool fetch = fetch_blend_ != gles::FramebufferFetch::None && (bb & (1u << 27u)) != 0u && (bb & 3u) == 1u;
+    return PairKey{key.vs_hash, key.ps_hash, points ? 1u : 0u,
+                   fetch ? kFetchBlend | (bb & ((0x3Fu << 2u) | (1u << 28u))) : 0u};
 }
 
 std::filesystem::path PipelineCacheGles::binary_path(std::uint64_t hash) const {
@@ -309,9 +330,13 @@ std::filesystem::path PipelineCacheGles::binary_path(std::uint64_t hash) const {
 std::string PipelineCacheGles::translate(const std::string& hlsl, gles::Stage stage, const char* what) {
     std::string error;
     const auto start = std::chrono::steady_clock::now();
-    std::string glsl = gles::translate(hlsl, stage, gles::ShaderKind::Gx, translate_options_, error);
+    // From the GLSL library when it has it; translated here only by a build that has the translator.
+    std::string glsl = gles::shader_glsl(hlsl, stage, gles::ShaderKind::Gx, translate_options_, error);
     compile_us_.fetch_add(elapsed_us(start), std::memory_order_relaxed);
     translations_.fetch_add(1u, std::memory_order_relaxed);
+    if (glsl.empty() && !gles::translator_available()) {
+        return {};  // drawn with the uber shader (get); counted there
+    }
     if (glsl.empty()) {
         static std::atomic<int> reported{0};
         if (reported.fetch_add(1, std::memory_order_relaxed) < 6) {
@@ -359,6 +384,9 @@ PipelineCacheGles::Program PipelineCacheGles::link(const std::string& vs_glsl, c
             glDetachShader(program, ps);
         }
     }
+    // GLSL ES 3.00: the uniform blocks' bindings and the samplers' units, which its sources cannot say.
+    const std::string bindings = program != 0u ? gles::bindings_of(vs_glsl, ps_glsl) : std::string{};
+    gles::apply_bindings(program, bindings);
     if (vs != 0u) glDeleteShader(vs);
     if (ps != 0u) glDeleteShader(ps);
     compile_us_.fetch_add(elapsed_us(start), std::memory_order_relaxed);
@@ -392,6 +420,11 @@ PipelineCacheGles::Program PipelineCacheGles::link(const std::string& vs_glsl, c
                     write_pod(file, out.attributes);
                     write_pod(file, static_cast<std::uint32_t>(written));
                     file.write(binary.data(), written);
+                    // A binary's program starts with no bindings: GLSL ES 3.00's after it (nothing for the others).
+                    if (!bindings.empty()) {
+                        write_pod(file, static_cast<std::uint32_t>(bindings.size()));
+                        file.write(bindings.data(), static_cast<std::streamsize>(bindings.size()));
+                    }
                 });
             }
         }
@@ -401,16 +434,21 @@ PipelineCacheGles::Program PipelineCacheGles::link(const std::string& vs_glsl, c
 
 PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair, const VertexShaderKey& vs_key,
                                                             const PixelShaderKey& ps_key) {
-    ShaderGenerator generator;
-    generator.set_options(generator_options_);
-    std::string vs_hlsl = generator.generate_vs(vs_key);
-    if (pair.form == 1u) {
-        vs_hlsl = vk::with_point_size(vs_hlsl);
+    const gles::ProgramHlsl source = gles::program_hlsl(vs_key, ps_key, pair.form == 1u);
+    const std::string& vs_hlsl = source.vs;
+    const std::string& ps_hlsl = source.ps;
+    std::uint64_t hash = combine64(combine64(fnv1a64(vs_hlsl.data(), vs_hlsl.size()),
+                                             fnv1a64(ps_hlsl.data(), ps_hlsl.size())),
+                                   translate_options_.palette_storage_block ? 1u : 2u);
+    if (translate_options_.glsl_version == 300) {
+        hash = combine64(hash, 300u);  // the 2D palette's programs (3.10/3.20 keep the hashes they had)
     }
-    const std::string ps_hlsl = generator.generate_ps(ps_key);
-    const std::uint64_t hash = combine64(combine64(fnv1a64(vs_hlsl.data(), vs_hlsl.size()),
-                                                   fnv1a64(ps_hlsl.data(), ps_hlsl.size())),
-                                         translate_options_.palette_storage_block ? 1u : 2u);
+    const std::uint64_t plain_hash = hash;
+    if (pair.blend != 0u) {
+        // The fetch form (and which extension it reads with): a binary of its own.
+        hash = combine64(hash, static_cast<std::uint64_t>(pair.blend) |
+                                   (static_cast<std::uint64_t>(fetch_blend_) << 32u));
+    }
     if (binaries_) {
         std::ifstream in(binary_path(hash), std::ios::binary);
         std::uint32_t magic = 0, format = 0, attributes = 0, length = 0;
@@ -423,8 +461,19 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
                 GLint ok = GL_FALSE;
                 glGetProgramiv(program, GL_LINK_STATUS, &ok);
                 if (ok == GL_TRUE) {
+                    const bool fetch = pair.blend != 0u;
+                    std::uint32_t bindings_length = 0;
+                    if (read_pod(in, bindings_length) && bindings_length != 0u && bindings_length < (1u << 16u)) {
+                        std::string bindings(bindings_length, '\0');
+                        if (in.read(bindings.data(), bindings_length)) {
+                            gles::apply_bindings(program, bindings);
+                        }
+                    }
                     binary_loads_.fetch_add(1u, std::memory_order_relaxed);
-                    return Program{program, attributes, false};
+                    if (fetch) {
+                        fetch_programs_.fetch_add(1u, std::memory_order_relaxed);
+                    }
+                    return Program{program, attributes, false, false, fetch};
                 }
                 glDeleteProgram(program);
                 binary_failures_.fetch_add(1u, std::memory_order_relaxed);
@@ -437,18 +486,47 @@ PipelineCacheGles::Program PipelineCacheGles::build_program(const PairKey& pair,
     if (vs_glsl.empty() || ps_glsl.empty()) {
         Program failed;
         failed.failed = true;
+        failed.library_miss = !gles::translator_available();
         return failed;
+    }
+    if (pair.blend != 0u) {
+        std::string error;
+        const std::string fetch_glsl = gles::fetch_blend_glsl(ps_glsl, pair.blend, fetch_blend_, error);
+        if (!fetch_glsl.empty()) {
+            if (!shader_dump_dir_.empty()) {
+                char name[48];
+                std::snprintf(name, sizeof(name), "%016llx.fetch.frag",
+                              static_cast<unsigned long long>(fnv1a64(fetch_glsl.data(), fetch_glsl.size())));
+                write_text(std::filesystem::path(shader_dump_dir_) / name, fetch_glsl);
+            }
+            Program program = link(vs_glsl, fetch_glsl, hash, "a fetch-blend GX program");
+            if (program.name != 0u) {
+                program.fetch_blend = true;
+                fetch_programs_.fetch_add(1u, std::memory_order_relaxed);
+                return program;
+            }
+            error = "the driver refused it";
+        }
+        // Not this one: drawn with fixed-function blending, as without framebuffer fetch.
+        if (fetch_failures_.fetch_add(1u, std::memory_order_relaxed) < 6u) {
+            std::fprintf(stderr, "[gles-blend] a dual-source program stays on fixed-function blending: %s\n",
+                         error.c_str());
+        }
+        return link(vs_glsl, ps_glsl, plain_hash, "a GX program");
     }
     return link(vs_glsl, ps_glsl, hash, "a GX program");
 }
 
+
 std::unique_ptr<gles::Pipeline> PipelineCacheGles::make_pipeline(const RenderStateKey& rs, const Program& program,
-                                                                 bool, bool uber) {
+                                                                 bool dual_source, bool uber) {
     auto pipeline = std::make_unique<gles::Pipeline>();
     gles::Pipeline& p = *pipeline;
     p.program = program.name;
     p.attributes = program.attributes;
     p.uber = uber;
+    p.dual_source = dual_source && (rs.blend_bits & (1u << 27u)) != 0u;
+    p.fetch_blend = program.fetch_blend;
     p.topology = rs.primitive_topology == gpu::kTopologyTypePointValue ? GL_POINTS
         : rs.primitive_topology == gpu::kTopologyTypeLineValue        ? GL_LINES
                                                                        : GL_TRIANGLES;
@@ -502,6 +580,9 @@ std::unique_ptr<gles::Pipeline> PipelineCacheGles::make_pipeline(const RenderSta
             p.blend_op_alpha = GL_FUNC_ADD;
         }
     }
+    if (p.fetch_blend) {
+        p.blend = false;  // the program blends (gles::fetch_blend_glsl); the write masks stay
+    }
     return pipeline;
 }
 
@@ -517,7 +598,8 @@ gles::Pipeline* PipelineCacheGles::uber_pipeline(const RenderStateKey& rs, const
     if (const auto it = uber_pipelines_.find(id); it != uber_pipelines_.end()) {
         return it->second.get();
     }
-    std::unique_ptr<gles::Pipeline> pipeline = make_pipeline(state, program, false, true);
+    // Dual-source uber draws keep fixed-function blending (counted: RendererGles's dual-source draws).
+    std::unique_ptr<gles::Pipeline> pipeline = make_pipeline(state, program, (ps_key.flags & 0x80u) != 0u, true);
     gles::Pipeline* const raw = pipeline.get();
     uber_pipelines_.emplace(id, std::move(pipeline));
     return raw;
@@ -534,6 +616,15 @@ gles::Pipeline* PipelineCacheGles::get(const PsoKey& key, const PixelShaderKey& 
         memo_key_ = key;
         memo_pipeline_ = it->second.get();
         return memo_pipeline_;
+    }
+    if (!missed_.empty() && missed_.contains(key)) {
+        if (gles::Pipeline* uber = uber_pipeline(key.render_state, ps_key)) {
+            ++uber_fallbacks_;
+            ultra::add(ultra::kUberDraws, 1u);
+            last_get_used_uber_ = true;
+            return uber;
+        }
+        return nullptr;
     }
     {
         std::lock_guard<std::mutex> lock(entries_mutex_);
@@ -604,6 +695,21 @@ gles::Pipeline* PipelineCacheGles::get(const PsoKey& key, const PixelShaderKey& 
         }
     }
     if (program->second.failed || program->second.name == 0u) {
+        if (program->second.library_miss && uber_needed_) {
+            // Not in the GLSL library and no translator here: the uber shader draws it, every time.
+            if (gles::Pipeline* uber = uber_pipeline(key.render_state, ps_key)) {
+                if (library_misses_.fetch_add(1u) % 64u == 0u) {
+                    std::fprintf(stderr, "[glsl-library] %llu GX programs not in the library: drawn with the uber "
+                                 "shader (nopal nebula shaders adds them from gles_keys.bin)\n",
+                                 static_cast<unsigned long long>(library_misses_.load()));
+                }
+                missed_.insert(key);
+                ++uber_fallbacks_;
+                ultra::add(ultra::kUberDraws, 1u);
+                last_get_used_uber_ = true;
+                return uber;
+            }
+        }
         published_.emplace(key, nullptr);
         return nullptr;
     }

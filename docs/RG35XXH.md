@@ -220,7 +220,8 @@ sobrecoste de punto flotante medido arriba.
 | Renderer GX en OpenGL ES 3.2 (`runtime/src/gx/gles`) | **Escrito y probado en x86 con Mesa llvmpipe** (M): traducción de los 12 uber shaders, del shader de conversión EFB y de shaders especializados (HLSL → glslang → SPIR-V → SPIRV-Cross → GLSL ES 3.20); limpiezas, peeks de color y profundidad, campo de profundidad del puntero, copia EFB→XFB, presentación, orientación, profundidad invertida y cull de un draw GX real (`nebula_gles_renderer_tests`, 0 fallos). Sin probar aún con el juego (los datos solo están en el aparato del usuario) |
 | Ventana/entrada/audio en KNULLI | `platform/knulli/game`: SDL2 del sistema (driver mali/fbdev), contexto GLES 3.2, contextos EGL compartidos para compilar shaders en hilos, mando como SDL GameController (esquema Nintendo por defecto), audio por cola SDL2 |
 | Perfiles de control por firmware y consola | El lanzador lee `CFW_NAME` y `DEVICE_NAME` de PortMaster (solo consolas con dos sticks y cruceta; con `ANALOG_STICKS` < 2 lo avisa en el log) y el SoC de `/proc/device-tree/compatible`; el host (`host_window_knulli.cpp`) y Cactus Galaxy Wrapper aplican `NEBULA_QUIT_COMBO` (MENU + START en KNULLI/muOS, SELECT + START en ArkOS/dArkOS, ambos en el resto) y `NEBULA_FACE_LAYOUT=labels` (A/B por etiqueta en vez de por posición); también se carga la `gamecontrollerdb.txt` de PortMaster y el log anota el mapeo SDL del mando. Sin probar en muOS, dArkOS ni la R36S |
-| OpenGL ES 3.1 (Panfrost, p. ej. ROCKNIX en la R36S) | Si el driver no da 3.2, el contexto pasa a 3.1 y los shaders se traducen a GLSL ES 3.10 (`TranslateOptions::glsl_version`, `GALAXY_GLES_GLSL=310|320` lo fuerza); hace falta igualmente `GL_EXT_buffer_storage` y, para la paleta, SSBO en el vertex shader o `GL_EXT_texture_buffer`. Probado en x86 con Mesa llvmpipe limitado a 3.1 (`MESA_GLES_VERSION_OVERRIDE=3.1`): los 22 programas compilan y enlazan, y las pruebas del renderer pasan con la paleta en SSBO y en texture buffer. Sin probar en Panfrost real |
+| OpenGL ES 3.1 (Panfrost, p. ej. ROCKNIX en la R36S) | Si el driver no da 3.2, el contexto pasa a 3.1 y los shaders se traducen a GLSL ES 3.10 (`TranslateOptions::glsl_version`, `GALAXY_GLES_GLSL=300|310|320` lo fuerza); la paleta va en SSBO en el vertex shader o con `GL_EXT_texture_buffer`, y sin ninguno de los dos, en una textura 2D (la forma de 3.0). Probado en x86 con Mesa llvmpipe limitado a 3.1 (`MESA_GLES_VERSION_OVERRIDE=3.1`): los 22 programas compilan y enlazan, y las pruebas del renderer pasan con la paleta en SSBO y en texture buffer. Sin probar en Panfrost real |
+| OpenGL ES 3.0 como base (docs/GX-ES.md) | El contexto pasa a 3.0 si no hay 3.1. Sin `GL_EXT_buffer_storage` los anillos son copias en la CPU que se mandan con `glBufferSubData` antes de cada draw; sin `glBindVertexBuffer`, `glVertexAttribPointer`; la paleta de matrices en una textura 2D RGBA32UI (unidad 8) que copia el rango atado; GLSL ES 3.00 con los bindings puestos tras enlazar. `GALAXY_GLES_FORCE_ES30=1` usa todo eso con cualquier driver (la prueba en la Mali). Probado en x86 con Mesa llvmpipe en 3.0 real (`MESA_GLES_VERSION_OVERRIDE=3.0`) y con `GALAXY_GLES_FORCE_ES30=1` sobre 3.2: los 989 programas de las claves semilla compilan y enlazan (y los 1978 shaders pasan el validador de glslang como GLSL ES 3.00), pruebas del renderer y de texturas compactas sin fallos, con y sin hilo de GL, con y sin traductor. Diferencia conocida: GLSL ES 3.00 no tiene `early_fragment_tests` (ver GX-ES.md). Sin probar en un driver 3.0 real |
 | Ficha de Ports en cada firmware y en el idioma del juego | `smg/gamelist.py` lee `smg/idioma.txt` (es/en/fr/pt-BR) y `CFW_NAME`: KNULLI/Batocera/ROCKNIX por la API de EmulationStation (`POST /addgames/ports`); ArkOS/dArkOS/AmberELEC (EmulationStation-fcamod y similares, sin API) en `ports/gamelist.xml`, y como ES guarda al cerrarse su copia sucia de la entrada (`updateGamelist` sustituye los nodos con `wasChanged`), el .sh lo reinicia una vez tras el juego con `systemd-run` (parar, escribir con `--tras-cerrar-es`, arrancar); muOS en `info/catalogue/<catalogo de Ports>/text|box|preview` (catalogo de `/opt/muos/share/info/content/Ports/core.cfg`, linea 3; caja reducida a 320x240 como hace PortMaster). Simulado en x86 (API falsa, ES que pisa la entrada, catalogo de muOS, stubs de systemctl/systemd-run). Sin probar en consolas con ArkOS, dArkOS ni muOS |
 | Instalador para cada firmware | `platform/knulli/smg/empaquetar.sh <carpeta del port> <salida>` hace `smg.zip` (formato de PortMaster: `smg/port.json` v4, arch aarch64, glibc 2.27; pasa `check_port` de harbourmaster) e `Instalar Super Mario Galaxy.sh` (`instalador.sh` + tar.gz ustar): las rutas de `detect_paths` de PortMaster y `$directory` de control.txt (KNULLI/Batocera `/userdata/roms/ports`; muOS datos en `<tarjeta>/ports` y lanzador en `<tarjeta>/ROMS/Ports`; ArkOS/dArkOS `/roms(2)/ports`; ROCKNIX/AmberELEC `/storage/roms/ports`, `ports_scripts` si existe), conserva game.pak/idioma/partidas, comprueba espacio, se borra, recarga la lista (API) o reinicia EmulationStation (systemd-run). `smg/cactus-galaxy-wrapper.sh` pasa a `cactus-galaxy-wrapper-texto.txt` (un .sh dentro de smg/ salía como juego). Simulado en raíces falsas de KNULLI, muOS, ArkOS y ROCKNIX, con tar de busybox y con el respaldo de Python; un instalador cortado falla sin dejar restos |
 | ULTRA-GLES (medición del rendimiento gráfico) | `runtime/src/gx/gles/ultra_gles.cpp`: con `GALAXY_ULTRA=1|bench`, cada present (intervalo, CPU del hilo de render, GPU por sus timer queries emparejadas por frame, esperas de slot/vsync/lecturas, draws, cambios de programa, draws uber y omitidos, programas compilados en el hilo de render y su tiempo, texturas subidas, copias, peeks, vértices, frames repetidos, EFB, errores de GL) va a `frames.csv` desde un hilo escritor; al final, `resumen.json` e `informe.txt` por escena (FPS mostrados/dibujados, frame medio/p50/p95/p99/máx, 1 % bajo, tirones > 1,5 periodos con causa probable, paradas > 250 ms, memoria RSS y disponible), sin los primeros 3 s de cada escena (cargas, aparte) ni los frames de sus propias capturas (`capturas/<galaxia>.ppm` a los 300 frames de juego del primer frame 3D de cada galaxia). Lanzador: `NEBULA_ULTRA=bench` (tour automático, 900 frames por galaxia, `NEBULA_ULTRA_GALAXIAS=n`, NAND aparte, sin capturas ni perfilador de hilos) o `smg/ultra.cfg`; `smg/ultra/compare.py` compara ejecuciones (umbrales de ruido por métrica, por galaxia, ajustes que difieren, PSNR de las capturas). Probado en x86: `nebula_ultra_gles_tests` (escenas, cargas, tirones de shader y de GPU con tiempos que llegan 3 frames tarde, capturas) y `nebula_gles_renderer_tests` con ULTRA activo (0 fallos). Sin datos del aparato todavía |
@@ -345,8 +346,8 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   está en el mismo instante).
 - Misma interfaz que `RendererVk` (GxBackend no cambia salvo `gx_backend.h`, que elige el backend, y la decodificación de
   texturas en hilos, apagada en GLES porque GL sube los bytes en cuanto TextureCache registra la subida).
-- `gpu::Address` como en Vulkan: los bits altos nombran un buffer GL persistente (`EXT_buffer_storage`, coherente), los
-  bajos el byte. Los anillos de vértices/índices/constantes/matrices son esos buffers (28/6/6/8 MiB por frame, tres
+- `gpu::Address` como en Vulkan: los bits altos nombran un buffer GL persistente (`EXT_buffer_storage`, coherente; sin la
+  extensión, una copia en la CPU que `Context::flush_writes` manda antes de cada draw), los bajos el byte. Los anillos de vértices/índices/constantes/matrices son esos buffers (28/6/6/8 MiB por frame, tres
   frames en vuelo en GLES —la Mali termina un frame mucho después de grabarlo—; `GALAXY_GLES_RING_*_MB`).
 - Campos de peek enteros con el EFB dividido: se convierte un texel por texel físico (320x264) y la CPU lo expande a
   640x528; el mapeo del PBO no tiene caché, así que se copia una sola vez en bloque (antes: 1.35 MB por campo, ~20 % del
@@ -355,7 +356,8 @@ Recorrido automático por 6 galaxias, perfil bajo (salto de frames automático h
   con la fila superior de D3D primero (el vertex shader niega y), así copias, texturas y peeks conservan la orientación de
   D3D y solo la presentación voltea (`glBlitFramebuffer`).
 - Paleta de matrices: SSBO en el vertex shader si el driver los tiene; si no, `usamplerBuffer` en la unidad 8
-  (`GALAXY_GLES_PALETTE=texture` lo fuerza).
+  (`GALAXY_GLES_PALETTE=texture` lo fuerza); sin ninguno (OpenGL ES 3.0, `GALAXY_GLES_PALETTE=2d`), una textura 2D
+  RGBA32UI de 4096x16 en la unidad 8 a la que se copia el rango atado cuando cambia.
 - Programas: binarios del driver en `data/shadercache/RMGE01/gles-<driver>/`; las claves vistas se vuelven a construir al
   arrancar en hilos con contextos EGL compartidos. `GALAXY_GLES_PENDING=wait|skip|uber`.
 - Sin equivalente en GLES: blending de doble fuente (la alfa del TEV se mezcla con la alfa de salida), logic op, LOD bias
@@ -403,3 +405,81 @@ ninja -C build-aarch64
 - Cachés más pequeñas: display lists 192 MiB, copias EFB 64 MiB, pool de texturas 128 MiB, prefetch de disco 2 MiB.
 - CPU, GPU y memoria en `performance` mientras se juega (`NEBULA_PERF=1`), restaurados al salir.
 - `memoria:` en log.txt cada 60 s (RSS de nebula y memoria libre).
+
+### Armar el port en la PC (`platform/knulli/smg/armar.sh`)
+
+De las fuentes a los paquetes en Linux o WSL (es lo que hace `nopal nebula compilar` de Nopal):
+
+```sh
+AARCH64_XTOOLS=/ruta/x-tools/aarch64-rpi3-linux-gnu platform/knulli/smg/armar.sh --deps ~/nebula-deps
+AARCH64_XTOOLS=/ruta/x-tools/aarch64-rpi3-linux-gnu NEBULA_DEPS=~/nebula-deps platform/knulli/smg/armar.sh salida/
+```
+
+`NEBULA_PARCHES=<carpeta>` copia parches de traducción (.xdelta) a `smg/patches/`. `--deps` descarga glslang, SPIRV-Tools, SPIRV-Headers, SPIRV-Cross y SDL2 en los commits probados (solo esos commits,
+sin la historia) y compila SDL2 para aarch64 (solo para enlazar; en la consola va la del firmware). Después compila el
+módulo del juego, Nebula, nebula-pak y Cactus Galaxy Wrapper, quita los símbolos, rechaza un binario que lleve rutas de
+la PC, junta las licencias, pasa `limpiar.py` y `empaquetar.sh`: `salida/port` (para la SD) y `salida/paquete`
+(`smg.zip` e `Instalar Super Mario Galaxy.sh`).
+
+### Texturas compactas (`GALAXY_TEXTURE_COMPACT`, `texture_compact.h`)
+
+El GLES subía todas las texturas del juego en RGBA8. Ahora cada una va en el formato más chico que la guarda:
+
+| Modo | Formatos | Pierde |
+|---|---|---|
+| `exacto` (1, por defecto en GLES) | I4/I8 → R8 (1 byte, swizzle `rrrr`), IA4/IA8 y paletas IA8 → RG8 (swizzle `rrrg`), RGB565 y paletas RGB565 → RGB565; un reemplazo de un pack, si todos sus texels caben exactos en R8, RG8, RGB565, RGB5A1 o RGBA4 | Nada |
+| `16bits` (2) | Además CMPR, RGB5A3 y sus paletas: RGB565 (opaca), RGB5A1 (alfa 0/255) o RGBA4 | Los bits bajos del color |
+| `no` (0) | RGBA8 | — |
+
+- La elección por formato no lee los texels; la de los modos que dependen del alfa lee el nivel 0 ya decodificado (el
+  GLES decodifica en el hilo de render). Los reemplazos se analizan y se convierten en el hilo que los carga, ya en su
+  formato en el staging; `record_upload` convierte los del juego al subirlos.
+- Las texturas compactas no van al pool (sigue siendo de RGBA8, igual que los alias de las copias del EFB).
+- El hilo de GL copia las subidas de 16 bits en la llamada, como las de 8 bits (`upload_bytes`), sin esperar.
+- `[texture-compact] N textures (R8 a, RG8 b, ...), X MiB less than RGBA8` en log.txt (a la 1, 64, 256 y cada 1024).
+- Pruebas: `nebula_texture_compact_tests` (cada formato creado, subido desde RGBA8 y desde su formato, y leído de
+  vuelta; `--pack <carpeta>` lista el formato de cada textura de un pack) y `nebula_gl_thread_tests`.
+- Para medirlo en la consola: en `smg/ultra/serie.cfg`, una sección con `GALAXY_TEXTURE_COMPACT=no` contra la de
+  defecto.
+
+### Packs de texturas en la consola
+
+El lanzador pasa `smg/data/TexturePacks/` a Nebula (`GALAXY_TEXTURE_PACK_DIR`) si existe, con 96 MiB para los
+reemplazos (`GALAXY_TEXTURE_PACK_BUDGET_MB`). Un pack HD (4x, 8x) no cabe en 1 GB: `nopal texturas reducir` (Nopal)
+lo lleva en la PC a la escala del juego (o x2) y a formatos que Nebula sube compactos. `GALAXY_TEXTURE_DUMP=1` vuelca
+las texturas a `smg/data/TextureDumps/RMGE01/` para editarlas (Nopal Estudio, pestaña Texturas).
+
+### El Depurador de Nopal Estudio (`NOPAL_DEPURAR`, `nopal_depurar.h`)
+
+Con `NOPAL_DEPURAR=<puerto>` (en `smg/ajustes.cfg`, que ahora acepta `NOPAL_*`) Nebula habla el protocolo de
+depuración de Nopal por TCP: una línea `F` por present con el tiempo del frame, la CPU del hilo de render y sus esperas
+(las de ULTRA-GLES), `R` con RAM y CPU cada 30, `L` con cada línea de stderr (que sigue yendo a log.txt) y la escena;
+`pausa` detiene el hilo de render tras su present hasta `sigue` (o una imagen con `paso`; al desconectarse el
+Depurador se suelta), `salir` manda SIGTERM. Un hilo propio atiende el socket: el juego nunca espera al Depurador.
+Pruebas: `nebula_nopal_depurar_tests` (`--servir <s>`: un Nebula de mentira para probar el Estudio).
+
+### Sin traductor de shaders: la biblioteca GLSL (`shader_library_gles.h`)
+
+Nebula escribe sus shaders en HLSL (el generador de un programa por combinación del TEV, los uber shaders y los del
+renderer) y el GLES los pasaba en la consola por glslang y SPIRV-Cross a GLSL ES antes de darlos al driver. Ahora esa
+traducción se hace en la PC y la consola le da el GLSL directo al driver:
+
+- `nebula_glsl_aot <biblioteca> <claves>...` (en la PC, con el traductor) traduce todo lo que piden las claves: las de
+  una vuelta entera al juego (`platform/android/vk_seed_keys.bin`, 977 claves: 892 programas GX) y las que anota una
+  consola al jugar (`smg/data/shadercache/RMGE01/gles_keys.bin`), más los uber shaders y los del renderer, en las cinco
+  formas que puede pedir un driver (GLSL ES 3.20 o 3.10 con la paleta de matrices como texture buffer, la del driver de
+  Mali, o como storage block; GLSL ES 3.00 con la paleta en una textura 2D). 4894 shaders, 22.5 MiB de GLSL, **2.6 MiB**
+  en `smg/shaders-gles.bin` (bloques de zlib). `--verificar` vuelve a traducir y compara: 4894 de 4894 iguales.
+- Cada entrada se encuentra por el hash de su HLSL y su forma, y el HLSL sale de las mismas funciones en la consola y en
+  la PC (`shader_sources_gles.h`): un cambio del generador falla la búsqueda en vez de usar GLSL viejo.
+- `NEBULA_GLES_TRANSLATOR=OFF` (lo que usa `armar.sh`; `NEBULA_TRADUCTOR=1` lo deja dentro) saca glslang y
+  SPIRV-Cross del binario: **`nebula` pasa de 10.8 MB a 3.4 MB** sin símbolos. Un programa GX que no esté en la
+  biblioteca se dibuja con el uber shader (que siempre está) y su clave se anota como antes; `nopal nebula shaders`
+  rehace la biblioteca con ellas. Con el traductor dentro, la biblioteca se usa primero y lo demás se traduce.
+- Los filtros de la copia a pantalla (antialiasing, nitidez, sombras, contraste) pasaron de literales en el HLSL a un
+  quinto vector de constantes (`copy_filter`): un solo texto sirve para cualquier ajuste.
+- Lo medido en la PC (x86-64): traducir cuesta ~25 ms por programa, más que la compilación del driver (llvmpipe). En
+  el Cortex-A53 es varias veces más; eso es lo que la consola ya no hace la primera vez que ve cada efecto.
+- Pruebas: `nebula_gles_renderer_tests` del build sin traductor con `GALAXY_GLES_SHADER_LIBRARY` (los del renderer y un
+  programa GX desde la biblioteca, y fuera de ella con el uber; con `GALAXY_GLES_AA=1 GALAXY_GLES_RESOLUTION=auto` la
+  copia filtrada), `nebula_glsl_aot --verificar`.

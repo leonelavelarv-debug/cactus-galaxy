@@ -24,10 +24,13 @@ tar -C "$src" -cf - \
   --exclude='smg/nand' --exclude='smg/data' --exclude='smg/shots' --exclude='smg/crashes' \
   --exclude='smg/log.txt' --exclude='smg/idioma.txt' --exclude='smg/.primer-arranque' \
   --exclude='smg/.ficha-pendiente' --exclude='smg/cover.png*' --exclude='smg/screenshot.png' \
-  --exclude='smg/title.png' --exclude='smg/*.sh' --exclude='smg/ultra.cfg' --exclude='smg/ultra/2*' \
+  --exclude='smg/title.png' --exclude='smg/*.sh' --exclude='smg/ultra.cfg' --exclude='smg/opciones.cfg*' --exclude='smg/mandos.cfg*' --exclude='smg/ultra/2*' \
   --exclude='smg/ultra/nand-bench' --exclude='smg/nebula-f*' --exclude='smg/nebula-u*' --exclude='__pycache__' smg | tar -C "$stage" -xf -
 cp "$here/smg/port.json" "$stage/smg/port.json"
-chmod +x "$stage/Super Mario Galaxy.sh" "$stage/smg/nebula" "$stage/smg/nebula-pak" \
+# Portada y captura propias (el logo de Senor Cactus y Cactus Galaxy Wrapper, nada de Nintendo), marcadas como
+# provisionales (.captura): en la consola gamelist.py las cambia por la caratula de libretro-thumbnails si hay red.
+for f in cover.png screenshot.png; do cp "$here/smg/$f" "$here/smg/$f.captura" "$stage/smg/"; done
+chmod +x "$stage/Super Mario Galaxy.sh" "$stage/smg/nebula" "$stage/smg/nebula-pak" "$stage/smg/cactus-ruso" \
   "$stage/smg/cactus-galaxy-wrapper" "$stage/smg/gamelist.py" 2>/dev/null || true
 # Sin metadatos de quien empaqueta: todas las fechas fijas (el lanzamiento del juego, 2007-11-12, a mediodia UTC) y,
 # en zip y tar, sin usuario ni grupo; zip -X quita los campos extra (uid/gid, horas de Unix).

@@ -1,9 +1,4 @@
 #!/bin/bash
-# PORTMASTER: smg.zip, Super Mario Galaxy.sh
-# Super Mario Galaxy (Nebula: el codigo de Petari compilado nativo, graficos OpenGL ES en la Mali-G31) para las
-# Anbernic RG con Allwinner H700 (KNULLI, muOS) y la R36S con Rockchip RK3326 (ArkOS, dArkOS). El juego sale de TU
-# disco (RMGE01): Cactus Galaxy Wrapper lo convierte la primera vez. GPL-3.0.
-#   Salir: MENU + START (KNULLI, muOS) o SELECT + START (ArkOS, dArkOS).   Controles: smg/README.md.
 XDG_DATA_HOME=${XDG_DATA_HOME:-$HOME/.local/share}
 if [ -d "/opt/system/Tools/PortMaster/" ]; then controlfolder="/opt/system/Tools/PortMaster"
 elif [ -d "/opt/tools/PortMaster/" ]; then controlfolder="/opt/tools/PortMaster"
@@ -13,6 +8,10 @@ source "$controlfolder/control.txt"
 [ -f "${controlfolder}/mod_${CFW_NAME}.txt" ] && source "${controlfolder}/mod_${CFW_NAME}.txt"
 get_controls
 
+# Super Mario Galaxy (Nebula: el codigo de Petari compilado nativo, graficos OpenGL ES en la Mali-G31) para las
+# Anbernic RG con Allwinner H700 (KNULLI, muOS) y la R36S con Rockchip RK3326 (ArkOS, dArkOS). El juego sale de TU
+# disco (RMGE01): Cactus Galaxy Wrapper lo convierte la primera vez. GPL-3.0.
+#   Salir: MENU + START (KNULLI, muOS) o SELECT + START (ArkOS, dArkOS).   Controles: smg/README.md.
 # El perfil de controles segun el firmware y la consola (PortMaster da CFW_NAME, DEVICE_NAME y ANALOG_STICKS):
 #   KNULLI y muOS (Anbernic RG con Allwinner H700): salir con MENU + START; ArkOS y dArkOS (R36S, Rockchip RK3326):
 #   SELECT + START; ROCKNIX, AmberELEC y el resto: cualquiera de los dos. Los controles son para consolas con dos
@@ -20,7 +19,16 @@ get_controls
 #   NEBULA_FACE_LAYOUT=positions|labels  labels si en tu firmware A y B salen al reves (A deberia ser el de la derecha)
 #   NEBULA_QUIT_COMBO=menu|select|both   fuerza la combinacion para salir
 cfw=$(printf '%s' "${CFW_NAME:-}" | tr '[:upper:]' '[:lower:]')
-soc=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -Eo 'h700|h616|rk3326|rk3566' | head -1)
+soc=$(tr '\0' '\n' < /proc/device-tree/compatible 2>/dev/null | grep -Eo 'h700|h616|h618|rk3326|rk3566|rk3568' | head -1)
+# Perfil por chip, con la H700 (RG35XX H, la medida) de referencia: la CPU en "performance" y la GPU y la memoria (dmc)
+# a su frecuencia mas alta en todos; soc_cpu=chip sube ademas el tope de la CPU al maximo del chip (RK3326: sus
+# Cortex-A35 rinden menos por MHz que los A53 de la H700); soc_perfil son los graficos por defecto (Ajustes manda).
+case "$soc" in
+  h700|h616|h618) soc_nombre="Allwinner H700/H616 (A53, Mali-G31)"; soc_cpu=sistema; soc_perfil=medio ;;
+  rk3326)         soc_nombre="Rockchip RK3326 (A35, Mali-G31)";      soc_cpu=chip;    soc_perfil=bajo ;;
+  rk3566|rk3568)  soc_nombre="Rockchip RK3566 (A55, Mali-G52)";      soc_cpu=sistema; soc_perfil=medio ;;
+  *)              soc_nombre="desconocido";                          soc_cpu=sistema; soc_perfil=bajo ;;
+esac
 case "$cfw" in
   *knulli*|*muos*) quit_combo=menu ;;
   *arkos*|*darkos*) quit_combo=select ;;
@@ -31,12 +39,15 @@ export NEBULA_FACE_LAYOUT="${NEBULA_FACE_LAYOUT:-positions}"
 # La base de mandos de PortMaster, por si el firmware no trae el mapeo de este mando.
 [ -f "$controlfolder/gamecontrollerdb.txt" ] && export NEBULA_GAMECONTROLLERDB="$controlfolder/gamecontrollerdb.txt"
 GAMEDIR="/$directory/ports/smg"
-cd "$GAMEDIR" || exit 1
+cd $GAMEDIR
 exec > >(tee "$GAMEDIR/log.txt") 2>&1
 $ESUDO chmod +x "$GAMEDIR/nebula" 2>/dev/null || chmod +x "$GAMEDIR/nebula"
 echo "firmware: ${CFW_NAME:-?} | consola: ${DEVICE_NAME:-?} (${soc:-soc ?}) | salir: $NEBULA_QUIT_COMBO + START | botones: $NEBULA_FACE_LAYOUT"
 case "${ANALOG_STICKS:-2}" in 0|1) echo "aviso: esta consola tiene ${ANALOG_STICKS} stick(s); el juego necesita dos sticks y cruceta" ;; esac
 echo "nebula: $(md5sum "$GAMEDIR/nebula" | cut -c1-12) del $(date -r "$GAMEDIR/nebula" '+%F %T' 2>/dev/null)"
+# La memoria al abrir: la del sistema, el swap activo y si el kernel tiene zram (docs/GX_ES_MEMORY_GROWTH.md).
+echo "memoria al abrir: $(grep -E 'MemTotal|MemAvailable|SwapTotal' /proc/meminfo | tr -s ' ' | tr '\n' ' ')"
+echo "swap: $(tail -n +2 /proc/swaps 2>/dev/null | awk '{printf "%s %s KiB; ", $1, $3}')zram: $( { [ -e /sys/class/zram-control ] || [ -e /sys/block/zram0 ] || grep -qw zram /proc/modules 2>/dev/null || modinfo zram >/dev/null 2>&1; } && echo disponible || echo no)"
 # Cactus Galaxy Wrapper (smg/cactus-galaxy-wrapper, dentro del port) se abre la primera vez: sin game.pak pide el
 # disco (ISO, RVZ, WIA, WBFS, GCZ o CISO en smg/gamedata/ o roms/wii/; lo detecta en cuanto se copia), pregunta el
 # idioma y lo convierte con smg/nebula-pak (nativo: sin Termux ni otro equipo); con game.pak, ofrece los idiomas del
@@ -49,7 +60,7 @@ screen_message() {
     for tty in /dev/tty0 /dev/tty1; do [ -w "$tty" ] && printf '\033c%s\n' "$1" > "$tty" 2>/dev/null; done
   fi
 }
-for tool in nebula-pak cactus-galaxy-wrapper; do [ -f "$GAMEDIR/$tool" ] && chmod +x "$GAMEDIR/$tool"; done
+for tool in nebula-pak cactus-ruso cactus-galaxy-wrapper; do [ -f "$GAMEDIR/$tool" ] && chmod +x "$GAMEDIR/$tool"; done
 # Instalaciones anteriores con el juego ya hecho: el saludo de la primera vez (smg/.primer-arranque) no se repite.
 [ -f "$GAMEDIR/gamedata/game.pak" ] && [ -f "$GAMEDIR/idioma.txt" ] && [ ! -f "$GAMEDIR/.primer-arranque" ] &&
   echo 1 > "$GAMEDIR/.primer-arranque"
@@ -71,6 +82,8 @@ if [ -x "$GAMEDIR/cactus-galaxy-wrapper" ]; then
     if [ "$cactus" = 1 ]; then  # salir sin jugar
       pm_finish; exit 0
     fi
+    # Lo que se acaba de elegir en Ajustes (smg/opciones.cfg) vale ya en esta partida (ajustes.cfg sigue mandando).
+    type lee_ajustes >/dev/null 2>&1 && lee_ajustes
   fi
 fi
 # Sin pantalla para la interfaz (salida 3) o sin ella: la version de texto, con el avance en la consola.
@@ -120,11 +133,18 @@ if command -v python3 >/dev/null 2>&1 && [ -f "$GAMEDIR/gamelist.py" ]; then
   GAMELIST_PID=$!
 fi
 
-# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_* y GALAXY_*, que mandan
+# Ajustes (se pueden cambiar aqui, o en smg/ultra.cfg: lineas NOMBRE=valor, solo NEBULA_*, GALAXY_* y NOPAL_*, que mandan
 # sobre lo de abajo sin editar este archivo; lo usa ULTRA-GLES para comparar ajustes):
 # Se aceptan ultra.cfg y ultra.cfg.txt (editores que anaden .txt), finales de linea de Windows, la marca BOM del
 # principio, espacios alrededor del =, comentarios con # y una ultima linea sin salto; cada ajuste leido queda en log.txt.
-for cfg in "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
+# Tambien smg/ajustes.cfg (el del port limpio) y smg/ultra/ultra.cfg (el del paquete de medicion), leidos antes:
+# los de smg/ultra.cfg mandan.
+# Primero smg/opciones.cfg: lo que se elige en Ajustes de Cactus Galaxy Wrapper (X en la pantalla de idiomas):
+# GALAXY_GLES_RESOLUTION=auto|50|75|100 y NEBULA_VIBRACION=1|0 (0: el control no vibra). Los demas mandan sobre el.
+# (Una funcion: el port limpio la llama al entrar, antes de Cactus Galaxy Wrapper, y otra vez despues de el, que
+# acaba de escribir smg/opciones.cfg.)
+lee_ajustes() {
+for cfg in "$GAMEDIR/opciones.cfg" "$GAMEDIR/ajustes.cfg" "$GAMEDIR/ajustes.cfg.txt" "$GAMEDIR/ultra/ultra.cfg" "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
   [ -f "$cfg" ] || continue
   while IFS= read -r line || [ -n "$line" ]; do
     line=${line%$'\r'}
@@ -133,15 +153,29 @@ for cfg in "$GAMEDIR/ultra.cfg" "$GAMEDIR/ultra.cfg.txt"; do
     key=$(printf '%s' "${line%%=*}" | tr -d ' \t')
     value=$(printf '%s' "${line#*=}" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     case "$key" in
-      NEBULA_*|GALAXY_*) export "$key=$value"; echo "ajuste de ${cfg##*/}: $key=$value" ;;
+      NEBULA_*|GALAXY_*|NOPAL_*) export "$key=$value"; echo "ajuste de ${cfg#"$GAMEDIR"/}: $key=$value" ;;
     esac
   done < "$cfg"
-  break
 done
-#   NEBULA_PERFIL=bajo|normal            bajo (por defecto): pocos recursos -- salta frames cuando el render no llega
-#                                        (el juego mantiene su velocidad), menos memoria para caches; normal: sin saltos
-NEBULA_PERFIL="${NEBULA_PERFIL:-bajo}"
-if [ "$NEBULA_PERFIL" = "bajo" ]; then
+}
+lee_ajustes
+# Mandos (SELECT en Cactus Galaxy Wrapper): con NEBULA_MANDOS=personalizado (smg/opciones.cfg) el juego toma ademas
+# las asignaciones de smg/mandos.cfg (botones del Wii a botones del mando; lo demas como el perfil predeterminado).
+if [ "${NEBULA_MANDOS:-predeterminado}" = personalizado ] && [ -f "$GAMEDIR/mandos.cfg" ]; then
+  export NEBULA_MANDOS_ARCHIVO="$GAMEDIR/mandos.cfg"
+  echo "mandos: perfil personalizado ($NEBULA_MANDOS_ARCHIVO)"
+else
+  unset NEBULA_MANDOS_ARCHIVO
+  echo "mandos: perfil predeterminado"
+fi
+#   NEBULA_PERFIL=bajo|medio|normal      por defecto el del chip (soc_perfil arriba: medio en H700 y RK3566, bajo en
+#                                        RK3326 y los demas). medio: graficos medios -- resolucion interna fija de 75 % (480x396,
+#                                        entre el 50-100 % dinamico del bajo y los 640x528 del normal), con el mismo
+#                                        salto de frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion
+#                                        dinamica (baja sola cuando la GPU no llega); normal: 100 % y sin saltos
+#                                        (el perfil medio no esta medido en la consola: es un punto entre los dos)
+NEBULA_PERFIL="${NEBULA_PERFIL:-$soc_perfil}"
+if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
   #                                      cueste dibujar (GALAXY_FRAMESKIP_MAX=2: 20 como minimo); 1: siempre 30
   export GALAXY_FRAMESKIP="${GALAXY_FRAMESKIP:-auto}"
@@ -154,20 +188,95 @@ if [ "$NEBULA_PERFIL" = "bajo" ]; then
   export GALAXY_PEEK_MODE="${GALAXY_PEEK_MODE:-async}"
   #   GALAXY_GLES_RESOLUTION=auto        (perfil bajo) la resolucion interna dinamica: serie del 29-oct, GPU -48 %, p95 -20 %,
   #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
-  export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
+  if [ "$NEBULA_PERFIL" = "medio" ]; then
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-75}"
+    #   GALAXY_GLES_SLOT_POR_IMAGEN=1|0  (perfil medio) el renderer cambia de slot al presentar una imagen y no en cada
+    #                                    trozo que manda el juego (el 78 % no dibuja nada y cada uno esperaba a la GPU):
+    #                                    44 galaxias x2 (5-nov), +21-23 % FPS mostrados, +16-21 % dibujados, p95 -17 %,
+    #                                    12-35 MiB menos de memoria libre; 0: como antes (docs/PHASE3_PROGRESS.md)
+    export GALAXY_GLES_SLOT_POR_IMAGEN="${GALAXY_GLES_SLOT_POR_IMAGEN:-1}"
+    #   GALAXY_GX_DL_MARCAR=1|0|2        (perfil medio) el hilo de render solo compara con la memoria las display lists
+    #                                    que un flush del juego toco; las demas valen sin memcmp. AstroGalaxy (5 pares,
+    #                                    19-nov): CPU de render por imagen -9 a -10 %, +2,5 a +5 % imagenes nuevas, escena
+    #                                    -4 a -5 %; 2 lo compara todo y avisa ("[gx] lista sin aviso"): 44 galaxias,
+    #                                    36,4 millones de comparaciones, 0 avisos; 0: como antes (docs/PHASE3_PROGRESS.md)
+    export GALAXY_GX_DL_MARCAR="${GALAXY_GX_DL_MARCAR:-1}"
+    #   GALAXY_GX_DL_MARCAR_TODAS=1|0  (perfil medio) las marcas tambien en el clasificador de eventos PE del hilo del
+    #                                    juego (comparaba siempre: 8-9 % del hilo). AstroGalaxy (2 pares, 20-nov): escena
+    #                                    -7 a -9 %, +5 a +10 % imagenes nuevas; 44 galaxias verificadas con =2, 0 avisos
+    export GALAXY_GX_DL_MARCAR_TODAS="${GALAXY_GX_DL_MARCAR_TODAS:-1}"
+    #   GALAXY_GLES_COPIA_REDUCIDA=1|0   (perfil medio) con el EFB al 75 %, las copias de color a textura de pantalla
+    #   GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640  completa se escriben a 480x342 (el tamano real del EFB) y no a 640x456;
+    #                                    las chicas de efectos y las de profundidad se quedan igual. 12 galaxias x2
+    #                                    (19-nov): GPU por imagen -2,2 ms (-7,6 %), capturas iguales bit a bit, sin
+    #                                    cambio en imagenes nuevas/s; 0: como antes
+    export GALAXY_GLES_COPIA_REDUCIDA="${GALAXY_GLES_COPIA_REDUCIDA:-1}"
+    export GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO="${GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO:-640}"
+  else
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-auto}"
+  fi
   #   GALAXY_GLES_PEEK_FIELD=25          esas lecturas a 160x132 (25 %): se copian de la GPU 20 veces menos bytes
   export GALAXY_GLES_PEEK_FIELD="${GALAXY_GLES_PEEK_FIELD:-25}"
-  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-192}"
-  export GALAXY_EFB_COPY_DEST_BUDGET_MB="${GALAXY_EFB_COPY_DEST_BUDGET_MB:-64}"
-  export GALAXY_TEXTURE_POOL_MB="${GALAXY_TEXTURE_POOL_MB:-128}"
+  #   GALAXY_GX_DISPLAY_LIST_CACHE_MB=24 y GALAXY_GX_DECODED_VERTEX_CACHE_MB=24  las display lists y los vertices ya
+  #                                      convertidos que se guardan entre frames. Con 192 y 64 la memoria se acababa hacia
+  #                                      la 13.a galaxia; con 32, en la 21.a; con 24, en la 28.a; con 16 de vertices
+  #                                      la CPU tarda mucho mas (AstroGalaxy: 57 ms contra 18). Lo que llenaba la memoria
+  #                                      eran los bloques de subida de texturas (docs/GX_ES_MEMORY_GROWTH.md).
+  #                                      Lo que no cabe se vuelve a convertir (algo de CPU)
+  export GALAXY_GX_DISPLAY_LIST_CACHE_MB="${GALAXY_GX_DISPLAY_LIST_CACHE_MB:-24}"
+  export GALAXY_GX_DECODED_VERTEX_CACHE_MB="${GALAXY_GX_DECODED_VERTEX_CACHE_MB:-24}"
+  #   GALAXY_EFB_COPY_DEST_BUDGET_MB=24  copias del EFB que se guardan (el pico medido: 10 MiB)
+  export GALAXY_EFB_COPY_DEST_BUDGET_MB="${GALAXY_EFB_COPY_DEST_BUDGET_MB:-24}"
+  #   GALAXY_TEXTURE_POOL_MB=8           texturas ya liberadas que se guardan para reusar (crecia a 27 MiB de 128)
+  export GALAXY_TEXTURE_POOL_MB="${GALAXY_TEXTURE_POOL_MB:-8}"
   export GALAXY_DISC_PREFETCH_BYTES="${GALAXY_DISC_PREFETCH_BYTES:-2097152}"
 else
   export GALAXY_FRAMESKIP="${GALAXY_FRAMESKIP:-0}"
 fi
+echo "chip: $soc_nombre (cpu: tope del $soc_cpu)"
 echo "perfil: $NEBULA_PERFIL (frameskip $GALAXY_FRAMESKIP, peeks ${GALAXY_PEEK_MODE:-sync})"
 #   GALAXY_GLES_PENDING=wait|skip|uber  shaders nuevos: esperar (tirones la 1a vez), saltar el dibujo, o uber
 #   NEBULA_PAD_SCHEME=nintendo|xbox      A a la derecha (nintendo) o abajo (xbox)
 export NEBULA_DATA_DIR="$GAMEDIR/data"
+#   smg/shaders-gles.bin                 todos los shaders del juego ya en GLSL (hechos en la PC por armar.sh o
+#                                        `nopal nebula shaders`): Nebula se los da directo al driver de OpenGL, sin
+#                                        traducir nada en la consola. Uno que falte se dibuja con el shader generico (uber)
+if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
+  export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$GAMEDIR/shaders-gles.bin}"
+fi
+#   GALAXY_GLES_BLEND_FETCH=0            (prueba) la mezcla de GX con la alfa del TEV en blending fijo, como antes del
+#                                        paso 2 (docs/GX_ES_FRAMEBUFFER_FETCH.md); por defecto el shader la hace con
+#                                        framebuffer fetch si el driver lo tiene
+#   GALAXY_GLES_FLUSH_DRAWS=n            (prueba) glFlush cada n draws de un mismo frame (una carga llega a ~2100); por
+#                                        defecto no. No cambio el bloque que crece en el driver de la Mali
+#   GALAXY_GLES_INDEX_COPY=0             (prueba) los indices en un buffer mapeado de forma persistente, como antes; por
+#                                        defecto van con copia en la CPU y se mandan por rangos: asi el driver de la Mali
+#                                        ve los cambios (mapeado, guardaba datos de cada rango de indices: hasta 124 MiB)
+#   GALAXY_GLES_DRAW_RANGE=0             (prueba) glDrawElements como antes; por defecto glDrawRangeElements con los
+#                                        vertices del draw. GALAXY_GLES_CHECK_RANGE=1 comprueba los indices (lento)
+#   NEBULA_MEMTRACE=1                    (medicion) tras cada [memoria], las pilas que tienen los bloques grandes del
+#                                        monton (NEBULA_MEMTRACE_MIN_KB=256 o mas), como modulo+desplazamiento
+#   GALAXY_GX_MEMORY_LOG=60              cada 60 s una linea [memoria] en log.txt: VmRSS, memoria libre y lo que ocupa
+#                                        cada cache (display lists, texturas, vertices, texturas y buffers de GL); 0: no
+#   GALAXY_GLES_FORCE_ES30=1             (prueba) solo lo de OpenGL ES 3.0 con el driver de 3.2: anillos copiados,
+#                                        paleta en textura 2D, GLSL ES 3.00 (docs/GX-ES.md)
+#   GALAXY_TEXTURE_COMPACT=exacto|16bits|no  texturas en la memoria de video en 8 o 16 bits cuando caben: exacto (por
+#                                        defecto) no cambia ni un texel (I4/I8 en 1 byte, IA4/IA8 y RGB565 en 2); 16bits
+#                                        tambien CMPR y RGB5A3 (pierden los bits mas bajos del color); no: todo en RGBA8.
+#                                        log.txt dice cuantas y cuanta memoria ahorran ([texture-compact])
+export GALAXY_TEXTURE_COMPACT="${GALAXY_TEXTURE_COMPACT:-exacto}"
+#   Packs de texturas: en smg/data/TexturePacks/ (hechos a la medida de la consola en la PC: `nopal texturas reducir`,
+#   o `nopal nebula armar --texturas`). GALAXY_TEXTURE_DUMP=1 vuelca las texturas del juego a smg/data/TextureDumps/
+#   (para editarlas en la PC y volver a ponerlas como pack).
+#   GALAXY_TEXTURE_PACK_BUDGET_MB=96     memoria para los reemplazos (los que no se usan salen primero). 96 cabe con
+#                                        lo que queda libre en 1 GB; un pack x2 va mejor con 128, si la memoria alcanza
+if [ -d "$GAMEDIR/data/TexturePacks" ]; then
+  export GALAXY_TEXTURE_PACK_DIR="${GALAXY_TEXTURE_PACK_DIR:-$GAMEDIR/data/TexturePacks}"
+fi
+export GALAXY_TEXTURE_PACK_BUDGET_MB="${GALAXY_TEXTURE_PACK_BUDGET_MB:-96}"
+#   NOPAL_DEPURAR=5555                   el Depurador de Nopal Estudio se conecta desde la PC (por WiFi, a la IP de la
+#                                        consola y este puerto): FPS, tiempos del frame, RAM, CPU, log.txt en vivo, pausa
+#                                        y avance de a un frame. Sin fijarlo no se abre nada
 export GALAXY_CRASH_DUMP_DIR="$GAMEDIR/crashes"
 export GALAXY_RUNTIME_SETTINGS_PATH="$GAMEDIR/settings.ini"
 # uber por defecto (ULTRA-GLES): la primera vez con wait, 166 shaders compilados de golpe pararon el juego 62 s en
@@ -179,6 +288,11 @@ export GALAXY_GLES_PENDING="${GALAXY_GLES_PENDING:-uber}"
 #                                        (ponlo en smg/ultra.cfg si algo se ve mal con el hilo).
 export GALAXY_GLES_THREAD="${GALAXY_GLES_THREAD:-1}"
 #   GALAXY_GLES_RING_INDEX_MB/MATRIX_MB  memoria por frame en vuelo para indices y matrices (el pico medido: <1 MiB)
+#   GALAXY_GLES_RING_VERTEX_MB=24        y para vertices (el pico al jugar: 17-21 MiB; un frame que pasa, como la
+#                                        carga de CosmosGardenGalaxy, sigue en el espacio de otro frame en vuelo)
+export GALAXY_GLES_RING_VERTEX_MB="${GALAXY_GLES_RING_VERTEX_MB:-24}"
+#   GALAXY_GLES_RING_CONSTANT_MB=5       y para las constantes de los shaders (el pico medido: 3.9 MiB)
+export GALAXY_GLES_RING_CONSTANT_MB="${GALAXY_GLES_RING_CONSTANT_MB:-5}"
 export GALAXY_GLES_RING_INDEX_MB="${GALAXY_GLES_RING_INDEX_MB:-3}"
 export GALAXY_GLES_RING_MATRIX_MB="${GALAXY_GLES_RING_MATRIX_MB:-3}"
 #   GALAXY_GLES_RESOLUTION=100           resolucion interna: 100 = 640x528 (alta definicion, la del Wii); 75 = 480x396;
@@ -199,16 +313,36 @@ export GALAXY_NO_BLUR="${GALAXY_NO_BLUR:-1}"
 #   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado
 export GALAXY_GLES_AA="${GALAXY_GLES_AA:-1}"
 export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
+#   GALAXY_SHAKE_HOLD=1|0                1 (por defecto): mantener un boton de giro (X, Y o R2) sigue sacudiendo y el juego
+#                                        ve la sacudida en todos los frames: Mario sube las enredaderas y los tallos con el
+#                                        boton apretado; tocarlo sigue siendo un giro. 0: una sacudida por pulsacion, como antes
 #   GALAXY_LANGUAGE=spanish|english|french  idioma del juego (textos y menus; el disco USA trae los tres). Sin fijarlo
 #                                         aqui vale el que se eligio al instalar con Cactus Galaxy Wrapper
 # El idioma elegido en Cactus Galaxy Wrapper (smg/idioma.txt; SELECT mantenido al abrir lo cambia), si no se fija aqui.
+game_variant=
 if [ -z "${GALAXY_LANGUAGE:-}" ] && [ -f "$GAMEDIR/idioma.txt" ]; then
-  # "english" o "english ptbr" (el portugues del parche PT-BR va en ese idioma del juego)
+  # "english", "english ptbr" o "english ru" (la traduccion PT-BR o RU va en ese idioma del juego, como mod)
   read -r GALAXY_LANGUAGE game_variant < "$GAMEDIR/idioma.txt"
   [ "${game_variant:-}" = ptbr ] && echo "idioma del juego: portugues de Brasil (parche PT-BR)"
+  [ "${game_variant:-}" = ru ] && echo "idioma del juego: ruso (parche RU)"
 fi
 case "${GALAXY_LANGUAGE:-}" in spanish|english|french) ;; *) GALAXY_LANGUAGE=spanish ;; esac
 export GALAXY_LANGUAGE
+# Traducciones como mods (Cactus Galaxy Wrapper las deja en smg/patches/idioma-<clave>: lo que cambia el .xdelta del
+# PT-BR, o el ruso que hace cactus-ruso): la del idioma elegido va a smg/mods (donde el juego busca mods) y las demas
+# salen de ahi. Con un idioma propio del juego ("english", sin variante) no queda ninguna: el juego tal cual.
+mkdir -p "$GAMEDIR/mods"
+# El ruso de un paquete de prueba anterior (smg/mods/ruso-switch) quedaria activo siempre: se quita (ahora es idioma-ru).
+rm -rf "$GAMEDIR/mods/ruso-switch" "$GAMEDIR/patches/ruso-switch"
+for idioma_mod in ptbr ru; do
+  mod_off="$GAMEDIR/patches/idioma-$idioma_mod"
+  mod_on="$GAMEDIR/mods/idioma-$idioma_mod"
+  if [ "${game_variant:-}" = "$idioma_mod" ]; then
+    if [ -d "$mod_off" ]; then rm -rf "$mod_on" && mv "$mod_off" "$mod_on" && echo "parche de idioma $idioma_mod activado"; fi
+  elif [ -d "$mod_on" ]; then
+    rm -rf "$mod_off" && mv "$mod_on" "$mod_off" && echo "parche de idioma $idioma_mod desactivado"
+  fi
+done
 echo "idioma del juego: $GALAXY_LANGUAGE"
 #   GALAXY_EXPERIMENTAL_NATIVE_4_3=1     el modo 4:3 del propio juego (la pantalla es 4:3); 0: 16:9 con franjas
 export GALAXY_EXPERIMENTAL_NATIVE_4_3="${GALAXY_EXPERIMENTAL_NATIVE_4_3:-1}"
@@ -282,7 +416,7 @@ perf_set() {  # fichero valor: lo escribe y apunta el valor anterior para restau
     PERF_SAVED="$PERF_SAVED $1=$old"; echo "rendimiento: $1 $old -> $2"
   else echo "rendimiento: no se pudo escribir $2 en $1 (sigue en $old)"; fi
 }
-top_freq() { tr ' ' '\n' < "$1" 2>/dev/null | grep -E '^[0-9]+$' | sort -n | tail -1; }
+top_freq() { [ -r "$1" ] || return 0; tr ' ' '\n' < "$1" | grep -E '^[0-9]+$' | sort -n | tail -1; }
 # Como estan las frecuencias (diagnostico).
 for dir in /sys/devices/system/cpu/cpufreq/policy*; do
   [ -d "$dir" ] && echo "cpu $(basename "$dir"): $(cat "$dir/scaling_governor" 2>/dev/null) [$(cat "$dir/scaling_available_governors" 2>/dev/null)] $(cat "$dir/scaling_cur_freq" 2>/dev/null) kHz ($(cat "$dir/scaling_min_freq" 2>/dev/null)-$(cat "$dir/scaling_max_freq" 2>/dev/null), hasta $(cat "$dir/cpuinfo_max_freq" 2>/dev/null))"
@@ -305,6 +439,11 @@ if [ "${NEBULA_PERF:-1}" = "1" ]; then
     [ -d "$dir" ] || continue
     if grep -qw performance "$dir/scaling_available_governors" 2>/dev/null; then
       perf_set "$dir/scaling_governor" performance
+      # RK3326: el tope al maximo del chip (con "performance" la CPU va a ese tope).
+      if [ "$soc_cpu" = chip ]; then
+        top=$(cat "$dir/cpuinfo_max_freq" 2>/dev/null)
+        [ -n "$top" ] && perf_set "$dir/scaling_max_freq" "$top"
+      fi
     else
       top=$(cat "$dir/cpuinfo_max_freq" 2>/dev/null)
       [ -n "$top" ] && perf_set "$dir/scaling_max_freq" "$top" && perf_set "$dir/scaling_min_freq" "$top"
@@ -315,14 +454,17 @@ if [ "${NEBULA_PERF:-1}" = "1" ]; then
     if grep -qw performance "$dir/available_governors" 2>/dev/null; then
       perf_set "$dir/governor" performance
     fi
-    # Sin "performance" (o si el driver no le hace caso): el minimo en la frecuencia mas alta.
+    # Sin "performance" (o si el driver no le hace caso): el minimo en la frecuencia mas alta (la de su lista o, si
+    # el driver no la da, su max_freq).
     top=$(top_freq "$dir/available_frequencies")
+    [ -n "$top" ] || top=$(cat "$dir/max_freq" 2>/dev/null)
     if [ -n "$top" ]; then
       perf_set "$dir/max_freq" "$top"
       perf_set "$dir/min_freq" "$top"
     fi
   done
-  trap perf_restore EXIT
+  # Con el pm_message_end de funcs.txt (su propio trap EXIT), que este reemplazaria.
+  trap 'perf_restore; type pm_message_end >/dev/null 2>&1 && pm_message_end' EXIT
 fi
 
 # Salir: la combinacion del firmware con Start (el juego la atiende; gptokeyb mata con la misma si no contesta):
@@ -334,7 +476,7 @@ pm_platform_helper "$GAMEDIR/nebula"
 ( while sleep 60; do
     pid=$(pidof nebula 2>/dev/null | cut -d' ' -f1); [ -n "$pid" ] || continue
     gpu=""; for f in /sys/class/devfreq/*/cur_freq; do case "$f" in *gpu*|*mali*|*1800000*) gpu="$(cat "$f" 2>/dev/null)";; esac; done
-    echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz"
+    echo "memoria: nebula $(grep VmRSS /proc/$pid/status | tr -s ' ' | cut -d' ' -f2) kB, libre $(grep MemAvailable /proc/meminfo | tr -s ' ' | cut -d' ' -f2) kB; cpu $(cat /sys/devices/system/cpu/cpufreq/policy0/scaling_cur_freq 2>/dev/null) kHz, gpu $gpu Hz; temp $(cat /sys/class/thermal/thermal_zone*/temp 2>/dev/null | tr '\n' ' ')mC"
   done ) &
 MEMLOG_PID=$!
 # NEBULA_CPU_MAX=1: el tope de frecuencia de la CPU al maximo del chip (cpuinfo_max_freq; en la RG35XX H 1,7 GHz frente a
@@ -427,6 +569,11 @@ if [ "$NEBULA_ULTRA" = serie ]; then
     status=$?
     runs="$runs $run_dir"
     [ "$status" = 0 ] || echo "ultra: el recorrido $name termino con $status"
+    if [ "$status" -ge 128 ] 2>/dev/null; then
+      # Matado por una senal (137 = SIGKILL: falta de memoria o el limite de tiempo): lo que dice el kernel.
+      dmesg 2>/dev/null | grep -iE "out of memory|killed process|oom" | tail -n 4
+      grep -E "MemAvailable" /proc/meminfo
+    fi
     serie_compare
   done
 else

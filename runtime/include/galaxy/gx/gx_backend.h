@@ -1732,8 +1732,11 @@ private:
         bool regions_disjoint_sorted = false) noexcept;
     void prune_decoded_packet_run_cache();
 
+    // The decoded vertices' budget, and the resident buffer's size with it: GALAXY_GX_DECODED_VERTEX_CACHE_MB
+    // (64 by default; the RG35XX H launcher gives 32: its memory runs out after a dozen galaxies).
     static constexpr std::size_t kDecodedPacketRunCacheMaxBytes =
         64u * 1024u * 1024u;
+    [[nodiscard]] static std::size_t decoded_packet_run_cache_max_bytes();
     static constexpr std::size_t kDecodedPacketRunCacheMaxEntryBytes =
         8u * 1024u * 1024u;
     std::unordered_map<
@@ -1746,9 +1749,9 @@ private:
     // GPU-resident decoded vertices (render thread only). One persistently
     // mapped UPLOAD buffer, created lazily per device; see
     // resident_vertex_arena.h for the block retirement rule.
-    static constexpr std::uint32_t kResidentDecodedVertexCapacity =
-        static_cast<std::uint32_t>(
-            kDecodedPacketRunCacheMaxBytes / sizeof(GxVertexOut));
+    [[nodiscard]] static std::uint32_t resident_decoded_vertex_capacity() {
+        return static_cast<std::uint32_t>(decoded_packet_run_cache_max_bytes() / sizeof(GxVertexOut));
+    }
     ResidentVertexArena resident_vertices_;
     UploadBuffer resident_vertex_buffer_;
     std::byte* resident_vertex_mapped_ = nullptr;
@@ -1759,6 +1762,13 @@ private:
     std::uint64_t frame_resident_vertex_bytes_ = 0;
     [[nodiscard]] bool ensure_resident_vertex_buffer();
     void release_resident_vertex_buffer() noexcept;
+    // [memoria] line every GALAXY_GX_MEMORY_LOG seconds (60; 0 = off): the caches that grow as galaxies load, the
+    // GL textures and buffers, VmRSS and MemAvailable. Render thread, after a frame's submit.
+    void log_memory_census();
+    // Whether a primitive of `vertices` fits in what is left of the vertex and index rings' segments: a draw batch
+    // appends only then (a ring that continues in another slot is not contiguous with it).
+    bool batch_rings_fit(std::uint64_t vertices);
+    std::int64_t memory_census_next_ns_ = 0;
     // Returns the entry's block to the arena (deferred reuse). Every removal or
     // replacement of a decoded_packet_run_cache_ entry must call this.
     void release_decoded_entry_residency(DecodedPacketRunCacheEntry& entry) noexcept;

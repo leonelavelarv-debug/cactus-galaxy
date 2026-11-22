@@ -85,6 +85,7 @@
     X(PFNGLVERTEXATTRIBIPOINTERPROC, glVertexAttribIPointer)                      \
     X(PFNGLDRAWARRAYSPROC, glDrawArrays)                                          \
     X(PFNGLDRAWELEMENTSPROC, glDrawElements)                                      \
+    X(PFNGLDRAWRANGEELEMENTSPROC, glDrawRangeElements)                            \
     X(PFNGLDRAWARRAYSINSTANCEDPROC, glDrawArraysInstanced)                        \
     X(PFNGLGENTEXTURESPROC, glGenTextures)                                        \
     X(PFNGLDELETETEXTURESPROC, glDeleteTextures)                                  \
@@ -130,7 +131,8 @@
     X(PFNGLGETQUERYOBJECTUIVPROC, glGetQueryObjectuiv)                            \
     X(PFNGLGETQUERYOBJECTUI64VEXTPROC, glGetQueryObjectui64vEXT)                  \
     X(PFNGLDEBUGMESSAGECALLBACKKHRPROC, glDebugMessageCallbackKHR)                \
-    X(PFNGLGETPROGRAMRESOURCEINDEXPROC, glGetProgramResourceIndex)
+    X(PFNGLGETPROGRAMRESOURCEINDEXPROC, glGetProgramResourceIndex)               \
+    X(PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC, glDrawRangeElementsBaseVertex)
 
 namespace galaxy::gx::gles::gl {
 

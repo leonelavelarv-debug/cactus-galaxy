@@ -5,6 +5,7 @@
 //
 //   nebula-pak <imagen del disco> <game.pak>
 //   nebula-pak --patch <parche.xdelta> <imagen del disco> <game.pak>   con un parche xdelta del ISO (una traducción)
+//   nebula-pak --patch-mod <parche.xdelta> <imagen del disco> <carpeta>   lo que cambia el parche, como mod de Nebula
 //   nebula-pak --identify <imagen> | --patch-info <parche.xdelta>
 //
 // --patch: the xdelta3 patch (VCDIFF) is applied on the way, to the disc's raw bytes as an ISO has them: only the
@@ -25,6 +26,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <deque>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -33,6 +35,7 @@
 #include <vector>
 
 #include <csignal>
+#include <dirent.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <sys/vfs.h>
@@ -1610,6 +1613,22 @@ std::string temporary_path(const std::string& output) {
   return dir + "." + name + ".importing";
 }
 
+void remove_tree(const std::string& path) {
+  struct stat st;
+  if (lstat(path.c_str(), &st) != 0) return;
+  if (S_ISDIR(st.st_mode)) {
+    if (DIR* d = opendir(path.c_str())) {
+      while (dirent* e = readdir(d)) {
+        if (strcmp(e->d_name, ".") != 0 && strcmp(e->d_name, "..") != 0) remove_tree(path + "/" + e->d_name);
+      }
+      closedir(d);
+    }
+    rmdir(path.c_str());
+  } else {
+    unlink(path.c_str());
+  }
+}
+
 void make_parents(const std::string& path) {
   for (size_t at = path.find('/', 1); at != std::string::npos; at = path.find('/', at + 1)) {
     const std::string dir = path.substr(0, at);
@@ -1889,6 +1908,135 @@ int run(const std::string& image, const std::string& output, const std::string& 
   return 0;
 }
 
+// --patch-mod: what a translation's xdelta changes, as a Nebula mod (<carpeta>/files/<path on the disc>) instead of
+// inside game.pak: the files of the patched disc whose data or place differ from the original's (read through the
+// patch), so that game.pak keeps the disc's own languages and the translation can be turned on and off. main.dol is
+// left out (the port runs its own code). Prints PATCHED and PATCH_LANGUAGE as a patched conversion does.
+int patch_mod(const std::string& image, const std::string& patch_path, const std::string& out_dir) {
+  aes_init();
+  std::unique_ptr<Disc> disc = open_disc(image);
+  u8 header[0x60];
+  disc->read(0, sizeof(header), header);
+  const std::string game_id(reinterpret_cast<const char*>(header), 6);
+  if (game_id != kGameId) {
+    printf("%s no es el Super Mario Galaxy norteamericano (RMGE01).\n", game_id.c_str());
+    return 1;
+  }
+  GamePartition source_partition = locate_partition(*disc);
+  std::unique_ptr<PartitionData> source_data = open_partition_data(*disc, source_partition);
+  const std::string original = Sha1::hex(read_dol(*source_data).data(), read_dol(*source_data).size());
+  const char* expected_original = getenv("NEBULA_PAK_DOL_SHA1");
+  if (original != (expected_original ? expected_original : kDolSha1)) {
+    fail("main.dol no es el de Super Mario Galaxy (SHA-1 %s): la imagen puede estar danada", original.c_str());
+  }
+  XdeltaPatch patch(patch_path);
+  printf("Parche: %s (%zu de %zu ventanas cambian el disco)\n", patch_path.c_str(), patch.modified_windows(),
+         patch.windows().size());
+  PatchedDisc patched(*disc, patch);
+  const GamePartition gp = locate_partition(patched);
+  if (gp.offset != source_partition.offset || gp.data_offset != source_partition.data_offset ||
+      gp.data_size != source_partition.data_size) {
+    fail("el parche mueve la particion del juego (no soportado)");
+  }
+  PatchedPartitionData patched_data(*source_data, patched, gp.offset + gp.data_offset, gp.data_size, gp.key);
+  auto table = [](PartitionData& data) {
+    std::vector<u8> boot(0x440);
+    data.read(0, boot.size(), boot.data());
+    if (memcmp(boot.data(), kGameId, 6) != 0) fail("la cabecera de la particion no es la de RMGE01 (¿clave o imagen danada?)");
+    const u64 fst_offset = u64(be32(boot.data() + 0x424)) << 2, fst_size = u64(be32(boot.data() + 0x428)) << 2;
+    if (fst_offset == 0 || fst_size > (64u << 20)) fail("la cabecera de la particion no cuadra con su tabla de ficheros");
+    std::vector<u8> fst(static_cast<size_t>(fst_size));
+    data.read(fst_offset, fst.size(), fst.data());
+    return parse_fst(fst);
+  };
+  const std::vector<FileEntry> before = table(*source_data), after = table(patched_data);
+  std::vector<std::pair<u64, u64>> changed;  // data ranges that differ from the original
+  std::vector<u8> a(0x7C00), b(0x7C00);
+  for (u64 c = 0; c < patched_data.clusters(); ++c) {
+    if (!patched_data.touched(c)) continue;
+    try {
+      patched_data.read(c * 0x7C00, a.size(), a.data());
+      source_data->read(c * 0x7C00, b.size(), b.data());
+    } catch (const std::exception&) {
+      continue;
+    }
+    if (a == b) continue;
+    if (!changed.empty() && changed.back().second == c * 0x7C00) changed.back().second += 0x7C00;
+    else changed.push_back({c * 0x7C00, (c + 1) * 0x7C00});
+  }
+  std::map<std::string, const FileEntry*> original_files;
+  for (const FileEntry& f : before) original_files[f.name] = &f;
+  const std::string temporary = out_dir + ".tmp";
+  remove_tree(temporary);
+  int english = 0, spanish = 0, french = 0, written = 0;
+  u64 bytes = 0;
+  constexpr size_t kChunk = 4u << 20;
+  std::vector<u8> chunk, original_chunk;
+  try {
+    for (const FileEntry& f : after) {
+      if (g_cancel.load()) fail("conversion cancelada");
+      auto o = original_files.find(f.name);
+      const bool same_place = o != original_files.end() && o->second->offset == f.offset && o->second->length == f.length;
+      bool hit = !same_place;
+      for (const auto& r : changed) if (f.length && f.offset < r.second && f.offset + f.length > r.first) hit = true;
+      if (!hit) continue;
+      std::string l = f.name;
+      for (char& ch : l) ch = char(tolower((unsigned char)ch));
+      if (l == "main.dol") continue;
+      // The patched disc's names become paths here: none may climb out of the mod's folder.
+      if (f.name.empty() || f.name[0] == '/' || ("/" + f.name + "/").find("/../") != std::string::npos) {
+        fail("el parche trae un nombre de fichero no valido: %s", f.name.c_str());
+      }
+      // A file the patch only moved (or whose clusters it touched without changing it) is the game's own: left out.
+      if (o != original_files.end() && o->second->length == f.length) {
+        bool same = true;
+        for (u64 at = 0; at < f.length && same; at += kChunk) {
+          const size_t take = size_t(std::min<u64>(kChunk, f.length - at));
+          chunk.resize(take);
+          original_chunk.resize(take);
+          patched_data.read(f.offset + at, take, chunk.data());
+          source_data->read(o->second->offset + at, take, original_chunk.data());
+          same = chunk == original_chunk;
+        }
+        if (same) continue;
+      }
+      const std::string path = temporary + "/files/" + f.name;
+      make_parents(path);
+      FILE* out = fopen(path.c_str(), "wb");
+      if (!out) fail("no se puede crear %s: %s", path.c_str(), strerror(errno));
+      bool ok = true;
+      for (u64 at = 0; at < f.length && ok; at += kChunk) {  // in pieces: a big file never whole in memory
+        const size_t take = size_t(std::min<u64>(kChunk, f.length - at));
+        chunk.resize(take);
+        patched_data.read(f.offset + at, take, chunk.data());
+        ok = fwrite(chunk.data(), 1, take, out) == take;
+      }
+      if (fclose(out) != 0 || !ok) fail("no se pudo escribir %s (¿falta espacio?)", path.c_str());
+      if (written++ < 64) printf("PATCHED\t%s\n", f.name.c_str());
+      bytes += f.length;
+      english += l.find("usenglish") != std::string::npos;
+      spanish += l.find("usspanish") != std::string::npos;
+      french += l.find("usfrench") != std::string::npos;
+    }
+  } catch (...) {
+    remove_tree(temporary);  // nothing half made left behind
+    throw;
+  }
+  if (written == 0) {
+    remove_tree(temporary);
+    fail("el parche no cambia ningun fichero del juego");
+  }
+  remove_tree(out_dir);
+  make_parents(out_dir + "/x");
+  rmdir(out_dir.c_str());
+  if (rename(temporary.c_str(), out_dir.c_str()) != 0) fail("no se puede crear %s: %s", out_dir.c_str(), strerror(errno));
+  const char* language = english >= spanish && english >= french ? (english ? "english" : nullptr)
+                                                                   : (spanish >= french ? "spanish" : "french");
+  printf("Mod del parche: %d ficheros, %llu KiB en %s\n", written, (unsigned long long)(bytes >> 10), out_dir.c_str());
+  if (language) printf("PATCH_LANGUAGE\t%s\n", language);
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1899,6 +2047,17 @@ int main(int argc, char** argv) {
     patch_path = argv[2];
     argv += 2;
     argc -= 2;
+  }
+  if (argc == 5 && strcmp(argv[1], "--patch-mod") == 0) {  // a translation as a mod: --patch-mod <xdelta> <disc> <dir>
+    signal(SIGTERM, on_cancel);
+    try {
+      return patch_mod(argv[3], argv[2], argv[4]);
+    } catch (const std::exception& error) {
+      fflush(stdout);
+      fprintf(stderr, "\nError: %s\n", error.what());
+      printf("Error: %s\n", error.what());
+      return 1;
+    }
   }
   if (argc == 3 && strcmp(argv[1], "--patch-info") == 0) {  // what an xdelta patch changes
     try {
@@ -1933,6 +2092,7 @@ int main(int argc, char** argv) {
   if (argc != 3) {
     fprintf(stderr, "uso: nebula-pak <imagen del disco> <game.pak>\n"
                     "     nebula-pak --patch <parche.xdelta> <imagen del disco> <game.pak>\n"
+                    "     nebula-pak --patch-mod <parche.xdelta> <imagen del disco> <carpeta del mod>\n"
                     "     nebula-pak --identify <imagen del disco>\n"
                     "  imagen: ISO, RVZ, WIA, WBFS, GCZ o CISO de Super Mario Galaxy (USA, RMGE01)\n");
     return 2;

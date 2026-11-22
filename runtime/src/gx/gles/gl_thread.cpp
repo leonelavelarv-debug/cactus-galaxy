@@ -23,6 +23,15 @@
 #include <pthread.h>
 #endif
 
+// The record the GL thread is running (its runner's address), for NEBULA_MEMTRACE: which GL call made a driver's
+// heap block (platform/knulli/game/memtrace_knulli.cpp). 0 between records.
+namespace {
+std::atomic<std::uintptr_t> g_running_record{0};
+}
+extern "C" std::uintptr_t nebula_gl_thread_running() noexcept {
+    return g_running_record.load(std::memory_order_relaxed);
+}
+
 namespace galaxy::gx::gles::glthread {
 
 namespace real {
@@ -47,6 +56,15 @@ struct alignas(16) Header {
     std::uint32_t size = 0;          // the whole record, header included
 };
 static_assert(sizeof(Header) == 16);
+
+// GALAXY_ULTRA (u112): GL thread records that ran longer than kSlowRecordNs go to <GALAXY_ULTRA_DIR>/gl_lentos.csv
+// with their runner's offset in the executable (symbolized offline with the unstripped build), their start and the
+// system's available memory then. One clock read per record while ULTRA measures; nothing otherwise.
+constexpr std::int64_t kSlowRecordNs = 50'000'000;
+bool g_slow_records = false;
+std::FILE* g_slow_log = nullptr;
+std::uint64_t g_slow_count = 0;
+void note_slow_record(std::uintptr_t runner, std::int64_t start, std::int64_t took) noexcept;
 
 constexpr std::size_t align16(std::size_t n) { return (n + 15u) & ~std::size_t{15}; }
 inline void* payload(Header* h) { return reinterpret_cast<std::byte*>(h) + sizeof(Header); }
@@ -96,7 +114,19 @@ public:
         auto* header = reinterpret_cast<Header*>(data_ + head_ % kCapacity);
         const std::uint32_t size = header->size;
         if (header->run != nullptr) {
-            header->run(header);
+            g_running_record.store(reinterpret_cast<std::uintptr_t>(header->run), std::memory_order_relaxed);
+            if (g_slow_records) [[unlikely]] {
+                const auto runner = reinterpret_cast<std::uintptr_t>(header->run);
+                const std::int64_t start = now_ns();
+                header->run(header);
+                const std::int64_t took = now_ns() - start;
+                if (took > kSlowRecordNs) {
+                    note_slow_record(runner, start, took);
+                }
+            } else {
+                header->run(header);
+            }
+            g_running_record.store(0u, std::memory_order_relaxed);
         }
         head_ += size;
         head_published_.store(head_, std::memory_order_seq_cst);  // ordered before the waiting check below
@@ -261,6 +291,183 @@ bool has_job_for(std::uint64_t value) {
     return false;
 }
 std::atomic<std::uint64_t> g_completed{0};
+// ULTRA-GLES: per fence, when the GL thread inserted it and when it published it passed (fence_times).
+struct FenceTimes {
+    std::atomic<std::uint64_t> value{0};
+    std::atomic<std::int64_t> inserted_ns{0};
+    std::atomic<std::int64_t> published_ns{0};
+    std::atomic<std::int64_t> gpu_done_ns{0};  // the GPU's timestamp before the fence, on steady_clock (0: none)
+};
+std::array<FenceTimes, 16> g_fence_times;
+std::atomic<std::uint64_t> g_swap_pending_ns{0};
+// GALAXY_ULTRA (a measurement): a GPU timestamp (GL_TIMESTAMP_EXT) right before each fence, read when the fence is
+// published and put on steady_clock with an offset taken from glGetInteger64v(GL_TIMESTAMP_EXT) about once a second.
+// GL thread only. One query per fence; nothing per draw.
+#ifndef GL_TIMESTAMP_EXT
+#define GL_TIMESTAMP_EXT 0x8E28
+#endif
+int g_ts_mode = -1;                         // -1: not decided yet; 0: off; 1: on
+std::array<GLuint, 16> g_ts_query{};        // per value & 15
+std::array<std::uint64_t, 16> g_ts_value{};  // the fence each query was issued for (0: none)
+std::int64_t g_ts_offset_ns = 0;            // steady_clock ns - GPU ns
+std::int64_t g_ts_calibrated_ns = 0;
+std::atomic<std::uint64_t> g_ts_misses{0};  // published before its timestamp could be read
+// The raw values, one line per fence (and one per calibration), to <GALAXY_ULTRA_DIR>/fences.csv: the conversion
+// is checked offline (u106: every converted timestamp fell outside its fence's life). Buffered; GL thread only.
+std::FILE* g_ts_log = nullptr;
+std::int64_t g_ts_cal_gpu = 0;  // the last calibration's raw GPU value and its steady_clock time
+std::int64_t g_ts_cal_cpu = 0;
+// u108: when a poll last found the oldest pending fence not yet passed (so every later one neither), and when each
+// fence was first seen passed (it can be held back until a frame's end with GALAXY_GLES_THREAD_JOBS=frame).
+std::int64_t g_last_unsignaled_ns = 0;
+struct FenceTag {
+    std::atomic<std::uint64_t> value{0};
+    std::atomic<std::uint64_t> packed{0};  // draws(20) | copies(12) | clears(12) | reads(12) | present(1)
+};
+std::array<FenceTag, 16> g_fence_tags;
+std::array<std::int64_t, 16> g_seen_passed_ns{};
+std::array<std::uint64_t, 16> g_seen_passed_value{};
+void open_timestamp_log() {
+    const char* dir = std::getenv("GALAXY_ULTRA_DIR");
+    if (dir == nullptr || dir[0] == '\0') {
+        return;
+    }
+    char path[1024];
+    std::snprintf(path, sizeof(path), "%s/fences.csv", dir);
+    g_ts_log = std::fopen(path, "w");
+    if (g_ts_log != nullptr) {
+        std::setvbuf(g_ts_log, nullptr, _IOFBF, 1u << 16);
+        std::fputs("tipo,fence,insertada_ns,publicada_ns,gpu_crudo,cal_cpu_ns,cal_gpu_crudo,ultima_sin_pasar_ns,"
+                   "vista_pasada_ns,draws,copias,limpiezas,lecturas,presenta\n", g_ts_log);
+    }
+}
+extern "C" const char __ehdr_start;  // the executable's first byte (lld and ld define it)
+
+void note_slow_record(std::uintptr_t runner, std::int64_t start, std::int64_t took) noexcept {
+    ++g_slow_count;
+    if (g_slow_log == nullptr) {
+        return;
+    }
+    long available_kib = -1;
+    if (std::FILE* meminfo = std::fopen("/proc/meminfo", "r")) {
+        char line[128];
+        while (std::fgets(line, sizeof(line), meminfo) != nullptr) {
+            if (std::sscanf(line, "MemAvailable: %ld kB", &available_kib) == 1) {
+                break;
+            }
+        }
+        std::fclose(meminfo);
+    }
+    std::fprintf(g_slow_log, "%lld,%.3f,0x%llx,%ld\n", static_cast<long long>(start), static_cast<double>(took) / 1e6,
+                 static_cast<unsigned long long>(runner - reinterpret_cast<std::uintptr_t>(&__ehdr_start)),
+                 available_kib);
+    std::fflush(g_slow_log);
+}
+
+void open_slow_record_log() {
+    const char* ultra = std::getenv("GALAXY_ULTRA");
+    const char* dir = std::getenv("GALAXY_ULTRA_DIR");
+    if (ultra == nullptr || ultra[0] == '\0' || ultra[0] == '0' || dir == nullptr || dir[0] == '\0') {
+        return;
+    }
+    char path[1024];
+    std::snprintf(path, sizeof(path), "%s/gl_lentos.csv", dir);
+    g_slow_log = std::fopen(path, "w");
+    if (g_slow_log != nullptr) {
+        std::fputs("inicio_ns,duracion_ms,funcion,disponible_kib\n", g_slow_log);
+        std::fflush(g_slow_log);
+    }
+    g_slow_records = true;
+}
+
+bool timestamps_on() {
+    if (g_ts_mode < 0) {
+        const char* ultra = std::getenv("GALAXY_ULTRA");
+        g_ts_mode = !g_tests && ultra != nullptr && ultra[0] != '\0' && ultra[0] != '0' &&
+                real::glQueryCounterEXT != nullptr && real::glGetQueryObjectui64vEXT != nullptr &&
+                real::glGetQueryObjectuiv != nullptr && real::glGetInteger64v != nullptr &&
+                real::glGenQueries != nullptr ? 1 : 0;
+        if (g_ts_mode == 1) {
+            open_timestamp_log();
+        }
+    }
+    return g_ts_mode == 1;
+}
+void calibrate_timestamps(std::int64_t now) {
+    GLint64 gpu = 0;
+    const std::int64_t before = now_ns();
+    real::glGetInteger64v(GL_TIMESTAMP_EXT, &gpu);
+    const std::int64_t after = now_ns();
+    if (g_ts_log != nullptr) {
+        std::fprintf(g_ts_log, "c,0,%lld,%lld,%lld,0,0,0,0,0,0,0,0,0\n", static_cast<long long>(before),
+                     static_cast<long long>(after), static_cast<long long>(gpu));
+    }
+    if (gpu > 0) {
+        g_ts_offset_ns = before + (after - before) / 2 - static_cast<std::int64_t>(gpu);
+        g_ts_calibrated_ns = now;
+        g_ts_cal_cpu = before + (after - before) / 2;
+        g_ts_cal_gpu = static_cast<std::int64_t>(gpu);
+    }
+}
+void issue_timestamp(std::uint64_t value) {
+    if (!timestamps_on()) {
+        return;
+    }
+    const std::int64_t now = now_ns();
+    if (g_ts_calibrated_ns == 0 || now - g_ts_calibrated_ns > 1'000'000'000) {
+        calibrate_timestamps(now);
+    }
+    const unsigned i = static_cast<unsigned>(value & 15u);
+    if (g_ts_query[i] == 0u) {
+        real::glGenQueries(1, &g_ts_query[i]);
+    }
+    if (g_ts_query[i] == 0u) {
+        return;
+    }
+    real::glQueryCounterEXT(g_ts_query[i], GL_TIMESTAMP_EXT);
+    g_ts_value[i] = value;
+}
+void read_timestamp(std::uint64_t value, std::atomic<std::int64_t>& out, std::int64_t inserted,
+                    std::int64_t published) {
+    const unsigned i = static_cast<unsigned>(value & 15u);
+    if (g_ts_mode != 1 || g_ts_value[i] != value || g_ts_query[i] == 0u) {
+        return;
+    }
+    g_ts_value[i] = 0u;
+    GLuint available = GL_FALSE;
+    real::glGetQueryObjectuiv(g_ts_query[i], GL_QUERY_RESULT_AVAILABLE, &available);
+    if (available != GL_TRUE) {
+        g_ts_misses.fetch_add(1u, std::memory_order_relaxed);
+        return;
+    }
+    GLuint64 gpu = 0;
+    real::glGetQueryObjectui64vEXT(g_ts_query[i], GL_QUERY_RESULT, &gpu);
+    if (g_ts_log != nullptr) {
+        const std::int64_t seen = g_seen_passed_value[i] == value ? g_seen_passed_ns[i] : 0;
+        const FenceTag& tag = g_fence_tags[i];
+        const std::uint64_t packed =
+            tag.value.load(std::memory_order_acquire) == value ? tag.packed.load(std::memory_order_relaxed) : 0u;
+        std::fprintf(g_ts_log, "f,%llu,%lld,%lld,%llu,%lld,%lld,%lld,%lld,%u,%u,%u,%u,%u\n",
+                     static_cast<unsigned long long>(value),
+                     static_cast<long long>(inserted), static_cast<long long>(published),
+                     static_cast<unsigned long long>(gpu), static_cast<long long>(g_ts_cal_cpu),
+                     static_cast<long long>(g_ts_cal_gpu),
+                     static_cast<long long>(g_last_unsignaled_ns > inserted ? g_last_unsignaled_ns : 0),
+                     static_cast<long long>(seen), static_cast<unsigned>(packed & 0xFFFFFu),
+                     static_cast<unsigned>((packed >> 20u) & 0xFFFu), static_cast<unsigned>((packed >> 32u) & 0xFFFu),
+                     static_cast<unsigned>((packed >> 44u) & 0xFFFu), static_cast<unsigned>((packed >> 56u) & 1u));
+    }
+    if (gpu != 0u && g_ts_calibrated_ns != 0) {
+        out.store(static_cast<std::int64_t>(gpu) + g_ts_offset_ns, std::memory_order_relaxed);
+    }
+}
+void note_fence_inserted(std::uint64_t value) noexcept {
+    FenceTimes& t = g_fence_times[value & 15u];
+    t.published_ns.store(0, std::memory_order_relaxed);
+    t.gpu_done_ns.store(0, std::memory_order_relaxed);
+    t.inserted_ns.store(now_ns(), std::memory_order_relaxed);
+    t.value.store(value, std::memory_order_release);
+}
 std::mutex g_fence_mutex;
 std::condition_variable g_fence_cv;
 std::atomic<int> g_fence_waiters{0};
@@ -274,6 +481,13 @@ void publish_completed(std::uint64_t value) {
         } else {
             ++i;
         }
+    }
+    if (FenceTimes& t = g_fence_times[value & 15u]; t.value.load(std::memory_order_acquire) == value) {
+        const std::int64_t published = now_ns();
+        if (!g_tests) {
+            read_timestamp(value, t.gpu_done_ns, t.inserted_ns.load(std::memory_order_relaxed), published);
+        }
+        t.published_ns.store(published, std::memory_order_relaxed);
     }
     g_completed.store(value, std::memory_order_release);
     if (g_fence_waiters.load(std::memory_order_seq_cst) != 0) {
@@ -297,10 +511,17 @@ void poll_fences(std::uint64_t wait_ns) {
                 std::fprintf(stderr, "[gl-thread] fence %llu: wait failed\n",
                              static_cast<unsigned long long>(front.value));
             } else {
+                if (g_ts_mode == 1) {
+                    g_last_unsignaled_ns = now_ns();
+                }
                 return;
             }
         }
         const std::uint64_t value = front.value;
+        if (g_ts_mode == 1 && g_seen_passed_value[value & 15u] != value) {
+            g_seen_passed_value[value & 15u] = value;
+            g_seen_passed_ns[value & 15u] = now_ns();
+        }
         if (g_jobs_at_boundary && !g_at_boundary && has_job_for(value)) {
             return;  // passed, but its copy waits for the end of the frame being recorded
         }
@@ -325,6 +546,9 @@ void thread_main() {
     g_started_cv.notify_all();
     if (!current) {
         return;
+    }
+    if (!g_tests) {
+        open_slow_record_log();
     }
     Queue& q = queue();
     std::uint64_t ran = 0;
@@ -383,6 +607,16 @@ void thread_main() {
         job.run();
     }
     g_jobs.clear();
+    if (g_ts_log != nullptr) {
+        std::fclose(g_ts_log);
+        g_ts_log = nullptr;
+    }
+    if (g_slow_log != nullptr) {
+        std::fprintf(g_slow_log, "# %llu comandos de mas de %lld ms\n", static_cast<unsigned long long>(g_slow_count),
+                     static_cast<long long>(kSlowRecordNs / 1'000'000));
+        std::fclose(g_slow_log);
+        g_slow_log = nullptr;
+    }
     update_cpu();
     if (g_make_current) {
         g_make_current(false);
@@ -567,8 +801,11 @@ std::size_t upload_bytes(GLsizei width, GLsizei height, GLenum format, GLenum ty
         texel = format == GL_RGBA ? 4u : format == GL_RGB ? 3u : (format == GL_RED || format == GL_ALPHA ||
                                                                   format == GL_LUMINANCE) ? 1u
                                                                : format == GL_RG ? 2u : 0u;
-    } else if (type == GL_FLOAT && format == GL_RGBA) {
-        texel = 16u;
+    } else if ((type == GL_UNSIGNED_SHORT_5_6_5 && format == GL_RGB) ||
+               ((type == GL_UNSIGNED_SHORT_5_5_5_1 || type == GL_UNSIGNED_SHORT_4_4_4_4) && format == GL_RGBA)) {
+        texel = 2u;  // compact textures (texture_compact.h)
+    } else if ((type == GL_FLOAT && format == GL_RGBA) || (type == GL_UNSIGNED_INT && format == GL_RGBA_INTEGER)) {
+        texel = 16u;  // GL_RGBA_INTEGER: the matrix palette's 2D texture (OpenGL ES 3.0, renderer_gles.cpp)
     }
     if (texel == 0u || width <= 0 || height <= 0 || g_shadow.unpack_skip_rows != 0 || g_shadow.unpack_skip_pixels != 0) {
         return 0u;
@@ -784,6 +1021,12 @@ void install() {
     gl::glGetError = w_glGetError;
     gl::glCheckFramebufferStatus = w_glCheckFramebufferStatus;
     gl::glDrawElements = OffsetThunk<&real::glDrawElements, std::remove_pointer_t<PFNGLDRAWELEMENTSPROC>>::call;
+    gl::glDrawRangeElements =
+        OffsetThunk<&real::glDrawRangeElements, std::remove_pointer_t<PFNGLDRAWRANGEELEMENTSPROC>>::call;
+    if (real::glDrawRangeElementsBaseVertex != nullptr) {
+        gl::glDrawRangeElementsBaseVertex = OffsetThunk<&real::glDrawRangeElementsBaseVertex,
+                                                        std::remove_pointer_t<PFNGLDRAWRANGEELEMENTSBASEVERTEXPROC>>::call;
+    }
     gl::glVertexAttribPointer =
         OffsetThunk<&real::glVertexAttribPointer, std::remove_pointer_t<PFNGLVERTEXATTRIBPOINTERPROC>>::call;
     gl::glVertexAttribIPointer =
@@ -896,6 +1139,36 @@ void enqueue(std::function<void()> run) {
     push(std::move(run));
 }
 
+namespace {
+// GL_MAP_UNSYNCHRONIZED_BIT: the ranges written are ones no draw in flight reads (the rings' frame slots, the
+// resident vertices' free blocks), as with the persistent mapping of OpenGL ES 3.2. glBufferSubData on a buffer the
+// GPU still reads makes some drivers (the Mali's) copy the whole buffer first, and the rings are 100+ MiB.
+void write_buffer_now(GLuint buffer, std::uint64_t offset, std::uint64_t size, const std::byte* source) {
+    gl::glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
+    void* target = gl::glMapBufferRange(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size),
+                                    GL_MAP_WRITE_BIT | GL_MAP_UNSYNCHRONIZED_BIT | GL_MAP_INVALIDATE_RANGE_BIT);
+    if (target != nullptr) {
+        std::memcpy(target, source, static_cast<std::size_t>(size));
+        if (gl::glUnmapBuffer(GL_COPY_WRITE_BUFFER) == GL_FALSE) {
+            // The store was lost (the spec allows it, e.g. on a mode switch): send it again.
+            gl::glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), source);
+        }
+    } else {
+        gl::glBufferSubData(GL_COPY_WRITE_BUFFER, static_cast<GLintptr>(offset), static_cast<GLsizeiptr>(size), source);
+    }
+    gl::glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+}
+}  // namespace
+
+void write_buffer(GLuint buffer, std::uint64_t offset, std::uint64_t size, const std::byte* source) {
+    if (!rec()) {
+        write_buffer_now(buffer, offset, size, source);
+        return;
+    }
+    // Read from `source` on the GL thread: no copy in the queue (they were as big as the range).
+    push([=] { write_buffer_now(buffer, offset, size, source); });
+}
+
 void run_sync(const std::function<void()>& run) {
     if (!rec()) {
         run();
@@ -916,6 +1189,8 @@ void submit_fence(std::uint64_t value) {
         return;
     }
     push([value] {
+        note_fence_inserted(value);
+        issue_timestamp(value);
         GLsync sync = real::glFenceSync(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
         real::glFlush();
         g_ran_submit = true;
@@ -969,12 +1244,53 @@ Stats stats() noexcept {
     s.full_wait_ns = queue().full_wait_ns;
     s.gl_cpu_ns = g_gl_cpu_ns.load(std::memory_order_relaxed);
     s.swap_ns = g_swap_ns.load(std::memory_order_relaxed);
+    s.swap_pending_ns = g_swap_pending_ns.load(std::memory_order_relaxed);
     s.commands = queue().pushed_;
     s.pool_misses = g_pool_misses;
     return s;
 }
 
-void add_swap_ns(std::uint64_t ns) noexcept { g_swap_ns.fetch_add(ns, std::memory_order_relaxed); }
+void add_swap_ns(std::uint64_t ns) noexcept {
+    g_swap_ns.fetch_add(ns, std::memory_order_relaxed);
+    // Called on the GL thread right after the swap: a fence still pending now was pending all through it (only
+    // this thread publishes them), so for that long a passed fence could not be reported.
+    if (!g_pending.empty()) {
+        g_swap_pending_ns.fetch_add(ns, std::memory_order_relaxed);
+    }
+}
+
+void fence_times(std::uint64_t value, std::int64_t& inserted_ns, std::int64_t& published_ns,
+                 std::int64_t& gpu_done_ns) noexcept {
+    const FenceTimes& t = g_fence_times[value & 15u];
+    inserted_ns = 0;
+    published_ns = 0;
+    gpu_done_ns = 0;
+    if (t.value.load(std::memory_order_acquire) != value) {
+        return;
+    }
+    inserted_ns = t.inserted_ns.load(std::memory_order_relaxed);
+    published_ns = t.published_ns.load(std::memory_order_relaxed);
+    gpu_done_ns = published_ns != 0 ? t.gpu_done_ns.load(std::memory_order_relaxed) : 0;
+    if (t.value.load(std::memory_order_acquire) != value) {  // reused meanwhile
+        inserted_ns = 0;
+        published_ns = 0;
+        gpu_done_ns = 0;
+    }
+}
+
+std::uint64_t timestamp_misses() noexcept { return g_ts_misses.load(std::memory_order_relaxed); }
+
+void tag_fence(std::uint64_t value, std::uint32_t draws, std::uint32_t copies, std::uint32_t clears,
+               std::uint32_t reads, bool present) noexcept {
+    FenceTag& tag = g_fence_tags[value & 15u];
+    const auto clamp12 = [](std::uint32_t v) { return static_cast<std::uint64_t>(v > 0xFFFu ? 0xFFFu : v); };
+    const std::uint64_t packed = static_cast<std::uint64_t>(draws > 0xFFFFFu ? 0xFFFFFu : draws) |
+        (clamp12(copies) << 20u) | (clamp12(clears) << 32u) | (clamp12(reads) << 44u) |
+        (static_cast<std::uint64_t>(present ? 1u : 0u) << 56u);
+    tag.value.store(0u, std::memory_order_relaxed);
+    tag.packed.store(packed, std::memory_order_relaxed);
+    tag.value.store(value, std::memory_order_release);
+}
 
 std::uint32_t take_errors() noexcept { return g_errors.exchange(0u, std::memory_order_relaxed); }
 

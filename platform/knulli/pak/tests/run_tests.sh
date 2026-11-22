@@ -59,6 +59,17 @@ if [ -n "${XDELTA3:-}" ]; then
       echo "FALLO parche sobre $(basename "$image")"; tail -5 "$work/log.txt"; failed=1
     fi
   done
+  # The same patch as a mod (--patch-mod): the files it changes, each as the patched game.pak has it.
+  for image in "$work/smg.iso" "$work/smg.rvz"; do
+    rm -rf "$work/out/mod"
+    if "$pak" --patch-mod "$work/ptbr.xdelta" "$image" "$work/out/mod" > "$work/log.txt" 2>&1 &&
+       grep -q "PATCH_LANGUAGE	english" "$work/log.txt" &&
+       python3 -I "$here/check_patch_mod.py" "$work/out/mod" "$work/expected-ptbr.pak"; then
+      echo "ok    parche como mod desde $(basename "$image") ($(grep -c PATCHED "$work/log.txt") fichero(s))"
+    else
+      echo "FALLO parche como mod desde $(basename "$image")"; tail -5 "$work/log.txt"; failed=1
+    fi
+  done
   # A patch for another disc is refused: a "source" whose hash block of the patched file's cluster differs.
   python3 -I - "$work/smg.iso" "$work/other-src.iso" "$work/expected.pak" "$work/expected-ptbr.pak" <<'PY'
 import shutil, sys

@@ -3,11 +3,14 @@
 
 #include "galaxy/gx/gles/renderer_gles.h"
 #include "galaxy/gx/gles/ultra_gles.h"
+#include "galaxy/gx/gles/nopal_depurar.h"
 #include "galaxy/gx/gles/gl_thread.h"
 
 #include "galaxy/content_viewport.h"
 #include "galaxy/experimental_ultrawide_aspect.h"
 #include "galaxy/gx/gles/shader_translate_gles.h"
+#include "galaxy/gx/gles/shader_library_gles.h"
+#include "galaxy/gx/gles/shader_sources_gles.h"
 #include "galaxy/gx/gx_state.h"
 #include "galaxy/gx/post_process_settings.h"
 #include "galaxy/gx/texture_cache.h"
@@ -26,6 +29,13 @@
 #include <numeric>
 #include <stdexcept>
 #include <thread>
+
+// NEBULA_MEMTRACE (platform/knulli/game/memtrace_knulli.cpp, only in the console's executable): the frame and its draws
+// so far, so the driver's big heap blocks can be told apart by when they come.
+#if defined(__GNUC__) && !defined(_WIN32)
+extern "C" void nebula_memtrace_note(std::uint64_t frame, std::uint32_t draws) __attribute__((weak));
+#define NEBULA_HAS_MEMTRACE_NOTE 1
+#endif
 
 namespace galaxy::gx {
 
@@ -92,6 +102,8 @@ constexpr GlesVertexAttribute kVertexAttributes[] = {
 };
 
 constexpr std::uint64_t kPaletteBytes = GxState::kMatrixPaletteWords * sizeof(std::uint32_t);
+// OpenGL ES 3.0's palette texture: rows of gles::kPaletteTextureWidth 16-byte texels, 1 MiB as the texture buffer's.
+constexpr std::uint32_t kPalette2dRows = (1u << 20u) / (16u * gles::kPaletteTextureWidth);
 
 }  // namespace
 
@@ -121,11 +133,6 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
     const gles::Capabilities& caps = context.caps();
     gx_layout_.palette_storage_block = caps.vertex_storage_blocks;
     gx_layout_.framebuffer_fetch = caps.framebuffer_fetch_arm || caps.framebuffer_fetch_ext;
-    if (glVertexAttribFormat == nullptr || glVertexAttribIFormat == nullptr || glVertexAttribBinding == nullptr ||
-        glBindVertexBuffer == nullptr) {
-        std::cerr << "[Renderer] the driver lacks the OpenGL ES 3.1 vertex attribute bindings\n";
-        return false;
-    }
     {
         const char* interval = std::getenv("GALAXY_GLES_SWAP_INTERVAL");
         host_window::gles_set_swap_interval(interval != nullptr ? std::atoi(interval) : 1);
@@ -207,16 +214,20 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
             shutdown();
             return false;
         }
-        // The draws' vertex layout: GxVertexOut at binding 0, every location's format set once.
+        // The draws' vertex layout: GxVertexOut at binding 0, every location's format set once (OpenGL ES 3.1); on
+        // 3.0 the pointers follow each draw's vertices (set_vertex_pointers).
         glGenVertexArrays(1, &vao_);
         glBindVertexArray(vao_);
-        for (const GlesVertexAttribute& attribute : kVertexAttributes) {
-            if (attribute.integer) {
-                glVertexAttribIFormat(attribute.location, attribute.size, attribute.type, attribute.offset);
-            } else {
-                glVertexAttribFormat(attribute.location, attribute.size, attribute.type, GL_FALSE, attribute.offset);
+        if (caps.vertex_attrib_binding) {
+            for (const GlesVertexAttribute& attribute : kVertexAttributes) {
+                if (attribute.integer) {
+                    glVertexAttribIFormat(attribute.location, attribute.size, attribute.type, attribute.offset);
+                } else {
+                    glVertexAttribFormat(attribute.location, attribute.size, attribute.type, GL_FALSE,
+                                         attribute.offset);
+                }
+                glVertexAttribBinding(attribute.location, 0);
             }
-            glVertexAttribBinding(attribute.location, 0);
         }
         glBindVertexArray(0);
         glGenVertexArrays(1, &empty_vao_);
@@ -233,6 +244,19 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
         if (!gx_layout_.palette_storage_block) {
             glGenTextures(1, &palette_texture_);
         }
+        if (caps.palette_texture_2d) {
+            // OpenGL ES 3.0: the palette in a 2D texture as big as the texture buffer's view (1 MiB).
+            glActiveTexture(GL_TEXTURE0 + gles::kPaletteTextureUnit);
+            glBindTexture(GL_TEXTURE_2D, palette_texture_);
+            glTexStorage2D(GL_TEXTURE_2D, 1, GL_RGBA32UI, static_cast<GLsizei>(gles::kPaletteTextureWidth),
+                           static_cast<GLsizei>(kPalette2dRows));
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            glActiveTexture(GL_TEXTURE0);
+            palette_2d_ = Palette2d{};
+        }
+        pointers_address_ = ~gpu::Address{0};
+        array_buffer_ = ~0u;
         // Ring sizes (GALAXY_GLES_RING_*_MB): Vulkan's defaults scaled to a handheld's memory; the peaks are logged.
         gpu::Device* const dev = context.device();
         if (!vertex_ring_.initialize(dev, "vertex", env_megabytes("GALAXY_GLES_RING_VERTEX_MB", 28u << 20u),
@@ -246,6 +270,35 @@ bool RendererGles::initialize(int window_width, int window_height, unsigned efb_
             std::cerr << "[Renderer] upload rings unavailable\n";
             shutdown();
             return false;
+        }
+        // A frame that fills a ring's segment (a galaxy's loading frames can pass 28 MiB of vertices) continues in
+        // the next slot instead of stopping the game: borrow_frame_slot.
+        for (UploadRing* ring : {&vertex_ring_, &index_ring_, &constant_ring_, &matrix_ring_}) {
+            ring->set_overflow([this](unsigned slot) { return borrow_frame_slot(slot); });
+        }
+        flush_draws_ = 0u;  // off: the Mali's growing heap block was not the draws (docs/GX_ES_MEMORY_GROWTH.md)
+        if (const char* value = std::getenv("GALAXY_GLES_DRAW_RANGE"); value != nullptr && value[0] == '0') {
+            draw_range_ = false;  // plain glDrawElements, as before
+        }
+        if (const char* value = std::getenv("GALAXY_GLES_CHECK_RANGE"); value != nullptr && value[0] == '1') {
+            check_range_ = true;
+        }
+        if (const char* value = std::getenv("GALAXY_GLES_SLOT_POR_IMAGEN"); value != nullptr && value[0] == '1') {
+            slot_per_present_ = true;
+            std::fprintf(stderr, "[gles] frame slots per presented picture (GALAXY_GLES_SLOT_POR_IMAGEN=1, at most %u "
+                                 "stretches a slot)\n", kMaxStretchesPerSlot);
+        }
+        if (const char* value = std::getenv("GALAXY_GLES_INDEX_RECYCLE"); value != nullptr && value[0] != '\0') {
+            index_recycle_frames_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));
+        }
+        if (const char* value = std::getenv("GALAXY_GLES_VERTEX_BASE"); value != nullptr && value[0] == '1' &&
+            caps.vertex_attrib_binding && glDrawRangeElementsBaseVertex != nullptr) {
+            vertex_base_ = true;
+            std::fprintf(stderr, "[gles] vertex buffers bound at offset mod stride, the rest as base vertex "
+                         "(GALAXY_GLES_VERTEX_BASE)\n");
+        }
+        if (const char* value = std::getenv("GALAXY_GLES_FLUSH_DRAWS"); value != nullptr && value[0] != '\0') {
+            flush_draws_ = static_cast<std::uint32_t>(std::strtoul(value, nullptr, 10));  // 0: never
         }
         timer_queries_ = caps.timer_query && glGenQueries != nullptr && glBeginQuery != nullptr &&
             glGetQueryObjectui64vEXT != nullptr && glGetQueryObjectuiv != nullptr;
@@ -287,6 +340,9 @@ bool RendererGles::make_current() {
     context.set_owner_thread();
     bound_ = Bound{};
     enabled_attributes_ = ~0u;  // unknown on this thread: set again at the next draw
+    pointers_address_ = ~gpu::Address{0};
+    array_buffer_ = ~0u;
+    palette_2d_ = Palette2d{};
     return true;
 }
 
@@ -395,6 +451,67 @@ std::uint64_t RendererGles::completed_fence_value() const {
     return gles::Context::get().completed_value();
 }
 
+bool RendererGles::borrow_frame_slot(unsigned slot) {  // (UploadRing overflow)
+    if (slot >= kFramesInFlight || slot == frame_slot_ || !gpu_in_frame_) {
+        return false;
+    }
+    if ((borrowed_slots_ & (1u << slot)) == 0u) {
+        // The GPU finishes that slot's last frame first; the next frame to use the slot waits for this one
+        // (end_frame gives it this frame's fence).
+        Frame& frame = frames_[slot];
+        const auto wait_start = std::chrono::steady_clock::now();
+        if (frame.fence != 0u) {
+            wait_for_fence_value(frame.fence);
+        }
+        const auto wait_end = std::chrono::steady_clock::now();
+        window_stats_.frame_wait_ns +=
+            std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end - wait_start).count();
+        note_slot_wait(frame, std::chrono::duration_cast<std::chrono::nanoseconds>(wait_start.time_since_epoch()).count(),
+                       std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end.time_since_epoch()).count());
+        borrowed_slots_ |= 1u << slot;
+        ++window_stats_.borrowed_slots;
+    }
+    return true;
+}
+
+// ULTRA-GLES: where a frame-slot wait went (the GL thread's fence times; nothing without the GL thread). The wait is
+// split at the moment the GL thread inserted the fence: before it, its queue had not reached the fence; after it, the
+// fence was in the GPU's hands or passed and not yet seen (the GL thread polls between commands, not in a swap).
+void RendererGles::note_slot_wait(const Frame& frame, std::int64_t start_ns, std::int64_t end_ns) {
+    if (frame.fence == 0u || !gles::glthread::active()) {
+        return;
+    }
+    std::int64_t inserted = 0;
+    std::int64_t published = 0;
+    std::int64_t gpu_done = 0;
+    gles::glthread::fence_times(frame.fence, inserted, published, gpu_done);
+    if (inserted == 0) {
+        return;  // too old to be kept: counted in frame_wait_ns only
+    }
+    const std::int64_t wait = end_ns - start_ns;
+    if (wait > 0) {
+        const std::int64_t queue = std::clamp<std::int64_t>(inserted - start_ns, 0, wait);
+        window_stats_.slot_wait_queue_ns += queue;
+        window_stats_.slot_wait_gpu_ns += wait - queue;
+    }
+    if (published != 0 && frame.submit_ns != 0) {
+        window_stats_.fence_queue_ns += std::max<std::int64_t>(inserted - frame.submit_ns, 0);
+        window_stats_.fence_gpu_ns += std::max<std::int64_t>(published - inserted, 0);
+        ++window_stats_.fences_timed;
+        // The GPU's own timestamp before the fence splits insert->publish in two: the GPU reaching that point,
+        // then the GL thread noticing. Kept only when it falls inside the fence's life (a calibration off by more
+        // than 1 ms, or a GPU clock jump, is counted as unusable instead).
+        if (gpu_done != 0 && gpu_done >= inserted - 1'000'000 && gpu_done <= published + 1'000'000) {
+            const std::int64_t done = std::clamp(gpu_done, inserted, published);
+            window_stats_.fence_gpu_end_ns += done - inserted;
+            window_stats_.fence_publish_ns += published - done;
+            ++window_stats_.fences_gpu_timed;
+        } else if (gpu_done != 0) {
+            ++window_stats_.fences_gpu_bad;
+        }
+    }
+}
+
 void RendererGles::wait_for_fence_value(std::uint64_t fence_value) {
     if (fence_value == 0u) {
         throw std::runtime_error("invalid frame-specific GPU fence wait");
@@ -455,15 +572,15 @@ void RendererGles::destroy_efb() noexcept {
 
 GLuint RendererGles::build_utility_program(std::string_view vs_hlsl, std::string_view ps_hlsl, const char* what) {
     gles::TranslateOptions options;
-    options.glsl_version = gles::glsl_version_for(gles::Context::get().caps().version_major,
-                                                  gles::Context::get().caps().version_minor);
+    options.glsl_version = gles::Context::get().caps().glsl_version;
     std::string error;
-    const std::string vs = gles::translate(vs_hlsl, gles::Stage::Vertex, gles::ShaderKind::Utility, options, error);
+    // From the GLSL library (shader_library_gles.h); translated here only by a build with the translator.
+    const std::string vs = gles::shader_glsl(vs_hlsl, gles::Stage::Vertex, gles::ShaderKind::Utility, options, error);
     if (vs.empty()) {
         std::cerr << "[Renderer] " << what << " vertex shader: " << error << '\n';
         return 0u;
     }
-    const std::string ps = gles::translate(ps_hlsl, gles::Stage::Fragment, gles::ShaderKind::Utility, options, error);
+    const std::string ps = gles::shader_glsl(ps_hlsl, gles::Stage::Fragment, gles::ShaderKind::Utility, options, error);
     if (ps.empty()) {
         std::cerr << "[Renderer] " << what << " pixel shader: " << error << '\n';
         return 0u;
@@ -505,6 +622,7 @@ GLuint RendererGles::build_utility_program(std::string_view vs_hlsl, std::string
         glDeleteProgram(program);
         return 0u;
     }
+    gles::apply_bindings(program, gles::bindings_of(vs, ps));  // GLSL ES 3.00's bindings (nothing for 3.10/3.20)
     return program;
 }
 
@@ -534,73 +652,17 @@ bool RendererGles::create_utility_programs() {
     const float shadows = env_float("GALAXY_GLES_SHADOWS", 0.0f, 0.0f, 1.0f);
     const float contrast = env_float("GALAXY_GLES_CONTRAST", 0.0f, -0.5f, 0.5f);
     const bool grade = shadows > 0.0f || contrast != 0.0f;
-    const auto build = [&](float strength, bool antialias, const char* what) -> GLuint {
-        std::string source(efb_conversion_shader_source());
-        const std::string tap = "tex_sample = srctex.SampleLevel(s_lin, sample_pos * inv, 0);";
-        const std::size_t at = source.find(tap);
-        if (at == std::string::npos) {
-            return 0u;
-        }
-        char value[32];
-        std::snprintf(value, sizeof(value), "%.3f", static_cast<double>(strength));
-        std::string filters = tap + R"HLSL(
-        {
-            const float4 nw = srctex.SampleLevel(s_lin, (sample_pos + float2(-0.5, -0.5)) * inv, 0);
-            const float4 ne = srctex.SampleLevel(s_lin, (sample_pos + float2( 0.5, -0.5)) * inv, 0);
-            const float4 sw = srctex.SampleLevel(s_lin, (sample_pos + float2(-0.5,  0.5)) * inv, 0);
-            const float4 se = srctex.SampleLevel(s_lin, (sample_pos + float2( 0.5,  0.5)) * inv, 0);
-            const float3 luma = float3(0.299, 0.587, 0.114);
-            const float l_nw = dot(nw.rgb, luma), l_ne = dot(ne.rgb, luma);
-            const float l_sw = dot(sw.rgb, luma), l_se = dot(se.rgb, luma);
-            const float l_m = dot(tex_sample.rgb, luma);
-            const float l_min = min(l_m, min(min(l_nw, l_ne), min(l_sw, l_se)));
-            const float l_max = max(l_m, max(max(l_nw, l_ne), max(l_sw, l_se)));
-            const bool edge = ANTIALIAS && (l_max - l_min) > max(1.0 / 32.0, l_max * 0.125);
-            [branch] if (edge) {
-                float2 dir = float2(-((l_nw + l_ne) - (l_sw + l_se)), (l_nw + l_sw) - (l_ne + l_se));
-                const float reduce = max((l_nw + l_ne + l_sw + l_se) * (0.25 / 8.0), 1.0 / 128.0);
-                dir = clamp(dir / (min(abs(dir.x), abs(dir.y)) + reduce), -4.0, 4.0);
-                const float3 a = 0.5 * (srctex.SampleLevel(s_lin, (sample_pos + dir * (1.0 / 3.0 - 0.5)) * inv, 0).rgb +
-                                        srctex.SampleLevel(s_lin, (sample_pos + dir * (2.0 / 3.0 - 0.5)) * inv, 0).rgb);
-                const float3 b = a * 0.5 + 0.25 * (srctex.SampleLevel(s_lin, (sample_pos - dir * 0.5) * inv, 0).rgb +
-                                                   srctex.SampleLevel(s_lin, (sample_pos + dir * 0.5) * inv, 0).rgb);
-                const float l_b = dot(b, luma);
-                tex_sample.rgb = (l_b < l_min || l_b > l_max) ? a : b;
-            } else {
-                const float3 lo = min(min(min(nw.rgb, ne.rgb), min(sw.rgb, se.rgb)), tex_sample.rgb);
-                const float3 hi = max(max(max(nw.rgb, ne.rgb), max(sw.rgb, se.rgb)), tex_sample.rgb);
-                const float3 blur = (nw.rgb + ne.rgb + sw.rgb + se.rgb) * 0.25;
-                tex_sample.rgb = clamp(tex_sample.rgb + STRENGTH * (tex_sample.rgb - blur), lo, hi);
-            }
-            [branch] if (GRADE) {
-                const float l = dot(tex_sample.rgb, luma);
-                float graded = l + SHADOWS * l * (1.0 - l) * (1.0 - l);
-                graded = saturate((graded - 0.5) * (1.0 + CONTRAST) + 0.5);
-                tex_sample.rgb = l > 1.0 / 1024.0 ? saturate(tex_sample.rgb * (graded / l))
-                                                  : saturate(tex_sample.rgb + (graded - l));
-            }
-        })HLSL";
-        const auto replace_all = [](std::string& text, const std::string& from, const std::string& to) {
-            for (std::size_t p = text.find(from); p != std::string::npos; p = text.find(from, p + to.size())) {
-                text.replace(p, from.size(), to);
-            }
-        };
-        replace_all(filters, "ANTIALIAS", antialias ? "true" : "false");
-        replace_all(filters, "STRENGTH", value);
-        char shadows_text[32], contrast_text[32];
-        std::snprintf(shadows_text, sizeof(shadows_text), "%.3f", static_cast<double>(shadows));
-        std::snprintf(contrast_text, sizeof(contrast_text), "%.3f", static_cast<double>(contrast));
-        replace_all(filters, "GRADE", grade ? "true" : "false");
-        replace_all(filters, "SHADOWS", shadows_text);
-        replace_all(filters, "CONTRAST", contrast_text);
-        source.replace(at, tap.size(), filters);
-        return build_utility_program(blit_vertex_shader_source(), source, what);
+    // One text for every setting: the values are uniforms (display_copy_hlsl), so the GLSL library has it.
+    const std::string filtered = gles::display_copy_hlsl();
+    const auto build = [&](float strength, bool antialias, std::array<float, 4>& values, const char* what) -> GLuint {
+        values = {strength, grade ? shadows : 0.0f, grade ? contrast : 0.0f, antialias ? 1.0f : 0.0f};
+        return filtered.empty() ? 0u : build_utility_program(blit_vertex_shader_source(), filtered, what);
     };
     if (conversion_program_ != 0u && (efb_divided() || !dynamic_levels_.empty()) && (sharpen > 0.0f || aa || grade)) {
-        xfb_program_ = build(sharpen, aa, "display copy (filtered)");
+        xfb_program_ = build(sharpen, aa, xfb_filter_, "display copy (filtered)");
     }
     if (conversion_program_ != 0u && (aa || grade) && (!efb_divided() || !dynamic_levels_.empty())) {
-        xfb_full_program_ = build(0.0f, aa, "display copy (filtered, 100 %)");
+        xfb_full_program_ = build(0.0f, aa, xfb_full_filter_, "display copy (filtered, 100 %)");
     }
     if (xfb_program_ != 0u || xfb_full_program_ != 0u) {
         std::fprintf(stderr, "[gles] display copy filtered: sharpen %.2f (reduced resolution), anti-aliasing %s, "
@@ -829,13 +891,49 @@ void RendererGles::begin_frame(bool) {
         throw std::runtime_error("the OpenGL ES context could not be made current on the render thread");
     }
     gles::Context& context = gles::Context::get();
-    frame_slot_ = static_cast<unsigned>(frame_index_ % kFramesInFlight);
+    frame_draws_ = 0u;
+    const bool rotate = !slot_per_present_ || rotate_next_ || stretches_in_slot_ >= kMaxStretchesPerSlot;
+    slot_rotated_ = rotate;
+    rotate_next_ = false;
+    if (!rotate) {
+        // GALAXY_GLES_SLOT_POR_IMAGEN: this stretch continues the slot (no present since it was taken). Its rings,
+        // tables and lists keep what the earlier stretches put there; nothing waits.
+        ++stretches_in_slot_;
+        context.collect();
+        refresh_default_sampler_table();
+        reset_gx_bindings();
+        bound_.framebuffer = ~0u;
+        bind_efb_framebuffer();
+        gpu_in_frame_ = true;
+        gpu_part(kGpuScene);
+        {
+            const std::uint64_t resize = host_window::pending_resize_extent.exchange(0u, std::memory_order_acq_rel);
+            if (resize != 0u) {
+                host_window::gles_drawable_size(window_, drawable_width_, drawable_height_);
+            }
+        }
+        last_frame_slot_wait_us_ = 0u;
+        if (context.checking()) {
+            context.check_errors("begin_frame");
+        }
+        return;
+    }
+    stretches_in_slot_ = 1u;
+    if (slot_per_present_) {
+        borrowed_slots_ = 0u;  // the previous slot's stretches all gave their fences to what they borrowed
+        frame_slot_ = static_cast<unsigned>(slot_sequence_++ % kFramesInFlight);
+    } else {
+        frame_slot_ = static_cast<unsigned>(frame_index_ % kFramesInFlight);
+    }
     Frame& frame = frames_[frame_slot_];
     const auto wait_start = std::chrono::steady_clock::now();
     if (frame.fence != 0u) {
         wait_for_fence_value(frame.fence);
     }
-    const auto waited = std::chrono::steady_clock::now() - wait_start;
+    const auto wait_end = std::chrono::steady_clock::now();
+    const auto waited = wait_end - wait_start;
+    note_slot_wait(frame, std::chrono::duration_cast<std::chrono::nanoseconds>(wait_start.time_since_epoch()).count(),
+                   std::chrono::duration_cast<std::chrono::nanoseconds>(wait_end.time_since_epoch()).count());
     last_frame_slot_wait_us_ =
         static_cast<std::uint64_t>(std::chrono::duration_cast<std::chrono::microseconds>(waited).count());
     window_stats_.frame_wait_ns += std::chrono::duration_cast<std::chrono::nanoseconds>(waited).count();
@@ -844,6 +942,13 @@ void RendererGles::begin_frame(bool) {
     context.collect();
     frame.retired.clear();
     refresh_default_sampler_table();
+    if (index_recycle_frames_ != 0u && frame_index_ != 0u && frame_index_ % index_recycle_frames_ == 0u) {
+        // GALAXY_GLES_INDEX_RECYCLE=n (a test): a new index ring every n frames. The old buffer goes with the deferred
+        // deletion (after a fence past every frame that used it); the driver drops what it kept for it.
+        if (index_ring_.initialize(context.device(), "index", index_ring_.bytes_per_frame(), kFramesInFlight)) {
+            ++window_stats_.index_recycles;
+        }
+    }
     vertex_ring_.begin_frame(frame_slot_);
     index_ring_.begin_frame(frame_slot_);
     constant_ring_.begin_frame(frame_slot_);
@@ -888,8 +993,33 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
             }
         }
     }
+    if (ultra::enabled() && gles::glthread::active()) {
+        // fences.csv (u109): what this stretch held, from the window stats since the previous fence.
+        const auto delta = [](std::uint64_t a, std::uint64_t b) {
+            return static_cast<std::uint32_t>(a >= b ? a - b : a);
+        };
+        const Window& now = window_stats_;
+        gles::glthread::tag_fence(context.submitted_value() + 1u, delta(now.draws, tag_prev_.draws),
+                                  delta(now.copies, tag_prev_.copies), delta(now.clears, tag_prev_.clears),
+                                  delta(now.peeks + now.sync_peeks + now.readbacks,
+                                        tag_prev_.peeks + tag_prev_.sync_peeks + tag_prev_.readbacks),
+                                  present_swap_chain && presented_this_frame_);
+        tag_prev_ = window_stats_;
+    }
     const std::uint64_t fence = context.submit();
+    const std::int64_t submit_ns = monotonic_ns();
     frames_[frame_slot_].fence = fence;
+    frames_[frame_slot_].submit_ns = submit_ns;
+    // Slots this frame's rings continued into (borrow_frame_slot): their next frame waits for this one.
+    for (unsigned slot = 0; slot < kFramesInFlight; ++slot) {
+        if ((borrowed_slots_ & (1u << slot)) != 0u) {
+            frames_[slot].fence = fence;
+            frames_[slot].submit_ns = submit_ns;
+        }
+    }
+    if (!slot_per_present_) {
+        borrowed_slots_ = 0u;  // (per present: kept until the slot changes, every stretch's fence goes to them)
+    }
     if (pointer_depth_in_frame_) {
         pointer_depth_fence_ = fence;
         pointer_depth_in_frame_ = false;
@@ -946,8 +1076,12 @@ std::uint64_t RendererGles::end_frame(bool present_swap_chain, SubmissionCallbac
         }
     }
     const bool presented = present_swap_chain && presented_this_frame_;
+    if (presented) {
+        rotate_next_ = true;  // GALAXY_GLES_SLOT_POR_IMAGEN: the next stretch starts the next picture's slot
+    }
     presented_this_frame_ = false;
-    if (presented && ultra::enabled()) {
+    // ULTRA-GLES and Nopal's debug channel (nopal_depurar.h) take the same frame sample.
+    if (presented && (ultra::enabled() || nopal_depurar::active())) {
         ultra_frame();
     }
     ++frame_index_;
@@ -982,6 +1116,15 @@ void RendererGles::ultra_frame() {
     sample.cpu_ns = ultra_cpu_prev_ != 0 ? cpu - ultra_cpu_prev_ : 0;
     sample.draw_ns = span(now.draw_ns, was.draw_ns);
     sample.slot_wait_ns = span(now.frame_wait_ns, was.frame_wait_ns);
+    sample.slot_wait_queue_ns = span(now.slot_wait_queue_ns, was.slot_wait_queue_ns);
+    sample.slot_wait_gpu_ns = span(now.slot_wait_gpu_ns, was.slot_wait_gpu_ns);
+    sample.fence_queue_ns = span(now.fence_queue_ns, was.fence_queue_ns);
+    sample.fence_gpu_ns = span(now.fence_gpu_ns, was.fence_gpu_ns);
+    sample.fences_timed = count(now.fences_timed, was.fences_timed);
+    sample.fence_gpu_end_ns = span(now.fence_gpu_end_ns, was.fence_gpu_end_ns);
+    sample.fence_publish_ns = span(now.fence_publish_ns, was.fence_publish_ns);
+    sample.fences_gpu_timed = count(now.fences_gpu_timed, was.fences_gpu_timed);
+    sample.fences_gpu_bad = count(now.fences_gpu_bad, was.fences_gpu_bad);
     sample.swap_wait_ns = ultra_swap_ns_;
     sample.readback_ns = span(now.readback_ns, was.readback_ns);
     sample.sync_peek_ns = span(now.sync_peek_ns, was.sync_peek_ns);
@@ -1004,12 +1147,14 @@ void RendererGles::ultra_frame() {
                                                            gl.full_wait_ns - ultra_gl_prev_.full_wait_ns);
         sample.gl_syncs = static_cast<std::uint32_t>(gl.syncs - ultra_gl_prev_.syncs);
         sample.gl_commands = static_cast<std::uint32_t>(gl.commands - ultra_gl_prev_.commands);
+        sample.gl_swap_pending_ns = static_cast<std::int64_t>(gl.swap_pending_ns - ultra_gl_prev_.swap_pending_ns);
         ultra_gl_prev_ = gl;
     }
     ultra::frame(sample);
     ultra_prev_ = window_stats_;
     ultra_cpu_prev_ = cpu;
     ultra_swap_ns_ = 0;
+    nopal_depurar::frame(sample);  // last: a pause from the Estudio holds the render thread here
 }
 
 void RendererGles::report_stats() {
@@ -1023,12 +1168,74 @@ void RendererGles::report_stats() {
         const auto gpu_part_average = [this](std::size_t part) {
             return window_stats_.gpu_frames != 0u ? window_stats_.gpu_part_ms[part] / window_stats_.gpu_frames : 0.0;
         };
+        std::string palette_note;
+        if (window_stats_.dual_draws != 0u) {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %.1f dual-source draws (%.1f blended in the shader)",
+                          static_cast<double>(window_stats_.dual_draws) / frames,
+                          static_cast<double>(window_stats_.fetch_blend_draws) / frames);
+            palette_note = note;
+        }
+        if (gles::Context::get().caps().palette_texture_2d) {
+            char note[64];
+            std::snprintf(note, sizeof(note), "; %.1f palette uploads",
+                          static_cast<double>(window_stats_.palette_uploads) / frames);
+            palette_note += note;
+        }
+        {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %llu draws in the biggest frame (%llu flushes inside frames)",
+                          static_cast<unsigned long long>(window_stats_.max_frame_draws),
+                          static_cast<unsigned long long>(window_stats_.split_flushes));
+            palette_note += note;
+        }
+        if (index_recycle_frames_ != 0u) {
+            char note[64];
+            std::snprintf(note, sizeof(note), "; %llu new index rings",
+                          static_cast<unsigned long long>(window_stats_.index_recycles));
+            palette_note += note;
+        }
+        if (check_range_) {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %llu draws with indices past their vertices",
+                          static_cast<unsigned long long>(window_stats_.range_misses));
+            palette_note += note;
+        }
+        if (window_stats_.borrowed_slots != 0u) {
+            char note[96];
+            std::snprintf(note, sizeof(note), "; %llu ring segments continued into another slot",
+                          static_cast<unsigned long long>(window_stats_.borrowed_slots));
+            palette_note += note;
+        }
+        if (!gles::Context::get().caps().buffer_storage) {
+            // OpenGL ES 3.0: what the CPU copies sent a frame, and the process's resident memory (the copies' pages
+            // count once written).
+            const gles::Context::CopyStats copies = gles::Context::get().copy_stats();
+            long rss_kib = -1;
+            if (std::FILE* status = std::fopen("/proc/self/status", "r")) {
+                char line[128];
+                while (std::fgets(line, sizeof(line), status) != nullptr) {
+                    if (std::strncmp(line, "VmRSS:", 6) == 0) {
+                        rss_kib = std::strtol(line + 6, nullptr, 10);
+                        break;
+                    }
+                }
+                std::fclose(status);
+            }
+            char note[160];
+            std::snprintf(note, sizeof(note), "; copies %.1f writes %.0f KiB a frame (%llu MiB of copies), VmRSS %ld MiB",
+                          static_cast<double>(copies.ranges - copy_stats_prev_.ranges) / frames,
+                          static_cast<double>(copies.bytes - copy_stats_prev_.bytes) / 1024.0 / frames,
+                          static_cast<unsigned long long>(copies.copy_bytes >> 20u), rss_kib >= 0 ? rss_kib / 1024 : -1);
+            copy_stats_prev_ = copies;
+            palette_note += note;
+        }
         std::fprintf(stderr,
                      "[gles] %.1f frames/s; render thread %.1f ms/s (swap waits %.1f, frame-slot waits %.1f ms/s, readbacks %.1f ms/s); a frame: %.0f draws, "
                      "%.1f copies, %.1f clears, %.1f peeks (%.2f waited, %.2f whole fields), %.0f program changes, %.1f "
                      "draws skipped, %.0f vertices, %.2f depth discards, %.2f repeated display copies; in draw() %.1f ms/s, waited peeks %.1f ms/s; GPU %.2f ms "
                      "average (scene %.2f, copies %.2f, xfb %.2f, peeks %.2f, present %.2f), %.2f longest; "
-                     "rings peak KiB v=%zu i=%zu c=%zu m=%zu; textures %llu KiB uploaded\n",
+                     "rings peak KiB v=%zu i=%zu c=%zu m=%zu; textures %llu KiB uploaded%s\n",
                      frames / seconds, static_cast<double>(cpu - last_cpu) / 1e6 / seconds,
                      static_cast<double>(window_stats_.present_wait_ns) / 1e6 / seconds,
                      static_cast<double>(window_stats_.frame_wait_ns) / 1e6 / seconds,
@@ -1051,7 +1258,8 @@ void RendererGles::report_stats() {
                      index_ring_.take_peak_bytes_per_frame() >> 10u, constant_ring_.take_peak_bytes_per_frame() >> 10u,
                      matrix_ring_.take_peak_bytes_per_frame() >> 10u,
                      static_cast<unsigned long long>(textures_ != nullptr ? textures_->backend().take_uploaded_bytes() >> 10u
-                                                                          : 0u));
+                                                                          : 0u),
+                     palette_note.c_str());
     }
     last_cpu = cpu;
     last_time = now;
@@ -1317,6 +1525,19 @@ void RendererGles::draw(const DrawCall& call) {
         return;
     }
     ++window_stats_.draws;
+    ++frame_draws_;
+    window_stats_.max_frame_draws = std::max<std::uint64_t>(window_stats_.max_frame_draws, frame_draws_);
+#if defined(NEBULA_HAS_MEMTRACE_NOTE)
+    if (nebula_memtrace_note != nullptr) {
+        nebula_memtrace_note(frame_index_, static_cast<std::uint32_t>(frame_draws_));
+    }
+#endif
+    // GALAXY_GLES_FLUSH_DRAWS=n (off by default): glFlush every n draws of one frame (a galaxy's load has up to ~2100;
+    // ordinary frames 150-450). Tried against the Mali's growing heap block: it did not change it.
+    if (flush_draws_ != 0u && frame_draws_ % flush_draws_ == 0u) {
+        glFlush();
+        ++window_stats_.split_flushes;
+    }
     const std::int64_t start = monotonic_ns();
     struct Timed {
         std::int64_t start;
@@ -1377,8 +1598,12 @@ void RendererGles::draw(const DrawCall& call) {
     };
     bind(call.vs_constants, 0u, GL_UNIFORM_BUFFER, 0u, sizeof(GxVsConstants), constant_ring_.gpu_base());
     bind(call.ps_constants, 1u, GL_UNIFORM_BUFFER, 1u, sizeof(GxPsConstants), constant_ring_.gpu_base());
-    bind(call.matrix_palette, 2u, gx_layout_.palette_storage_block ? GL_SHADER_STORAGE_BUFFER : GL_TEXTURE_BUFFER, 0u,
-         0u, matrix_ring_.gpu_base());
+    if (context.caps().palette_texture_2d) {
+        bind_palette_2d(call.matrix_palette, matrix_ring_.gpu_base());
+    } else {
+        bind(call.matrix_palette, 2u, gx_layout_.palette_storage_block ? GL_SHADER_STORAGE_BUFFER : GL_TEXTURE_BUFFER,
+             0u, 0u, matrix_ring_.gpu_base());
+    }
     bound_.constants_valid = true;
 
     // Textures (units 0-7) and their samplers.
@@ -1453,31 +1678,149 @@ void RendererGles::draw(const DrawCall& call) {
     if (!bound_.viewport_valid) {
         bind_efb(nullptr);
     }
-    if (call.vertex_view.BufferLocation != bound_.vertex_address) {
+    const std::uint32_t stride = call.vertex_view.StrideInBytes != 0u ? call.vertex_view.StrideInBytes : 144u;
+    GLint base_vertex = 0;
+    if (!context.caps().vertex_attrib_binding) {
+        set_vertex_pointers(call.vertex_view.BufferLocation, stride);
+    } else if (vertex_base_) {
+        // GALAXY_GLES_VERTEX_BASE=1: the buffer bound at (offset mod stride) and the rest as the draw's base vertex, so
+        // the binding takes at most `stride / 16` offsets per buffer instead of a new one every draw.
         const gles::Context::BufferOffset vertices = context.resolve(call.vertex_view.BufferLocation);
-        glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(vertices.offset),
-                           static_cast<GLsizei>(call.vertex_view.StrideInBytes != 0u ? call.vertex_view.StrideInBytes
-                                                                                      : 144u));
+        const std::uint64_t residue = vertices.offset % stride;
+        base_vertex = static_cast<GLint>((vertices.offset - residue) / stride);
+        const gpu::Address key = (call.vertex_view.BufferLocation - (vertices.offset - residue)) ^
+            (static_cast<gpu::Address>(stride) << 56u);
+        if (key != bound_.vertex_address) {
+            glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(residue), static_cast<GLsizei>(stride));
+            bound_.vertex_address = key;
+        }
+    } else if (call.vertex_view.BufferLocation != bound_.vertex_address) {
+        const gles::Context::BufferOffset vertices = context.resolve(call.vertex_view.BufferLocation);
+        glBindVertexBuffer(0, vertices.buffer, static_cast<GLintptr>(vertices.offset), static_cast<GLsizei>(stride));
         bound_.vertex_address = call.vertex_view.BufferLocation;
     }
     if (call.index_count == 0u) {
         return;
     }
+    context.flush_writes();  // OpenGL ES 3.0 without EXT_buffer_storage: this draw's uploads reach the GPU
     window_stats_.vertices += call.index_count;
+    if (call.pipeline->dual_source) {
+        ++window_stats_.dual_draws;
+        window_stats_.fetch_blend_draws += call.pipeline->fetch_blend ? 1u : 0u;
+    }
     if (call.index_view.BufferLocation != 0u) {
         const gles::Context::BufferOffset indices = context.resolve(call.index_view.BufferLocation);
         if (indices.buffer != bound_.index_buffer) {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, indices.buffer);
             bound_.index_buffer = indices.buffer;
         }
-        glDrawElements(call.topology, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT,
-                       reinterpret_cast<const void*>(static_cast<std::uintptr_t>(indices.offset)));
+        // glDrawRangeElements with the draw's vertices (0 .. count - 1): the indices only reach the vertices the
+        // draw's view holds. With plain glDrawElements the Mali's driver works the range out itself and keeps a heap
+        // table for it that only grows (NEBULA_MEMTRACE: 5 -> 80 MiB over the galaxies, in glDrawElements).
+        const std::uint32_t vertex_count = call.vertex_view.SizeInBytes / stride;
+        const void* first = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(indices.offset));
+        if (draw_range_ && vertex_count != 0u) {
+            std::uint32_t last = vertex_count - 1u;
+            if (check_range_ && indices.object != nullptr && indices.object->mapped != nullptr) {
+                // GALAXY_GLES_CHECK_RANGE=1: the indices read back; a draw past its view is counted and drawn with
+                // its true range.
+                const auto* index = reinterpret_cast<const std::uint16_t*>(indices.object->mapped + indices.offset);
+                std::uint32_t highest = 0u;
+                for (std::uint32_t i = 0; i < call.index_count; ++i) highest = std::max<std::uint32_t>(highest, index[i]);
+                if (highest > last) {
+                    ++window_stats_.range_misses;
+                    last = highest;
+                }
+            }
+            if (base_vertex != 0) {
+                glDrawRangeElementsBaseVertex(call.topology, 0u, last, static_cast<GLsizei>(call.index_count),
+                                              GL_UNSIGNED_SHORT, first, base_vertex);
+            } else {
+                glDrawRangeElements(call.topology, 0u, last, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT,
+                                    first);
+            }
+        } else if (base_vertex != 0) {
+            glDrawRangeElementsBaseVertex(call.topology, 0u, 65535u, static_cast<GLsizei>(call.index_count),
+                                          GL_UNSIGNED_SHORT, first, base_vertex);
+        } else {
+            glDrawElements(call.topology, static_cast<GLsizei>(call.index_count), GL_UNSIGNED_SHORT, first);
+        }
     } else {
-        glDrawArrays(call.topology, 0, static_cast<GLsizei>(call.index_count));
+        glDrawArrays(call.topology, base_vertex, static_cast<GLsizei>(call.index_count));
     }
     if (context.checking()) {
         context.check_errors("draw");
     }
+}
+
+void RendererGles::set_vertex_pointers(gpu::Address address, std::uint32_t stride) {
+    if (address != pointers_address_ || stride != pointers_stride_) {
+        pointers_address_ = address;
+        pointers_stride_ = stride;
+        pointers_mask_ = 0u;
+    }
+    // Only the locations the program reads (enabled_attributes_ is its mask now), each once per vertex address.
+    const std::uint32_t needed = enabled_attributes_ & ~pointers_mask_;
+    if (needed == 0u) {
+        return;
+    }
+    const gles::Context::BufferOffset vertices = gles::Context::get().resolve(address);
+    if (vertices.buffer != array_buffer_) {
+        glBindBuffer(GL_ARRAY_BUFFER, vertices.buffer);
+        array_buffer_ = vertices.buffer;
+    }
+    for (const GlesVertexAttribute& attribute : kVertexAttributes) {
+        if ((needed & (1u << attribute.location)) == 0u) {
+            continue;
+        }
+        const void* at = reinterpret_cast<const void*>(static_cast<std::uintptr_t>(vertices.offset + attribute.offset));
+        if (attribute.integer) {
+            glVertexAttribIPointer(attribute.location, attribute.size, attribute.type, static_cast<GLsizei>(stride), at);
+        } else {
+            glVertexAttribPointer(attribute.location, attribute.size, attribute.type, GL_FALSE,
+                                  static_cast<GLsizei>(stride), at);
+        }
+    }
+    pointers_mask_ |= needed;
+}
+
+void RendererGles::bind_palette_2d(gpu::Address address, gpu::Address fallback) {
+    const gpu::Address use = address != 0u ? address : bound_.constants_valid ? 0u : fallback;
+    if (use == 0u) {
+        return;
+    }
+    const gles::Context::BufferOffset resolved = gles::Context::get().resolve(use);
+    if (resolved.object == nullptr || resolved.object->mapped == nullptr) {
+        return;
+    }
+    // As the texture buffer's: from the ring's base, the buffer to its end (mtx_palette_base counts from there),
+    // else one palette; at most the texture's 1 MiB.
+    std::uint64_t range = resolved.offset == 0u ? resolved.object->size : kPaletteBytes;
+    range = std::min<std::uint64_t>({range, resolved.object->size - resolved.offset,
+                                     std::uint64_t{16u} * gles::kPaletteTextureWidth * kPalette2dRows});
+    const std::uint64_t writes = resolved.object->writes.load(std::memory_order_acquire);
+    if (palette_2d_.buffer == resolved.object && palette_2d_.offset == resolved.offset && palette_2d_.range == range &&
+        palette_2d_.writes == writes) {
+        return;
+    }
+    // The CPU's bytes (the copy, or the persistent mapping): written before this draw, as the buffer's would be.
+    const std::byte* source = resolved.object->mapped + resolved.offset;
+    const std::uint64_t texels = range / 16u;
+    const std::uint64_t rows = texels / gles::kPaletteTextureWidth;
+    const std::uint64_t rest = texels % gles::kPaletteTextureWidth;
+    glActiveTexture(GL_TEXTURE0 + gles::kPaletteTextureUnit);
+    glBindTexture(GL_TEXTURE_2D, palette_texture_);
+    if (rows != 0u) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, static_cast<GLsizei>(gles::kPaletteTextureWidth),
+                        static_cast<GLsizei>(rows), GL_RGBA_INTEGER, GL_UNSIGNED_INT, source);
+    }
+    if (rest != 0u) {
+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, static_cast<GLint>(rows), static_cast<GLsizei>(rest), 1, GL_RGBA_INTEGER,
+                        GL_UNSIGNED_INT, source + rows * gles::kPaletteTextureWidth * 16u);
+    }
+    glActiveTexture(GL_TEXTURE0);
+    palette_2d_ = Palette2d{resolved.object, resolved.offset, range, writes};
+    ++window_stats_.palette_uploads;
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1500,7 +1843,16 @@ void RendererGles::conversion_draw(GLuint framebuffer, unsigned dest_w, unsigned
     glViewport(0, 0, static_cast<GLsizei>(dest_w), static_cast<GLsizei>(dest_h));
     utility_state();
     glUseProgram(conversion_override_ != 0u ? conversion_override_ : conversion_program_);
-    bind_utility_constants(constants.values.data(), sizeof(constants.values));
+    if (conversion_override_ != 0u && (conversion_override_ == xfb_program_ || conversion_override_ == xfb_full_program_)) {
+        // The display copy's filters: their values after the conversion's constants (display_copy_hlsl).
+        std::array<float, 20> values{};
+        std::copy(constants.values.begin(), constants.values.end(), values.begin());
+        const std::array<float, 4>& filter = conversion_override_ == xfb_program_ ? xfb_filter_ : xfb_full_filter_;
+        std::copy(filter.begin(), filter.end(), values.begin() + 16);
+        bind_utility_constants(values.data(), sizeof(values));
+    } else {
+        bind_utility_constants(constants.values.data(), sizeof(constants.values));
+    }
     const GLuint source = depth ? efb_depth_->name : efb_color_->name;
     // t0 with s0 (linear; point for depth, which OpenGL ES does not filter) at unit 0, with s1 (point) at unit 1.
     glActiveTexture(GL_TEXTURE0);
@@ -1514,6 +1866,7 @@ void RendererGles::conversion_draw(GLuint framebuffer, unsigned dest_w, unsigned
     bound_.samplers_valid = false;
     glBindVertexArray(empty_vao_);
     enabled_attributes_ = ~0u;
+    gles::Context::get().flush_writes();
     glDrawArrays(GL_TRIANGLES, 0, 3);
     glBindVertexArray(vao_);
     // The EFB textures leave the units, so a draw that samples a copy never also has the EFB bound.
@@ -1718,8 +2071,60 @@ bool RendererGles::copy_efb_to_texture(const EfbCopyParams& params, TextureCache
         is_effect_copy(policy, params, is_depth_copy, dw_unscaled, dh_unscaled);
     const ScaledEfbCopyExtent extent = compute_scaled_efb_copy_extent(
         static_cast<std::uint16_t>(dw_unscaled), static_cast<std::uint16_t>(dh_unscaled), native ? 1u : efb_scale_);
-    const unsigned w = extent.width;
-    const unsigned h = extent.height;
+    unsigned w = extent.width;
+    unsigned h = extent.height;
+    // GALAXY_GLES_COPIA_REDUCIDA=1 (experiment, off by default): with a divided EFB at 1x (3/4, 1/2...), a colour
+    // copy to a texture is written at the physical size the EFB holds it (480x342 for 640x456 at 3/4) instead of the
+    // logical one: no texel more than the source has. Only when both sides divide exactly, so each destination
+    // texel is one physical EFB texel. The game's view of it does not change: the alias keeps the logical width,
+    // height and format (TextureCache::register_efb_copy) and GLES samples it with normalised coordinates; the
+    // sampling geometry below is computed from these sizes, and the copy filter's taps stay one logical row apart
+    // (to_physical). Not for depth copies, the copy that takes the shown picture (copy_output_efb_to_texture),
+    // native effect copies or a 2x+ EFB. GALAXY_GLES_COPIA_REDUCIDA_FORMATOS=4,7 limits it to those copy formats.
+    static const bool reduce = [] {
+        const char* value = std::getenv("GALAXY_GLES_COPIA_REDUCIDA");
+        return value != nullptr && value[0] == '1';
+    }();
+    static const std::uint32_t reduce_formats = [] {
+        const char* value = std::getenv("GALAXY_GLES_COPIA_REDUCIDA_FORMATOS");
+        if (value == nullptr || *value == '\0') {
+            return 0xffffffffu;
+        }
+        std::uint32_t mask = 0u;
+        for (const char* p = value; *p != '\0';) {
+            char* end = nullptr;
+            const unsigned long format = std::strtoul(p, &end, 10);
+            if (end == p) {
+                ++p;
+                continue;
+            }
+            if (format < 32u) {
+                mask |= 1u << format;
+            }
+            p = end;
+        }
+        return mask;
+    }();
+    // GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640: only copies at least that wide (logical), to tell full-screen copies
+    // from the small effect ones.
+    static const unsigned reduce_min_width = [] {
+        const char* value = std::getenv("GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO");
+        return value != nullptr ? static_cast<unsigned>(std::strtoul(value, nullptr, 10)) : 0u;
+    }();
+    if (reduce && !is_depth_copy && !copying_output_ && !native && efb_scale_ == 1u && efb_divided() &&
+        dw_unscaled >= reduce_min_width &&
+        params.target_format < 32u && (reduce_formats & (1u << params.target_format)) != 0u &&
+        w * efb_num_ % efb_den_ == 0u && h * efb_num_ % efb_den_ == 0u) {
+        static std::uint64_t reduced_total = 0u;  // render thread only
+        if (reduced_total++ % 20000u == 0u) {
+            std::fprintf(stderr, "[gles] copia reducida (GALAXY_GLES_COPIA_REDUCIDA=1): %llu copias de color a %u/%u; "
+                         "esta %ux%u -> %ux%u, formato %u\n",
+                         static_cast<unsigned long long>(reduced_total), efb_num_, efb_den_, w, h,
+                         w * efb_num_ / efb_den_, h * efb_num_ / efb_den_, static_cast<unsigned>(params.target_format));
+        }
+        w = w * efb_num_ / efb_den_;
+        h = h * efb_num_ / efb_den_;
+    }
     if (w == 0u || h == 0u) {
         return false;
     }
@@ -1794,6 +2199,11 @@ bool RendererGles::copy_efb_to_texture(const EfbCopyParams& params, TextureCache
 }
 
 bool RendererGles::copy_output_efb_to_texture(const EfbCopyParams& params, TextureCache& textures) {
+    copying_output_ = true;
+    struct Reset {
+        bool& flag;
+        ~Reset() { flag = false; }
+    } reset{copying_output_};
     return copy_efb_to_texture(params, textures, false);
 }
 

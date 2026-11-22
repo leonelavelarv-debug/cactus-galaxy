@@ -1,6 +1,12 @@
 #include "Game/Screen/MoviePlayingSequence.hpp"
 #ifdef TARGET_PC
+#include "Game/Screen/NebulaMovieEvents.hpp"
 #include "Game/System/NebulaCutsceneSkip.hpp"
+
+namespace {
+    // Nebula: the movie frames already covered by this sequence's events (one movie plays at a time).
+    NebulaMovieFrameRange sEventFrames;
+}  // namespace
 #endif
 #include "Game/Demo/DemoPadRumbler.hpp"
 #include "Game/LiveActor/Nerve.hpp"
@@ -295,6 +301,9 @@ void MoviePlayingSequence::exePlayWait() {
 
 void MoviePlayingSequence::exePlayStart() {
     if (MR::isFirstStep(this)) {
+#ifdef TARGET_PC
+        sEventFrames.reset();
+#endif
         MR::startMoviePlayer(::getMovieName(mInfo));
         MR::tryFrameToScreenCinemaFrame();
     } else if (MR::isMoviePlayerPlaying()) {
@@ -312,8 +321,26 @@ void MoviePlayingSequence::exePlay() {
         MR::setMovieVolume(mInfo->mVolume, 50);
     }
 
+#ifdef TARGET_PC
+    // Nebula: the movie may have stepped several frames since the last game frame (MoviePlayerSimple's extra decodes for
+    // its audio); the subtitles and rumbles of every frame stepped over fire, each once (NebulaMovieEvents.hpp).
+    {
+        s32 from, to;
+        sEventFrames.advance(MR::getMovieCurrentFrame(), &from, &to);
+        for (MovieSubtitles** pSubtitles = mSubtitles.begin(); pSubtitles != mSubtitles.end(); pSubtitles++) {
+            s32 index = pSubtitles - mSubtitles.begin();
+            if (NebulaMovieFrameRange::contains(MovieSubtitlesUtil::getSubtitlesStartStep(mInfo->mMovieName, index), from,
+                                                to)) {
+                MR::requestMovementOn(*pSubtitles);
+                (*pSubtitles)->appear();
+            }
+        }
+        mPadRumbler->updateBetween(from, to);
+    }
+#else
     tryStartSubtitles();
     mPadRumbler->update(MR::getMovieCurrentFrame());
+#endif
 
     if (trySkip()) {
         return;

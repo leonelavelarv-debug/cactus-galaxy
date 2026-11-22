@@ -442,8 +442,19 @@ struct FifoGuestMemoryReadRecorder {
 // ---------------------------------------------------------------------------
 // FifoParser.
 // ---------------------------------------------------------------------------
+// GALAXY_GX_DL_MARCAR (an experiment, 0 by default): the game's cache flushes (DCFlushRange/DCStoreRange ->
+// nebula_gpu_coherent -> dirty pages) mark the cached display lists they overlap, instead of nothing (the dirty
+// invalidation is off by default) or dropping them (GALAXY_DISPLAY_LIST_DIRTY_INVALIDATE: the game re-flushes
+// lists whose bytes did not change, and each drop costs a re-parse).
+//   1  a list not marked is taken as current without comparing its bytes; a marked one is compared (and unmarked);
+//   2  verify 1: every list is compared, and one that changed without a mark is counted and logged
+//      ([gx] lista sin aviso). 1 has to be backed by a run of 2 with no such line.
+[[nodiscard]] int display_list_mark_mode() noexcept;
+
 class FifoParser {
 public:
+    // Retained capacity of the display-list cache (the memory census; budget GALAXY_GX_DISPLAY_LIST_CACHE_MB).
+    [[nodiscard]] std::uint64_t display_list_cache_bytes() const noexcept { return cache_bytes_; }
     // Parses one frame's accumulated FIFO bytes.  Register loads mutate
     // `state` (including LOAD_INDX resolution through `memory`); draws, EFB
     // copies, PE events, and invalidations are dispatched to `sink`.
@@ -588,6 +599,9 @@ private:
         std::uint64_t last_used = 0;
         // memory_generation_ when `bytes` were last proven equal to guest memory (0: never).
         std::uint64_t validated_generation = 0;
+        // GALAXY_GX_DL_MARCAR: a cache flush of the game touched the list since its bytes were last compared
+        // (set by invalidate_display_list_cache_range instead of dropping it). Starts set: the first use compares.
+        bool flushed = true;
         std::vector<std::byte> bytes;
         std::vector<CachedDisplayListCommand> commands;
         std::vector<std::pair<std::uint8_t, std::uint32_t>> cp_dependencies;

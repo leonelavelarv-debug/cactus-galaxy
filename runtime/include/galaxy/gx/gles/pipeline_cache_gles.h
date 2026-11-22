@@ -14,6 +14,7 @@
 // GALAXY_GLES_SHADER_DUMP=<dir> writes every translated shader there.
 
 #include "galaxy/gx/gles/renderer_gles.h"
+#include "galaxy/gx/gles/shader_library_gles.h"
 #include "galaxy/gx/gles/shader_translate_gles.h"
 #include "galaxy/gx/shader_gen.h"
 #include "galaxy/gx/shader_keys.h"
@@ -81,6 +82,9 @@ public:
         std::string ps_hlsl;
     };
 
+    // GX programs the GLSL library lacked, drawn with the uber shader (a build without the translator).
+    [[nodiscard]] std::uint64_t library_misses() const noexcept { return library_misses_.load(); }
+
 private:
     struct Entry {
         PsoKey key{};
@@ -92,17 +96,23 @@ private:
         std::uint64_t vs = 0;
         std::uint64_t ps = 0;
         std::uint32_t form = 0;  // point size, uber variant + 1
+        // Dual-source pipelines with framebuffer fetch: the GX blend baked into the program (kFetchBlend |
+        // RenderStateKey blend bits 2-7 and 28), else 0.
+        std::uint32_t blend = 0;
         bool operator==(const PairKey&) const = default;
     };
+    static constexpr std::uint32_t kFetchBlend = 1u << 31u;
     struct PairKeyHasher {
         std::size_t operator()(const PairKey& key) const noexcept {
-            return static_cast<std::size_t>(combine64(combine64(key.vs, key.ps), key.form));
+            return static_cast<std::size_t>(combine64(combine64(combine64(key.vs, key.ps), key.form), key.blend));
         }
     };
     struct Program {
         GLuint name = 0;
         std::uint32_t attributes = 0;
         bool failed = false;
+        bool library_miss = false;  // not in the GLSL library, and no translator in this build
+        bool fetch_blend = false;   // blends in the shader (gles::fetch_blend_glsl): its pipelines draw with blend off
     };
     struct Job {
         PairKey pair{};
@@ -132,12 +142,25 @@ private:
     std::string driver_key_;
     gles::TranslateOptions translate_options_{};
     ShaderGenOptions generator_options_{};
+    std::atomic<std::uint64_t> library_misses_{0};
+    bool uber_needed_ = false;  // uber programs built at start (pending uber, or no translator)
     Pending pending_ = Pending::Wait;
     std::string shader_dump_dir_;
     bool binaries_ = false;
+    // Dual-source alpha (docs/GX_ES_FRAMEBUFFER_FETCH.md): blended in the shader with framebuffer fetch, or not.
+    gles::FramebufferFetch fetch_blend_ = gles::FramebufferFetch::None;
+    std::atomic<std::uint64_t> fetch_programs_{0};
+    std::atomic<std::uint64_t> fetch_failures_{0};
+
+public:
+    // GALAXY_GLES_BLEND_FETCH (auto, 1 or 0): which framebuffer fetch the dual-source pipelines blend with.
+    [[nodiscard]] gles::FramebufferFetch fetch_blend() const noexcept { return fetch_blend_; }
+
+private:
 
     // Render thread.
     std::unordered_map<PsoKey, std::unique_ptr<gles::Pipeline>, PsoKeyHasher> published_;
+    std::unordered_set<PsoKey, PsoKeyHasher> missed_;  // drawn with the uber shader: not in the GLSL library
     std::unordered_map<PairKey, Program, PairKeyHasher> programs_;
     std::unordered_set<PairKey, PairKeyHasher> in_flight_;
     std::unordered_map<std::uint64_t, std::unique_ptr<gles::Pipeline>> uber_pipelines_;

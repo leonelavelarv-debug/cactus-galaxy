@@ -3,12 +3,14 @@
 
 #include "galaxy/gx/gles/gles_context.h"
 #include "galaxy/gx/gles/gl_thread.h"
+#include "galaxy/gx/gles/shader_translate_gles.h"
 
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <new>
 #include <set>
 #include <stdexcept>
 
@@ -78,6 +80,10 @@ void GL_APIENTRY debug_callback(GLenum, GLenum type, GLuint, GLenum severity, GL
 }  // namespace
 
 Texture::~Texture() {
+    if (allocation_bytes != 0u) {
+        Context::live_texture_bytes.fetch_sub(allocation_bytes, std::memory_order_relaxed);
+        Context::live_texture_count.fetch_sub(1u, std::memory_order_relaxed);
+    }
     const GLuint texture = name;
     const GLuint fb = framebuffer;
     if (texture == 0u && fb == 0u) {
@@ -90,13 +96,23 @@ Texture::~Texture() {
 }
 
 Buffer::~Buffer() {
+    if (size != 0u) {
+        Context::live_buffer_bytes.fetch_sub(size, std::memory_order_relaxed);
+    }
     const GLuint buffer = name;
     const std::uint64_t gx_address = address;
-    const bool was_mapped = mapped != nullptr;
+    const bool was_mapped = mapped != nullptr && !copy;
+    // The GL thread reads the copy when a queued write runs (glthread::write_buffer): it lives until the deferred
+    // deletion, after a fence past every call queued now.
+    std::shared_ptr<std::byte> keep_copy;
+    if (copy) {
+        Context::get().forget_writes(this);
+        keep_copy.reset(copy.release(), FreeCopy{});
+    }
     if (buffer == 0u) {
         return;
     }
-    Context::get().defer([buffer, gx_address, was_mapped] {
+    Context::get().defer([buffer, gx_address, was_mapped, keep_copy] {
         if (was_mapped) {
             glBindBuffer(GL_COPY_WRITE_BUFFER, buffer);
             glUnmapBuffer(GL_COPY_WRITE_BUFFER);
@@ -132,24 +148,56 @@ bool Context::initialize(Loader loader) {
     caps_.version = string_of(GL_VERSION);
     glGetIntegerv(GL_MAJOR_VERSION, &caps_.version_major);
     glGetIntegerv(GL_MINOR_VERSION, &caps_.version_minor);
-    const bool es31 = caps_.version_major > 3 || (caps_.version_major == 3 && caps_.version_minor >= 1);
-    const bool es32 = caps_.version_major > 3 || (caps_.version_major == 3 && caps_.version_minor >= 2);
-    if (!es31) {
-        failure_ = "OpenGL ES 3.1 is needed (the driver has " + caps_.version + ")";
+    // OpenGL ES 3.0 is the base; what 3.1 and 3.2 add (storage and texture buffers, vertex attribute bindings) and
+    // EXT_buffer_storage are used when the driver has them. GALAXY_GLES_FORCE_ES30=1 tries the 3.0 path on any.
+    if (const char* force = std::getenv("GALAXY_GLES_FORCE_ES30"); force != nullptr && force[0] == '1') {
+        caps_.forced_es30 = true;
+    }
+    const bool es30 = caps_.version_major >= 3;
+    const bool es31 = !caps_.forced_es30 &&
+        (caps_.version_major > 3 || (caps_.version_major == 3 && caps_.version_minor >= 1));
+    const bool es32 = !caps_.forced_es30 &&
+        (caps_.version_major > 3 || (caps_.version_major == 3 && caps_.version_minor >= 2));
+    if (!es30) {
+        failure_ = "OpenGL ES 3.0 is needed (the driver has " + caps_.version + ")";
         std::fprintf(stderr, "[gles] %s\n", failure_.c_str());
         return false;
     }
-    caps_.buffer_storage = glBufferStorageEXT != nullptr && has_extension("GL_EXT_buffer_storage");
-    GLint vertex_blocks = 0;
-    glGetIntegerv(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, &vertex_blocks);
-    caps_.vertex_storage_blocks = vertex_blocks >= 1;
-    if (const char* force = std::getenv("GALAXY_GLES_PALETTE"); force != nullptr && std::strcmp(force, "texture") == 0) {
+    if (caps_.forced_es30) {
+        caps_.version_major = 3;
+        caps_.version_minor = 0;  // GLSL ES 3.00 and every 3.0 fallback (the log keeps the driver's own version)
+    }
+    caps_.buffer_storage = !caps_.forced_es30 && glBufferStorageEXT != nullptr && has_extension("GL_EXT_buffer_storage");
+    if (const char* off = std::getenv("GALAXY_GLES_BUFFER_STORAGE"); off != nullptr && off[0] == '0') {
+        caps_.buffer_storage = false;
+    }
+    caps_.vertex_attrib_binding = es31 && glVertexAttribFormat != nullptr && glVertexAttribIFormat != nullptr &&
+        glVertexAttribBinding != nullptr && glBindVertexBuffer != nullptr;
+    if (es31) {
+        GLint vertex_blocks = 0;
+        glGetIntegerv(GL_MAX_VERTEX_SHADER_STORAGE_BLOCKS, &vertex_blocks);
+        caps_.vertex_storage_blocks = vertex_blocks >= 1;
+        glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &caps_.storage_offset_alignment);
+    }
+    // GALAXY_GLES_PALETTE=texture: a texture buffer even with vertex storage blocks; =2d: the 2D texture of 3.0.
+    const char* palette = std::getenv("GALAXY_GLES_PALETTE");
+    if (palette != nullptr && (std::strcmp(palette, "texture") == 0 || std::strcmp(palette, "2d") == 0)) {
         caps_.vertex_storage_blocks = false;
     }
     if (glTexBufferRange == nullptr && glTexBufferRangeEXT != nullptr) {
         glTexBufferRange = glTexBufferRangeEXT;
     }
-    caps_.texture_buffer = glTexBufferRange != nullptr && (es32 || has_extension("GL_EXT_texture_buffer"));
+    caps_.texture_buffer = es31 && glTexBufferRange != nullptr && (es32 || has_extension("GL_EXT_texture_buffer")) &&
+        !(palette != nullptr && std::strcmp(palette, "2d") == 0);
+    caps_.palette_texture_2d = !caps_.vertex_storage_blocks && !caps_.texture_buffer;
+    caps_.glsl_version = glsl_version_for(caps_.version_major, caps_.version_minor);
+    if (caps_.palette_texture_2d || caps_.glsl_version == 300) {
+        // The 2D palette is GLSL ES 3.00's form (shader_translate_gles.h), and 3.00 has no other.
+        caps_.glsl_version = 300;
+        caps_.palette_texture_2d = true;
+        caps_.vertex_storage_blocks = false;
+        caps_.texture_buffer = false;
+    }
     caps_.timer_query = glQueryCounterEXT != nullptr && glGetQueryObjectui64vEXT != nullptr &&
         has_extension("GL_EXT_disjoint_timer_query");
     caps_.framebuffer_fetch_arm = has_extension("GL_ARM_shader_framebuffer_fetch");
@@ -158,7 +206,6 @@ bool Context::initialize(Loader loader) {
     glGetIntegerv(GL_NUM_PROGRAM_BINARY_FORMATS, &binary_formats);
     caps_.program_binary = binary_formats > 0;
     glGetIntegerv(GL_UNIFORM_BUFFER_OFFSET_ALIGNMENT, &caps_.uniform_offset_alignment);
-    glGetIntegerv(GL_SHADER_STORAGE_BUFFER_OFFSET_ALIGNMENT, &caps_.storage_offset_alignment);
     if (caps_.texture_buffer) {
         glGetIntegerv(GL_TEXTURE_BUFFER_OFFSET_ALIGNMENT, &caps_.texture_buffer_offset_alignment);
     }
@@ -167,13 +214,8 @@ bool Context::initialize(Loader loader) {
     glGetIntegerv(GL_MAX_SAMPLES, &caps_.max_samples);
     glGetIntegerv(GL_MAX_VERTEX_TEXTURE_IMAGE_UNITS, &caps_.max_vertex_texture_units);
     caps_.debug_output = glDebugMessageCallbackKHR != nullptr && has_extension("GL_KHR_debug");
-    if (!caps_.buffer_storage) {
-        failure_ = "the OpenGL ES driver has no GL_EXT_buffer_storage (persistent buffers)";
-        std::fprintf(stderr, "[gles] %s\n", failure_.c_str());
-        return false;
-    }
-    if (!caps_.vertex_storage_blocks && !caps_.texture_buffer) {
-        failure_ = "the OpenGL ES driver reads neither storage nor texture buffers in vertex shaders";
+    if (!caps_.vertex_storage_blocks && !caps_.texture_buffer && caps_.max_vertex_texture_units < 1) {
+        failure_ = "the OpenGL ES driver reads no textures in vertex shaders (the matrix palette)";
         std::fprintf(stderr, "[gles] %s\n", failure_.c_str());
         return false;
     }
@@ -190,12 +232,17 @@ bool Context::initialize(Loader loader) {
     ready_ = true;
     std::fprintf(stderr,
                  "[gles] \"%s\" by \"%s\", %s; palette from %s, UBO align %d, SSBO align %d, max UBO %d, "
-                 "framebuffer fetch %s, program binaries %s, timer queries %s, OpenGL ES %d.%d context\n",
+                 "framebuffer fetch %s, program binaries %s, timer queries %s, buffers %s, vertex attributes %s, "
+                 "OpenGL ES %d.%d context%s\n",
                  caps_.renderer.c_str(), caps_.vendor.c_str(), caps_.version.c_str(),
-                 caps_.vertex_storage_blocks ? "a storage buffer" : "a texture buffer", caps_.uniform_offset_alignment,
-                 caps_.storage_offset_alignment, caps_.max_uniform_block_bytes,
+                 caps_.vertex_storage_blocks ? "a storage buffer"
+                     : caps_.texture_buffer  ? "a texture buffer"
+                                             : "a 2D texture",
+                 caps_.uniform_offset_alignment, caps_.storage_offset_alignment, caps_.max_uniform_block_bytes,
                  caps_.framebuffer_fetch_arm ? "ARM" : caps_.framebuffer_fetch_ext ? "EXT" : "no",
-                 caps_.program_binary ? "yes" : "no", caps_.timer_query ? "yes" : "no", caps_.version_major, caps_.version_minor);
+                 caps_.program_binary ? "yes" : "no", caps_.timer_query ? "yes" : "no",
+                 caps_.buffer_storage ? "persistent" : "copied", caps_.vertex_attrib_binding ? "bindings" : "pointers",
+                 caps_.version_major, caps_.version_minor, caps_.forced_es30 ? " (GALAXY_GLES_FORCE_ES30)" : "");
     return true;
 }
 
@@ -343,6 +390,13 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    // Compact intensity textures (texture_compact.h) sample as the guest's: R8 as (i, i, i, i), RG8 as (i, i, i, a).
+    if (format == GL_R8 || format == GL_RG8) {
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_R, GL_RED);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_G, GL_RED);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_B, GL_RED);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_SWIZZLE_A, format == GL_R8 ? GL_RED : GL_GREEN);
+    }
     glBindTexture(GL_TEXTURE_2D, 0);
     if (glGetError() != GL_NO_ERROR) {
         // The deleter frees the name.
@@ -353,22 +407,68 @@ std::shared_ptr<Texture> Context::create_texture(std::uint32_t width, std::uint3
     texture->height = height;
     texture->levels = std::max(1u, levels);
     texture->render_target = render_target;
-    const std::uint64_t texel = format == GL_RGBA16F ? 8u : 4u;
+    const std::uint64_t texel = format == GL_RGBA16F ? 8u
+        : format == GL_R8 ? 1u
+        : (format == GL_RG8 || format == GL_RGB565 || format == GL_RGB5_A1 || format == GL_RGBA4) ? 2u
+        : 4u;
     std::uint64_t bytes = 0;
     for (std::uint32_t l = 0; l < texture->levels; ++l) {
         bytes += static_cast<std::uint64_t>(std::max(1u, width >> l)) * std::max(1u, height >> l) * texel;
     }
     texture->allocation_bytes = bytes;
+    live_texture_bytes.fetch_add(bytes, std::memory_order_relaxed);
+    live_texture_count.fetch_add(1u, std::memory_order_relaxed);
     return texture;
 }
 
-std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char*, bool readable) {
+std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char* name, bool readable) {
     if (size == 0u) {
         return {};
     }
     auto buffer = std::make_shared<Buffer>();
     glGenBuffers(1, &buffer->name);
     glBindBuffer(GL_COPY_WRITE_BUFFER, buffer->name);
+    // The index ring with a CPU copy even with EXT_buffer_storage, sent with a map per range like OpenGL ES 3.0, so the
+    // driver sees each change. Persistently mapped, the Mali's driver kept data for every index range it ever drew
+    // from and its table only grew (5 -> 80 MiB over the galaxies); with the copy it stays put
+    // (docs/GX_ES_MEMORY_GROWTH.md). GALAXY_GLES_INDEX_COPY=0: persistently mapped, as before.
+    static const bool index_copy = [] {
+        const char* value = std::getenv("GALAXY_GLES_INDEX_COPY");
+        return value == nullptr || value[0] != '0';
+    }();
+    const bool force_copy = index_copy && caps_.buffer_storage && name != nullptr && std::strcmp(name, "index") == 0;
+    if (force_copy) {
+        copied_buffers_.store(true, std::memory_order_relaxed);
+    }
+    if (!caps_.buffer_storage || force_copy) {
+        // OpenGL ES 3.0: the CPU writes a copy; flush_writes sends what changed before the draws that read it.
+        // calloc, not new + memset: zero without touching the pages, so the copy costs what is written.
+        buffer->copy.reset(static_cast<std::byte*>(std::calloc(static_cast<std::size_t>(size), 1u)));
+        if (!buffer->copy) {
+            glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+            std::fprintf(stderr, "[gles] no memory for the %llu-byte CPU copy of buffer '%s'\n",
+                         static_cast<unsigned long long>(size), name != nullptr ? name : "");
+            return {};
+        }
+        glBufferData(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(size), nullptr, GL_DYNAMIC_DRAW);
+        glBindBuffer(GL_COPY_WRITE_BUFFER, 0);
+        std::uint64_t all = 0;
+        {
+            std::lock_guard<std::mutex> lock(dirty_mutex_);
+            all = copied_bytes_ += size;
+        }
+        if (size >= (8u << 20u)) {
+            std::fprintf(stderr, "[gles] buffer '%s' copied: %llu MiB (%llu MiB of copies in all; pages committed as "
+                         "written)\n", name != nullptr ? name : "", static_cast<unsigned long long>(size >> 20u),
+                         static_cast<unsigned long long>(all >> 20u));
+        }
+        buffer->mapped = buffer->copy.get();
+        buffer->size = size;
+        live_buffer_bytes.fetch_add(size, std::memory_order_relaxed);
+        buffer->address = register_address(buffer.get());
+        (void)readable;  // nothing reads these back on the CPU (readbacks use their own pixel-pack buffers)
+        return buffer;
+    }
     const GLbitfield access = GL_MAP_WRITE_BIT | GL_MAP_PERSISTENT_BIT_EXT | GL_MAP_COHERENT_BIT_EXT |
         (readable ? GL_MAP_READ_BIT : 0u);
     glBufferStorageEXT(GL_COPY_WRITE_BUFFER, static_cast<GLsizeiptr>(size), nullptr,
@@ -382,6 +482,7 @@ std::shared_ptr<Buffer> Context::create_buffer(std::uint64_t size, const char*, 
     }
     buffer->mapped = static_cast<std::byte*>(mapped);
     buffer->size = size;
+    live_buffer_bytes.fetch_add(size, std::memory_order_relaxed);
     buffer->address = register_address(buffer.get());
     return buffer;
 }
@@ -412,6 +513,52 @@ void Context::release_address(std::uint64_t address) noexcept {
     free_address_ids_.push_back(static_cast<std::uint32_t>(id));
 }
 
+void Context::note_write(std::uint64_t address, std::uint64_t bytes) noexcept {
+    if (bytes == 0u) {
+        return;
+    }
+    const BufferOffset at = resolve(address);
+    Buffer* const buffer = at.object;
+    if (buffer == nullptr || at.offset >= buffer->size) {
+        return;
+    }
+    const std::uint64_t end = std::min(buffer->size, at.offset + bytes);
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    buffer->writes.fetch_add(1u, std::memory_order_release);
+    if (!buffer->copy) {
+        return;
+    }
+    if (buffer->dirty_begin == UINT64_MAX) {
+        dirty_.push_back(buffer);
+    }
+    buffer->dirty_begin = std::min(buffer->dirty_begin, at.offset);
+    buffer->dirty_end = std::max(buffer->dirty_end, end);
+    dirty_pending_.store(true, std::memory_order_release);
+}
+
+void Context::forget_writes(Buffer* buffer) noexcept {
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    dirty_.erase(std::remove(dirty_.begin(), dirty_.end(), buffer), dirty_.end());
+}
+
+void Context::flush_dirty() {
+    std::lock_guard<std::mutex> lock(dirty_mutex_);
+    for (Buffer* buffer : dirty_) {
+        if (buffer->dirty_begin < buffer->dirty_end) {
+            // From the copy, mapped unsynchronized (glthread::write_buffer): no driver copy of a buffer in use and,
+            // with the GL thread, no copy of the bytes in its queue.
+            glthread::write_buffer(buffer->name, buffer->dirty_begin, buffer->dirty_end - buffer->dirty_begin,
+                                   buffer->copy.get() + buffer->dirty_begin);
+            ++flushed_ranges_;
+            flushed_bytes_ += buffer->dirty_end - buffer->dirty_begin;
+        }
+        buffer->dirty_begin = UINT64_MAX;
+        buffer->dirty_end = 0;
+    }
+    dirty_.clear();
+    dirty_pending_.store(false, std::memory_order_release);
+}
+
 bool Context::check_errors(const char* where) {
     bool clean = true;
     for (int i = 0; i < 8; ++i) {
@@ -426,6 +573,45 @@ bool Context::check_errors(const char* where) {
         }
     }
     return clean;
+}
+
+void apply_bindings(unsigned program, std::string_view bindings) {
+    if (bindings.empty() || program == 0u) {
+        return;
+    }
+    GLint previous = 0;
+    bool using_program = false;
+    for (std::size_t at = 0; at < bindings.size();) {
+        const std::size_t end = std::min(bindings.find('\n', at), bindings.size());
+        const std::string line(bindings.substr(at, end - at));
+        at = end + 1u;
+        char kind[16]{};
+        char name[256]{};
+        unsigned value = 0;
+        if (std::sscanf(line.c_str(), "// nebula-bind %15s %255s %u", kind, name, &value) != 3) {
+            continue;
+        }
+        if (std::strcmp(kind, "block") == 0) {
+            const GLuint index = glGetUniformBlockIndex(program, name);
+            if (index != GL_INVALID_INDEX) {
+                glUniformBlockBinding(program, index, value);
+            }
+        } else if (std::strcmp(kind, "sampler") == 0) {
+            const GLint location = glGetUniformLocation(program, name);
+            if (location < 0) {
+                continue;  // optimised out
+            }
+            if (!using_program) {
+                glGetIntegerv(GL_CURRENT_PROGRAM, &previous);
+                glUseProgram(program);
+                using_program = true;
+            }
+            glUniform1i(location, static_cast<GLint>(value));
+        }
+    }
+    if (using_program) {
+        glUseProgram(static_cast<GLuint>(previous));
+    }
 }
 
 std::int64_t thread_cpu_ns() noexcept {
@@ -462,6 +648,13 @@ UploadMemory create_upload_memory(Device*, std::size_t bytes, const char* name) 
     out.gpu = buffer->address;
     out.buffer = std::move(buffer);
     return out;
+}
+
+void note_upload_write(Address address, std::size_t bytes) noexcept {
+    gles::Context& context = gles::Context::get();
+    if (context.tracking_writes()) {
+        context.note_write(address, bytes);
+    }
 }
 
 TextureRef create_render_texture(Device*, std::uint32_t width, std::uint32_t height) {

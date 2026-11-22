@@ -1,4 +1,7 @@
 #include "Game/Screen/THPSimplePlayerWrapper.hpp"
+#ifdef TARGET_PC
+#include "Game/Screen/NebulaMovieEvents.hpp"
+#endif
 #include "Game/LiveActor/Nerve.hpp"
 #include "Game/Util/MemoryUtil.hpp"
 #include "Game/Util/NerveUtil.hpp"
@@ -142,6 +145,7 @@ bool THPSimplePlayerWrapper::close() {
                 mOpen = 0;
                 DVDClose(&mFileInfo);
 #ifdef TARGET_PC
+                mAudioDraining = false;
                 __NebulaMovieFrame(nullptr, -1, 0.0f, nullptr, nullptr, nullptr, 0, 0);
 #endif
                 return true;
@@ -709,6 +713,8 @@ void THPSimplePlayerWrapper::endReadVideoComp() {
     memcpy(&mVideoInfo, WorkBuffer, sizeof(mVideoInfo));
 #ifdef TARGET_PC
     swapWords(&mVideoInfo, sizeof(mVideoInfo));
+    OSReport("THP: video %ux%u, %.2f fps, %u frames\n", (unsigned)mVideoInfo.xSize, (unsigned)mVideoInfo.ySize,
+             (double)mHeader.frameRate, (unsigned)mHeader.numFrames);
 #endif
     _C += 12;
     _10++;
@@ -718,6 +724,8 @@ void THPSimplePlayerWrapper::endReadAudioComp() {
     memcpy(&mAudioInfo, WorkBuffer, sizeof(mAudioInfo));
 #ifdef TARGET_PC
     swapWords(&mAudioInfo, sizeof(mAudioInfo));
+    OSReport("THP: audio %u Hz, %u channels, %u samples per frame at most\n", (unsigned)mAudioInfo.sndFrequency,
+             (unsigned)mAudioInfo.sndChannels, (unsigned)mHeader.audioMaxSamples);
 #endif
     mAudioExist = 1;
     _C += 0x10;
@@ -812,6 +820,25 @@ s16* THPSimplePlayerWrapper::audioCallback(s32 sample) {
     return (s16*)mSoundBuffer[mSoundBufferIndex];
 }
 
+#ifdef TARGET_PC
+// Nebula: how often the movie's audio ran dry (a mix with no decoded THP samples is silence), reported every ~5 s.
+static u32 sThpMixes = 0;
+static u32 sThpEmpty = 0;
+static void thpMixReport(bool empty) {
+    sThpMixes++;
+    if (empty) {
+        sThpEmpty++;
+    }
+    if (sThpMixes >= 285) {
+        if (sThpEmpty != 0) {
+            OSReport("THP: audio sin datos en %u de %u mezclas\n", (unsigned)sThpEmpty, (unsigned)sThpMixes);
+        }
+        sThpMixes = 0;
+        sThpEmpty = 0;
+    }
+}
+#endif
+
 void THPSimplePlayerWrapper::mixAudio(s16* pDest, u32 sample) {
     u32 sampleNum, requestSample;
     s32 mix;
@@ -831,10 +858,23 @@ void THPSimplePlayerWrapper::mixAudio(s16* pDest, u32 sample) {
                 MR::zeroMemory(pDest, sample * 2 * sizeof(s16));
                 return;
             }
-        } else if (!mAudioBuffer[(mAudioOutputIndex + 1) % 0x14].validSample) {
+        }
+#ifdef TARGET_PC
+        // Nebula: at the movie's natural end the last block plays with none behind it (NebulaMovieEvents.hpp).
+        else if (!nebulaMovieMixerMayMix(mAudioDraining, mAudioBuffer[mAudioOutputIndex].validSample != 0,
+                                         mAudioBuffer[(mAudioOutputIndex + 1) % 0x14].validSample != 0)) {
+#else
+        else if (!mAudioBuffer[(mAudioOutputIndex + 1) % 0x14].validSample) {
+#endif
             MR::zeroMemory(pDest, sample * 2 * sizeof(s16));
+#ifdef TARGET_PC
+            thpMixReport(true);
+#endif
             return;
         }
+#ifdef TARGET_PC
+        thpMixReport(false);
+#endif
 
         do {
             if (mAudioBuffer[mAudioOutputIndex].validSample) {
@@ -935,6 +975,9 @@ void THPSimplePlayerWrapper::mixAudio(s16* pDest, u32 sample) {
 }
 
 void THPSimplePlayerWrapper::resetAudioParams() {
+#ifdef TARGET_PC
+    mAudioDraining = false;
+#endif
     mAudioDecodeIndex = 0;
     mAudioOutputIndex = 0;
     MR::zeroMemory(mAudioBuffer, sizeof(mAudioBuffer));
@@ -983,6 +1026,21 @@ bool THPSimplePlayerWrapper::setVolume(s32 volume, s32 time) {
     OSRestoreInterrupts(en);
     return true;
 }
+
+#ifdef TARGET_PC
+s32 THPSimplePlayerWrapper::queuedAudioBuffers() const {
+    if (!mAudioExist) {
+        return 0;
+    }
+    s32 queued = 0;
+    for (s32 i = 0; i < 20; i++) {
+        if (mAudioBuffer[i].validSample != 0) {
+            queued++;
+        }
+    }
+    return queued;
+}
+#endif
 
 bool THPSimplePlayerWrapper::isPreLoading() const {
     return isNerve(GET_NERVE(THPSimplePlayerWrapper, HostTypeReadPreLoad));
