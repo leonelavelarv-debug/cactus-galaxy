@@ -36,6 +36,9 @@
 #include <vector>
 #endif
 
+// The GL thread's running record (gl_thread.cpp); weak, so a build without the GL thread links too.
+extern "C" std::uintptr_t nebula_gl_thread_running() noexcept __attribute__((weak));
+
 namespace galaxy::sdl {
 
 #if defined(NEBULA_THREAD_SAMPLER)
@@ -54,6 +57,10 @@ std::atomic<std::uintptr_t> g_stacks[kMaxSamples][kStackDepth];
 std::atomic<std::uint8_t> g_stack_depth[kMaxSamples];
 std::FILE* g_dump = nullptr;
 std::atomic<std::uint32_t> g_sample_count{0};
+// While the GL thread ("Nebula GL") is sampled: each stack ends with the record it was running (its runner's address,
+// nebula_gl_thread_running, gl_thread.cpp), which names the GL call. The unwinder stops inside the GPU driver (no
+// frame records), so a sample waiting in the driver would otherwise not say which call waits.
+std::atomic<bool> g_tag_gl_record{false};
 
 std::uintptr_t g_libc_begin = 0;
 std::uintptr_t g_libc_end = 0;
@@ -107,6 +114,13 @@ void on_sample(int, siginfo_t*, void* context) {
             for (int i = first; i < walk.count && depth < kStackDepth; ++i) {
                 g_stacks[at][depth++].store(walk.frames[i], std::memory_order_relaxed);
             }
+            if (g_tag_gl_record.load(std::memory_order_relaxed) && nebula_gl_thread_running != nullptr) {
+                const std::uintptr_t record = nebula_gl_thread_running();
+                if (record != 0u) {
+                    g_stacks[at][depth < kStackDepth ? depth++ : kStackDepth - 1].store(
+                        record, std::memory_order_relaxed);
+                }
+            }
             g_stack_depth[at].store(static_cast<std::uint8_t>(depth), std::memory_order_relaxed);
         }
     }
@@ -158,6 +172,7 @@ std::vector<std::pair<pid_t, std::string>> threads_named(const char* prefix) {
 
 void sample(pid_t tid, const std::string& name) {
     g_sample_count.store(0u, std::memory_order_relaxed);
+    g_tag_gl_record.store(name == "Nebula GL", std::memory_order_relaxed);
     const pid_t pid = getpid();
     for (int i = 0; i < 2000; ++i) {
         syscall(SYS_tgkill, pid, tid, SIGPROF);
