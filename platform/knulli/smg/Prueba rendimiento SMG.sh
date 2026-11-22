@@ -1,5 +1,5 @@
 #!/bin/bash
-# Prueba de rendimiento de Super Mario Galaxy: el escalador de la resolucion reducida frente al filtro de antes.
+# Prueba de rendimiento de Super Mario Galaxy: las 44 galaxias con el perfil por defecto (75 % con el pack HD) y al 50 %.
 # Usa el port ya instalado (ports/smg) sin cambiarlo y con una partida aparte (smg/prueba/nand: la tuya no se toca).
 # El juego recorre solo las mismas galaxias en cada prueba (15 s de juego cada una); no toques nada mientras.
 # Resultados: smg/prueba/<fecha>/comparacion.txt (todas frente a la primera) y una carpeta por prueba con informe.txt.
@@ -11,8 +11,8 @@ elif [ -d "$XDG_DATA_HOME/PortMaster/" ]; then controlfolder="$XDG_DATA_HOME/Por
 else controlfolder="/roms/ports/PortMaster"; fi
 source "$controlfolder/control.txt"
 
-# Galaxias por prueba (8: unos 6 min cada prueba, ~24 min las cuatro; 44: todas, ~20 min cada una).
-PRUEBA_GALAXIAS=${PRUEBA_GALAXIAS:-8}
+# Galaxias por prueba (44: todas, unos 20 min cada prueba; 8: unos 5 min).
+PRUEBA_GALAXIAS=${PRUEBA_GALAXIAS:-44}
 
 SMG="/$directory/ports/smg"
 # El lanzador del juego: junto a esta prueba (donde el instalador puso los dos) o en ports/.
@@ -309,35 +309,28 @@ __FIN_COMPARE__
 # guardan como serie-anterior.cfg y se cambian por la nueva; una editada a mano se deja como esta.
 if [ -f "$SMG/prueba/serie.cfg" ]; then
   case "$(sed -n 's/^\[\(.*\)\][[:space:]]*\r*$/\1/p' "$SMG/prueba/serie.cfg" | tr '\n' ' ')" in
-    "normal-75 hd-75 hd-50 normal-50 normal-75-otra "|"normal-75 hd-75 hd-50 hd-50-nitida normal-50 normal-75-otra ")
+    "normal-75 hd-75 hd-50 normal-50 normal-75-otra "|"normal-75 hd-75 hd-50 hd-50-nitida normal-50 normal-75-otra "|\
+    "hd-50 hd-50-escalador hd-75 hd-50-otra ")
       mv -f "$SMG/prueba/serie.cfg" "$SMG/prueba/serie-anterior.cfg" ;;
   esac
 fi
-# La serie: el escalador (NEBULA_ESCALADOR=1) frente al filtro de antes, al 50 % con el pack HD; el 75 % como la
-# calidad de referencia; y hd-50 repetida al final (lo que cambie entre las dos es el ruido).
+# La serie: el perfil por defecto (75 % con el pack HD, nitidez 0.4 y suavizado de bordes) y el 50 % sin filtros, cada
+# uno por las 44 galaxias (memoria y tirones de un recorrido entero).
 [ -f "$SMG/prueba/serie.cfg" ] || cat > "$SMG/prueba/serie.cfg" <<'__FIN_SERIE__'
 # Una prueba por seccion, en este orden; cada una con sus NOMBRE=valor encima de tus ajustes.
 # NEBULA_ESCALADOR=1|0 (escalador nuevo o el filtro de antes), GALAXY_GLES_RESOLUTION=50|75|100,
 # GALAXY_GLES_SHARPEN=0-2 (nitidez), GALAXY_TEXTURE_PACKS=1|0 (pack HD).
-[hd-50]
-GALAXY_TEXTURE_PACKS=1
-GALAXY_GLES_RESOLUTION=50
-GALAXY_GLES_SHARPEN=0.5
-NEBULA_ESCALADOR=0
-[hd-50-escalador]
-GALAXY_TEXTURE_PACKS=1
-GALAXY_GLES_RESOLUTION=50
-GALAXY_GLES_SHARPEN=0.5
-NEBULA_ESCALADOR=1
 [hd-75]
 GALAXY_TEXTURE_PACKS=1
 GALAXY_GLES_RESOLUTION=75
 GALAXY_GLES_SHARPEN=0.4
+GALAXY_GLES_AA=1
 NEBULA_ESCALADOR=0
-[hd-50-otra]
+[hd-50]
 GALAXY_TEXTURE_PACKS=1
 GALAXY_GLES_RESOLUTION=50
-GALAXY_GLES_SHARPEN=0.5
+GALAXY_GLES_SHARPEN=0
+GALAXY_GLES_AA=0
 NEBULA_ESCALADOR=0
 __FIN_SERIE__
 
@@ -407,7 +400,7 @@ awk -v j="$juego_linea" -v l="$log_linea" '
   $0 == j { print "source \"$GAMEDIR/prueba/correr.sh\""; next }
   $0 == l { print "exec > >(tee \"$GAMEDIR/prueba/log.txt\") 2>&1"; next }
   { print }' "$JUEGO" > "$SMG/prueba/juego.sh"
-aviso "Prueba de rendimiento: $(grep -c '^\[' "$SMG/prueba/serie.cfg") pruebas de $PRUEBA_GALAXIAS galaxias (unos $(( $(grep -c '^\[' "$SMG/prueba/serie.cfg") * (2 + PRUEBA_GALAXIAS / 2) )) min). No toques nada; al final vuelve solo." 8
+aviso "Prueba de rendimiento: $(grep -c '^\[' "$SMG/prueba/serie.cfg") pruebas de $PRUEBA_GALAXIAS galaxias (unos $(( $(grep -c '^\[' "$SMG/prueba/serie.cfg") * (1 + PRUEBA_GALAXIAS * 2 / 5) )) min). No toques nada; al final vuelve solo." 8
 export PRUEBA_GALAXIAS
 echo "prueba: abriendo el juego (log en smg/prueba/log.txt)"
 exec bash "$SMG/prueba/juego.sh"
