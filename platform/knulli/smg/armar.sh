@@ -12,7 +12,8 @@
 #       <salida>/paquete   smg.zip (PortMaster) e "Instalar Super Mario Galaxy.sh"
 #
 # Variables: AARCH64_XTOOLS  la toolchain de crosstool-NG (x-tools/aarch64-rpi3-linux-gnu: glibc 2.27, corre en todos
-#                            los firmwares); se compila con clang y lld
+#                            los firmwares); se compila con clang y lld. Solo la 0.3.0 de tttapa ($TOOLCHAIN_URL):
+#                            desde la 0.4.0 trae glibc 2.31 y armar.sh se detiene
 #            NEBULA_DEPS     la carpeta de --deps (glslang con External/spirv-tools, SPIRV-Cross, sdl2-a64)
 #            NEBULA_SDL2     SDL2 para aarch64 (por defecto $NEBULA_DEPS/sdl2-a64; solo se enlaza: en la consola se
 #                            usa la del firmware)
@@ -37,6 +38,9 @@ SPIRV_TOOLS=2ec8457ab33d539b6f1fecc998360c0b8b05ed4f
 SPIRV_HEADERS=1a22b167081842915a1c78a0b5b5a353a23284aa
 SPIRV_CROSS=d8e3e2b141b8c8a167b2e3984736a6baacff316c
 SDL2=c98c4fbff6d8f3016a3ce6685bf8f43433c3efcc  # 2.30.9
+# La toolchain probada (glibc 2.27) y la glibc mas nueva que pueden pedir los binarios.
+TOOLCHAIN_URL=https://github.com/tttapa/docker-arm-cross-toolchain/releases/download/0.3.0/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz
+GLIBC_MAX=27
 
 fetch() {  # fetch <url> <commit> <carpeta>: solo ese commit (sin la historia)
   [ -d "$3/.git" ] && [ "$(git -C "$3" rev-parse HEAD)" = "$2" ] && return 0
@@ -50,7 +54,29 @@ toolchain() {
   : "${AARCH64_XTOOLS:?pon AARCH64_XTOOLS=<x-tools/aarch64-rpi3-linux-gnu>}"
   [ -d "$AARCH64_XTOOLS/aarch64-rpi3-linux-gnu/sysroot" ] || fail "AARCH64_XTOOLS no tiene aarch64-rpi3-linux-gnu/sysroot"
   command -v clang++ >/dev/null && command -v ld.lld >/dev/null || fail "hacen falta clang y lld (sudo apt install clang lld)"
+  # La glibc del sysroot es la minima que pediran los binarios: con mas de 2.$GLIBC_MAX no abren en la consola.
+  # tttapa subio la suya a 2.31 en 0.4.0 (el enlace "latest" ya no sirve); la 0.3.0 es la ultima con 2.27.
+  local h="$AARCH64_XTOOLS/aarch64-rpi3-linux-gnu/sysroot/usr/include/features.h" mayor menor
+  [ -f "$h" ] || fail "no encuentro $h (la toolchain esta incompleta)"
+  mayor=$(sed -n 's/^#define[[:space:]]*__GLIBC__[[:space:]]*\([0-9]*\).*/\1/p' "$h")
+  menor=$(sed -n 's/^#define[[:space:]]*__GLIBC_MINOR__[[:space:]]*\([0-9]*\).*/\1/p' "$h")
+  if [ "$mayor" != 2 ] || [ "${menor:-99}" -gt "$GLIBC_MAX" ]; then
+    fail "la toolchain trae glibc $mayor.$menor y la consola necesita 2.$GLIBC_MAX o menos; usa la 0.3.0 de tttapa: $TOOLCHAIN_URL"
+  fi
   export AARCH64_XTOOLS
+}
+
+glibc_binarios() {  # glibc_binarios <binario>...: falla si alguno pide una glibc mas nueva que 2.$GLIBC_MAX
+  local od b v
+  od=$(command -v llvm-objdump || command -v aarch64-linux-gnu-objdump || true)
+  [ -n "$od" ] || fail "falta llvm-objdump (sudo apt install llvm)"
+  for b in "$@"; do
+    v=$("$od" -T "$b" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1)
+    say "  $(basename "$b"): ${v:-sin glibc}"
+    case "$v" in GLIBC_2.*) [ "$(printf '%s' "${v#GLIBC_2.}" | cut -d. -f1)" -le "$GLIBC_MAX" ] || \
+      fail "$(basename "$b") pide $v y la consola necesita 2.$GLIBC_MAX o menos (toolchain equivocada: $TOOLCHAIN_URL)";;
+    esac
+  done
 }
 
 if [ "${1:-}" = "--deps" ]; then
@@ -64,6 +90,8 @@ if [ "${1:-}" = "--deps" ]; then
   fetch https://github.com/KhronosGroup/SPIRV-Cross "$SPIRV_CROSS" "$deps/SPIRV-Cross"
   say "SDL2 (para enlazar; en la consola va la del firmware)"
   fetch https://github.com/libsdl-org/SDL "$SDL2" "$deps/SDL2"
+  # Sin el pkg-config de esta PC: si no, SDL2 toma cabeceras de /usr/include (x86) y falla la prueba de pthread.
+  export PKG_CONFIG_LIBDIR=/nonexistent PKG_CONFIG_PATH=
   cmake -S "$deps/SDL2" -B "$deps/build-sdl2-a64" "${generator[@]}" -DCMAKE_BUILD_TYPE=Release \
     -DCMAKE_TOOLCHAIN_FILE="$repo/platform/knulli/aarch64-toolchain.cmake" -DCMAKE_INSTALL_PREFIX="$deps/sdl2-a64" \
     -DSDL_SHARED=ON -DSDL_STATIC=OFF -DSDL_TEST=OFF -DSDL_X11=OFF -DSDL_WAYLAND=OFF -DSDL_RPATH=OFF > "$deps/sdl2.log"
@@ -141,6 +169,9 @@ for b in "$build/nebula/nebula" "$lib" "$build/pak/nebula-pak" "$build/pak/cactu
   [ -f "$b" ] || fail "no aparecio $b"
   "$strip" -o "$full/smg/$(basename "$b")" "$b"
 done
+say "  glibc (la consola necesita 2.$GLIBC_MAX o menos):"
+glibc_binarios "$full/smg/nebula" "$full/smg/libsmg_game.so" "$full/smg/nebula-pak" "$full/smg/cactus-ruso" \
+  "$full/smg/cactus-galaxy-wrapper"
 chmod +x "$full/Super Mario Galaxy.sh" "$full/smg/nebula" "$full/smg/nebula-pak" "$full/smg/cactus-ruso" "$full/smg/cactus-galaxy-wrapper"
 cp "$build/shaders-gles.bin" "$full/smg/shaders-gles.bin"
 # Para rehacer la biblioteca despues con las claves de la consola (nopal nebula shaders), sin volver a compilar.
