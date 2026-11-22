@@ -73,8 +73,8 @@ principio de `armar.sh`.
      un idioma propio del juego los desactiva al instante)
      y lo convierte ahí mismo en `smg/gamedata/game.pak` con `smg/nebula-pak` (sin Termux ni otro equipo). Tarda lo
      que la tarjeta en escribir ~4 GB; hacen falta ~3.4 GB libres (ext4) o ~4.3 GB (exFAT; FAT32 no sirve).
-   - Con el juego ya en `smg/gamedata/`, te ofrece los idiomas del juego; con X, Ajustes: resolución (Auto, 50 %,
-     75 % recomendada o 100 %) y vibración (sí/no), guardados en `smg/opciones.cfg`; con SELECT, los mandos:
+   - Con el juego ya en `smg/gamedata/`, te ofrece los idiomas del juego; con X, Ajustes: resolución (Auto, 50 %
+     recomendada, con el pack de texturas HD, 75 % o 100 %) y vibración (sí/no), guardados en `smg/opciones.cfg`; con SELECT, los mandos:
      perfil predeterminado o uno personalizado con los botones que quieras (`smg/mandos.cfg`).
    Después el juego arranca directamente; **mantén SELECT (o L1) al abrirlo** para volver a las opciones. Sale en el
    idioma de tu KNULLI. `NEBULA_PAK_DELETE_IMAGE=1` en el lanzador borra la imagen al terminar.
