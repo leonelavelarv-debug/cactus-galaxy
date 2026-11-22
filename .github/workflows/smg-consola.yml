@@ -23,11 +23,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang lld llvm ninja-build cmake python3 zip xz-utils binutils-aarch64-linux-gnu
 
-      - name: Toolchain aarch64 (tttapa, crosstool-NG)
+      - name: Toolchain aarch64 (tttapa 0.3.0, crosstool-NG, glibc 2.27)
         run: |
           mkdir -p "$RUNNER_TEMP/opt"
-          curl -fsSL https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz \
-            | tar xJ -C "$RUNNER_TEMP/opt"
+          # La 0.3.0 fija: desde la 0.4.0 ("latest") trae glibc 2.31 y los binarios no abririan en la consola.
+          url=$(sed -n 's/^TOOLCHAIN_URL=//p' platform/knulli/smg/armar.sh)
+          curl -fsSL "$url" | tar xJ -C "$RUNNER_TEMP/opt"
           xt="$RUNNER_TEMP/opt/x-tools/aarch64-rpi3-linux-gnu"
           test -d "$xt/aarch64-rpi3-linux-gnu/sysroot"
           echo "AARCH64_XTOOLS=$xt" >> "$GITHUB_ENV"
