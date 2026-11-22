@@ -143,10 +143,6 @@ for b in "$build/nebula/nebula" "$lib" "$build/pak/nebula-pak" "$build/pak/cactu
 done
 chmod +x "$full/Super Mario Galaxy.sh" "$full/smg/nebula" "$full/smg/nebula-pak" "$full/smg/cactus-ruso" "$full/smg/cactus-galaxy-wrapper"
 cp "$build/shaders-gles.bin" "$full/smg/shaders-gles.bin"
-# La misma biblioteca con el escalador de la resolucion reducida (escalador.py; el lanzador la elige con
-# NEBULA_ESCALADOR=1, por defecto).
-python3 "$here/escalador.py" "$full/smg/shaders-gles.bin" "$full/smg/shaders-gles-escalador.bin" >> "$build/aot.log" ||
-  fail "el escalador no se pudo aplicar: $build/aot.log"
 # Para rehacer la biblioteca despues con las claves de la consola (nopal nebula shaders), sin volver a compilar.
 mkdir -p "$out/herramientas"
 "$strip" -o "$out/herramientas/nebula_glsl_aot" "$build/aot/nebula_glsl_aot"

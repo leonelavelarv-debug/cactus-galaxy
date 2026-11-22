@@ -169,17 +169,11 @@ else
   echo "mandos: perfil predeterminado"
 fi
 #   NEBULA_PERFIL=bajo|medio|normal      por defecto el del chip (soc_perfil arriba: medio en H700 y RK3566, bajo en
-#                                        RK3326 y los demas). medio: resolucion interna fija de 50 % (320x264) agrandada sin
-#                                        filtros (ni nitidez, ni suavizado de bordes, ni escalador), pensada para el pack
-#                                        de texturas HD, con el mismo salto de
-#                                        frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion dinamica
-#                                        (baja sola cuando la GPU no llega); normal: 100 % y sin saltos.
-#                                        Prueba de rendimiento (21-nov, RG35XX H, 8 galaxias x6): 50 % frente a 75 %, +6 a
-#                                        +8 % imagenes dibujadas (+20 % en las pesadas: BreakDownPlanet, CannonFleet); el
-#                                        pack HD y la nitidez 0.5 no cuestan nada medible. 75 en Ajustes: nitidez 0.4 y
-#                                        suavizado de bordes, como antes. Las 44 galaxias (21-nov): hd-50 sin filtros 19,6
-#                                        imagenes dibujadas/s, p99 59 ms; hd-75 13,2/s, p99 171 ms (en SurfingLv1,
-#                                        SkullShark, TearDrop... menos de 9/s: la GPU no llega). El 75 % solo en las ligeras
+#                                        RK3326 y los demas). medio: graficos medios -- resolucion interna fija de 75 % (480x396,
+#                                        entre el 50-100 % dinamico del bajo y los 640x528 del normal), con el mismo
+#                                        salto de frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion
+#                                        dinamica (baja sola cuando la GPU no llega); normal: 100 % y sin saltos
+#                                        (el perfil medio no esta medido en la consola: es un punto entre los dos)
 NEBULA_PERFIL="${NEBULA_PERFIL:-$soc_perfil}"
 if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
@@ -195,7 +189,7 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_GLES_RESOLUTION=auto        (perfil bajo) la resolucion interna dinamica: serie del 29-oct, GPU -48 %, p95 -20 %,
   #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
   if [ "$NEBULA_PERFIL" = "medio" ]; then
-    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-50}"
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-75}"
     #   GALAXY_GLES_SLOT_POR_IMAGEN=1|0  (perfil medio) el renderer cambia de slot al presentar una imagen y no en cada
     #                                    trozo que manda el juego (el 78 % no dibuja nada y cada uno esperaba a la GPU):
     #                                    44 galaxias x2 (5-nov), +21-23 % FPS mostrados, +16-21 % dibujados, p95 -17 %,
@@ -211,8 +205,8 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
     #                                    juego (comparaba siempre: 8-9 % del hilo). AstroGalaxy (2 pares, 20-nov): escena
     #                                    -7 a -9 %, +5 a +10 % imagenes nuevas; 44 galaxias verificadas con =2, 0 avisos
     export GALAXY_GX_DL_MARCAR_TODAS="${GALAXY_GX_DL_MARCAR_TODAS:-1}"
-    #   GALAXY_GLES_COPIA_REDUCIDA=1|0   (perfil medio) con el EFB reducido, las copias de color a textura de pantalla
-    #   GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640  completa se escriben al tamano real del EFB (480x342 al 75 %) y no a 640x456;
+    #   GALAXY_GLES_COPIA_REDUCIDA=1|0   (perfil medio) con el EFB al 75 %, las copias de color a textura de pantalla
+    #   GALAXY_GLES_COPIA_REDUCIDA_MIN_ANCHO=640  completa se escriben a 480x342 (el tamano real del EFB) y no a 640x456;
     #                                    las chicas de efectos y las de profundidad se quedan igual. 12 galaxias x2
     #                                    (19-nov): GPU por imagen -2,2 ms (-7,6 %), capturas iguales bit a bit, sin
     #                                    cambio en imagenes nuevas/s; 0: como antes
@@ -247,18 +241,8 @@ export NEBULA_DATA_DIR="$GAMEDIR/data"
 #   smg/shaders-gles.bin                 todos los shaders del juego ya en GLSL (hechos en la PC por armar.sh o
 #                                        `nopal nebula shaders`): Nebula se los da directo al driver de OpenGL, sin
 #                                        traducir nada en la consola. Uno que falte se dibuja con el shader generico (uber)
-#   NEBULA_ESCALADOR=0|1                 1: con la resolucion reducida (50 o 75 %) la imagen se agranda con el escalador
-#                                        (smg/shaders-gles-escalador.bin, hecho por escalador.py: Catmull-Rom sin halos y la
-#                                        nitidez de GALAXY_GLES_SHARPEN, tambien en las letras); 0 (por defecto): el filtro
-#                                        de siempre. Prueba del 21-nov (RG35XX H, 3 series): -8 a -9 % imagenes dibujadas y
-#                                        +20 % tirones al 50 %, mas que subir al 75 % (-4 %). Al 100 % no cambia nada
 if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
-  biblioteca="$GAMEDIR/shaders-gles.bin"
-  if [ "${NEBULA_ESCALADOR:-0}" = 1 ] && [ -f "$GAMEDIR/shaders-gles-escalador.bin" ]; then
-    biblioteca="$GAMEDIR/shaders-gles-escalador.bin"
-  fi
-  export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$biblioteca}"
-  echo "shaders: ${GALAXY_GLES_SHADER_LIBRARY##*/}"
+  export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$GAMEDIR/shaders-gles.bin}"
 fi
 #   GALAXY_GLES_BLEND_FETCH=0            (prueba) la mezcla de GX con la alfa del TEV en blending fijo, como antes del
 #                                        paso 2 (docs/GX_ES_FRAMEBUFFER_FETCH.md); por defecto el shader la hace con
@@ -286,31 +270,8 @@ export GALAXY_TEXTURE_COMPACT="${GALAXY_TEXTURE_COMPACT:-exacto}"
 #   (para editarlas en la PC y volver a ponerlas como pack).
 #   GALAXY_TEXTURE_PACK_BUDGET_MB=96     memoria para los reemplazos (los que no se usan salen primero). 96 cabe con
 #                                        lo que queda libre en 1 GB; un pack x2 va mejor con 128, si la memoria alcanza
-#   Si hay un pack en cualquier parte de smg/data (archivos tex1_*.dds o .png hasta 5 carpetas abajo, sin contar
-#   TextureDumps) se activa solo: se usa su carpeta RMGE01 (o la primera carpeta de data/ que lo contiene), aunque el
-#   zip se haya descomprimido fuera de TexturePacks/. GALAXY_TEXTURE_PACKS=0 en smg/ajustes.cfg lo apaga.
-if [ -z "${GALAXY_TEXTURE_PACK_DIR:-}" ] && [ -d "$GAMEDIR/data" ]; then
-  tex=$(find "$GAMEDIR/data" -maxdepth 6 -path "$GAMEDIR/data/TextureDumps" -prune -o -type f \
-    -path "$GAMEDIR/data/*/*" \( -iname 'tex1_*.dds' -o -iname 'tex1_*.png' \) -print 2>/dev/null | head -n 1)
-  if [ -n "$tex" ]; then
-    case "$tex" in
-      "$GAMEDIR/data/TexturePacks/"*) pack="$GAMEDIR/data/TexturePacks" ;;
-      *)
-        pack=${tex%/*}
-        while [ "$pack" != "$GAMEDIR/data" ]; do
-          case "${pack##*/}" in [Rr][Mm][Gg][Ee]01|[Rr][Mm][Gg]) break ;; esac
-          pack=${pack%/*}
-        done
-        if [ "$pack" = "$GAMEDIR/data" ]; then rel=${tex#"$GAMEDIR/data/"}; pack="$GAMEDIR/data/${rel%%/*}"; fi ;;
-    esac
-    export GALAXY_TEXTURE_PACK_DIR="$pack"
-  fi
-fi
-if [ -n "${GALAXY_TEXTURE_PACK_DIR:-}" ]; then
-  export GALAXY_TEXTURE_PACKS="${GALAXY_TEXTURE_PACKS:-1}"
-  echo "texturas: pack en ${GALAXY_TEXTURE_PACK_DIR#"$GAMEDIR"/} ($(find "$GALAXY_TEXTURE_PACK_DIR" -type f \( -iname 'tex1_*.dds' -o -iname 'tex1_*.png' \) 2>/dev/null | wc -l) archivos), activas: $GALAXY_TEXTURE_PACKS"
-else
-  echo "texturas: no hay pack en smg/data"
+if [ -d "$GAMEDIR/data/TexturePacks" ]; then
+  export GALAXY_TEXTURE_PACK_DIR="${GALAXY_TEXTURE_PACK_DIR:-$GAMEDIR/data/TexturePacks}"
 fi
 export GALAXY_TEXTURE_PACK_BUDGET_MB="${GALAXY_TEXTURE_PACK_BUDGET_MB:-96}"
 #   NOPAL_DEPURAR=5555                   el Depurador de Nopal Estudio se conecta desde la PC (por WiFi, a la IP de la
@@ -341,9 +302,7 @@ export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-100}"
 export GALAXY_GLES_RESOLUTION_MIN="${GALAXY_GLES_RESOLUTION_MIN:-50}"
 export GALAXY_GLES_RESOLUTION_MAX="${GALAXY_GLES_RESOLUTION_MAX:-100}"
 export GALAXY_GLES_RESOLUTION_START="${GALAXY_GLES_RESOLUTION_START:-75}"
-#   GALAXY_GLES_SHARPEN=0.4              nitidez al ampliar la imagen interna (0.25-0.5 recomendado; 0: apagada; sin halos);
-#                                        al 50 %, 0 por defecto: la imagen se agranda tal cual, sin filtros
-if [ "$GALAXY_GLES_RESOLUTION" = 50 ]; then export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0}"; fi
+#   GALAXY_GLES_SHARPEN=0.4              nitidez al ampliar la imagen interna (0.25-0.5 recomendado; 0: apagada; sin halos)
 export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0.4}"
 #   GALAXY_GLES_SHADOWS=0.45             aclara las sombras (0.3-0.62 recomendado; 0: apagado); GALAXY_GLES_CONTRAST=0
 export GALAXY_GLES_SHADOWS="${GALAXY_GLES_SHADOWS:-0.45}"
@@ -351,9 +310,7 @@ export GALAXY_GLES_CONTRAST="${GALAXY_GLES_CONTRAST:-0}"
 #   GALAXY_NO_DOF=1 GALAXY_NO_BLUR=1     sin profundidad de campo ni desenfoques (de zona y de movimiento) del juego
 export GALAXY_NO_DOF="${GALAXY_NO_DOF:-1}"
 export GALAXY_NO_BLUR="${GALAXY_NO_BLUR:-1}"
-#   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado;
-#                                        al 50 %, 0 por defecto (sin filtros, como la nitidez)
-if [ "$GALAXY_GLES_RESOLUTION" = 50 ]; then export GALAXY_GLES_AA="${GALAXY_GLES_AA:-0}"; fi
+#   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado
 export GALAXY_GLES_AA="${GALAXY_GLES_AA:-1}"
 export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
 #   GALAXY_SHAKE_HOLD=1|0                1 (por defecto): mantener un boton de giro (X, Y o R2) sigue sacudiendo y el juego
