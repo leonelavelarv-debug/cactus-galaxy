@@ -1,0 +1,89 @@
+# Super Mario Galaxy para la consola (KNULLI/PortMaster, aarch64), compilado en los servidores de GitHub sin PC:
+# platform/knulli/smg/armar.sh de punta a punta (libsmg_game.so, nebula, nebula-pak, Cactus Galaxy Wrapper,
+# smg/shaders-gles.bin) con la toolchain de crosstool-NG de tttapa (aarch64-rpi3-linux-gnu, la misma que pide
+# armar.sh), clang y lld. Solo codigo del repositorio: ningun archivo de Nintendo; sin los parches de traduccion de
+# terceros (NEBULA_PARCHES), que el autoinstalable no borra si ya estan en la consola.
+# Se lanza a mano: Actions -> "Super Mario Galaxy (consola)" -> Run workflow (elige la rama).
+# Artefactos: "smg-binarios" (nebula, libsmg_game.so, cactus-galaxy-wrapper, nebula-pak, cactus-ruso y
+# shaders-gles.bin, para copiar encima de smg/) y "smg-paquete" (el autoinstalable y smg.zip).
+name: Super Mario Galaxy (consola)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  armar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Herramientas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang lld llvm ninja-build cmake python3 zip xz-utils binutils-aarch64-linux-gnu
+
+      - name: Toolchain aarch64 (tttapa, crosstool-NG)
+        run: |
+          mkdir -p "$RUNNER_TEMP/opt"
+          curl -fsSL https://github.com/tttapa/docker-arm-cross-toolchain/releases/latest/download/x-tools-aarch64-rpi3-linux-gnu-gcc14.tar.xz \
+            | tar xJ -C "$RUNNER_TEMP/opt"
+          xt="$RUNNER_TEMP/opt/x-tools/aarch64-rpi3-linux-gnu"
+          test -d "$xt/aarch64-rpi3-linux-gnu/sysroot"
+          echo "AARCH64_XTOOLS=$xt" >> "$GITHUB_ENV"
+          # La glibc del sysroot: los binarios corren en firmwares con esa version o mas nueva.
+          ls "$xt/aarch64-rpi3-linux-gnu/sysroot/lib/" | grep -E '^libc(-|\.so)' || true
+
+      - name: Dependencias guardadas (glslang, SPIRV-Cross, SDL2)
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/deps
+          key: smg-deps-${{ hashFiles('platform/knulli/smg/armar.sh', 'platform/knulli/aarch64-toolchain.cmake') }}
+
+      - name: Dependencias
+        run: |
+          deps="$RUNNER_TEMP/deps"
+          if [ ! -f "$deps/sdl2-a64/include/SDL2/SDL.h" ]; then
+            platform/knulli/smg/armar.sh --deps "$deps"
+          fi
+          echo "NEBULA_DEPS=$deps" >> "$GITHUB_ENV"
+
+      - name: Armar el port
+        run: platform/knulli/smg/armar.sh "$RUNNER_TEMP/salida" "$RUNNER_TEMP/compilar"
+
+      - name: Registros de la compilacion (si falla)
+        if: failure()
+        run: |
+          for f in "$RUNNER_TEMP"/compilar/*.log "$RUNNER_TEMP"/deps/*.log; do
+            [ -f "$f" ] && { echo "=== $f"; tail -n 60 "$f"; }
+          done
+
+      - name: Comprobaciones
+        run: |
+          smg="$RUNNER_TEMP/salida/port/smg"
+          for b in nebula libsmg_game.so cactus-galaxy-wrapper nebula-pak cactus-ruso; do
+            file "$smg/$b"
+            # La glibc mas nueva que pide cada binario (la consola debe tenerla).
+            echo "  glibc: $(aarch64-linux-gnu-objdump -T "$smg/$b" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -1)"
+          done
+          # Sin datos personales en los paquetes.
+          if grep -rlaE 'usoduni@gmail|leonel\.avelar\.v@gmail|Sahuaro de Sonora|leonelavelarv' "$RUNNER_TEMP/salida/port" "$RUNNER_TEMP/salida/paquete"; then
+            echo "datos personales en el paquete"; exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/binarios"
+          cp "$smg/nebula" "$smg/libsmg_game.so" "$smg/cactus-galaxy-wrapper" "$smg/nebula-pak" "$smg/cactus-ruso" \
+             "$smg/shaders-gles.bin" "$RUNNER_TEMP/binarios/"
+          (cd "$RUNNER_TEMP/binarios" && sha256sum * | tee SHA256SUMS.txt)
+          echo "commit ${GITHUB_SHA} (${GITHUB_REF_NAME})" > "$RUNNER_TEMP/binarios/VERSION.txt"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smg-binarios
+          path: ${{ runner.temp }}/binarios
+          retention-days: 14
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: smg-paquete
+          path: ${{ runner.temp }}/salida/paquete
+          retention-days: 14
