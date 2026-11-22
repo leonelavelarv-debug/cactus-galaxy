@@ -169,13 +169,15 @@ else
   echo "mandos: perfil predeterminado"
 fi
 #   NEBULA_PERFIL=bajo|medio|normal      por defecto el del chip (soc_perfil arriba: medio en H700 y RK3566, bajo en
-#                                        RK3326 y los demas). medio: resolucion interna fija de 50 % (320x264) con nitidez
-#                                        0.5 al ampliarla, pensada para el pack de texturas HD, con el mismo salto de
+#                                        RK3326 y los demas). medio: resolucion interna fija de 50 % (320x264) agrandada sin
+#                                        filtros (ni nitidez, ni suavizado de bordes, ni escalador), pensada para el pack
+#                                        de texturas HD, con el mismo salto de
 #                                        frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion dinamica
 #                                        (baja sola cuando la GPU no llega); normal: 100 % y sin saltos.
 #                                        Prueba de rendimiento (21-nov, RG35XX H, 8 galaxias x6): 50 % frente a 75 %, +6 a
 #                                        +8 % imagenes dibujadas (+20 % en las pesadas: BreakDownPlanet, CannonFleet); el
-#                                        pack HD y la nitidez 0.5 no cuestan nada medible. 75 en Ajustes: como antes
+#                                        pack HD y la nitidez 0.5 no cuestan nada medible. 75 en Ajustes: nitidez 0.4 y
+#                                        suavizado de bordes, como antes (hd-75 de la prueba: -4 % imagenes dibujadas)
 NEBULA_PERFIL="${NEBULA_PERFIL:-$soc_perfil}"
 if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
@@ -243,13 +245,14 @@ export NEBULA_DATA_DIR="$GAMEDIR/data"
 #   smg/shaders-gles.bin                 todos los shaders del juego ya en GLSL (hechos en la PC por armar.sh o
 #                                        `nopal nebula shaders`): Nebula se los da directo al driver de OpenGL, sin
 #                                        traducir nada en la consola. Uno que falte se dibuja con el shader generico (uber)
-#   NEBULA_ESCALADOR=1|0                 1 (por defecto): con la resolucion reducida (50 o 75 %) la imagen se agranda con
-#                                        el escalador (smg/shaders-gles-escalador.bin, hecho por escalador.py: Catmull-Rom
-#                                        sin halos y la nitidez de GALAXY_GLES_SHARPEN, tambien en las letras); 0: el
-#                                        filtro de antes (bilineal, suavizado de bordes FXAA). Al 100 % no cambia nada
+#   NEBULA_ESCALADOR=0|1                 1: con la resolucion reducida (50 o 75 %) la imagen se agranda con el escalador
+#                                        (smg/shaders-gles-escalador.bin, hecho por escalador.py: Catmull-Rom sin halos y la
+#                                        nitidez de GALAXY_GLES_SHARPEN, tambien en las letras); 0 (por defecto): el filtro
+#                                        de siempre. Prueba del 21-nov (RG35XX H, 3 series): -8 a -9 % imagenes dibujadas y
+#                                        +20 % tirones al 50 %, mas que subir al 75 % (-4 %). Al 100 % no cambia nada
 if [ -f "$GAMEDIR/shaders-gles.bin" ]; then
   biblioteca="$GAMEDIR/shaders-gles.bin"
-  if [ "${NEBULA_ESCALADOR:-1}" = 1 ] && [ -f "$GAMEDIR/shaders-gles-escalador.bin" ]; then
+  if [ "${NEBULA_ESCALADOR:-0}" = 1 ] && [ -f "$GAMEDIR/shaders-gles-escalador.bin" ]; then
     biblioteca="$GAMEDIR/shaders-gles-escalador.bin"
   fi
   export GALAXY_GLES_SHADER_LIBRARY="${GALAXY_GLES_SHADER_LIBRARY:-$biblioteca}"
@@ -337,8 +340,8 @@ export GALAXY_GLES_RESOLUTION_MIN="${GALAXY_GLES_RESOLUTION_MIN:-50}"
 export GALAXY_GLES_RESOLUTION_MAX="${GALAXY_GLES_RESOLUTION_MAX:-100}"
 export GALAXY_GLES_RESOLUTION_START="${GALAXY_GLES_RESOLUTION_START:-75}"
 #   GALAXY_GLES_SHARPEN=0.4              nitidez al ampliar la imagen interna (0.25-0.5 recomendado; 0: apagada; sin halos);
-#                                        0.5 por defecto con la resolucion al 50 % (la prueba del 21-nov: sin costo medible)
-if [ "$GALAXY_GLES_RESOLUTION" = 50 ]; then export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0.5}"; fi
+#                                        al 50 %, 0 por defecto: la imagen se agranda tal cual, sin filtros
+if [ "$GALAXY_GLES_RESOLUTION" = 50 ]; then export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0}"; fi
 export GALAXY_GLES_SHARPEN="${GALAXY_GLES_SHARPEN:-0.4}"
 #   GALAXY_GLES_SHADOWS=0.45             aclara las sombras (0.3-0.62 recomendado; 0: apagado); GALAXY_GLES_CONTRAST=0
 export GALAXY_GLES_SHADOWS="${GALAXY_GLES_SHADOWS:-0.45}"
@@ -346,7 +349,9 @@ export GALAXY_GLES_CONTRAST="${GALAXY_GLES_CONTRAST:-0}"
 #   GALAXY_NO_DOF=1 GALAXY_NO_BLUR=1     sin profundidad de campo ni desenfoques (de zona y de movimiento) del juego
 export GALAXY_NO_DOF="${GALAXY_NO_DOF:-1}"
 export GALAXY_NO_BLUR="${GALAXY_NO_BLUR:-1}"
-#   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado
+#   GALAXY_GLES_AA=1                     suaviza los bordes dentados (antialiasing tipo FXAA en la misma copia); 0: apagado;
+#                                        al 50 %, 0 por defecto (sin filtros, como la nitidez)
+if [ "$GALAXY_GLES_RESOLUTION" = 50 ]; then export GALAXY_GLES_AA="${GALAXY_GLES_AA:-0}"; fi
 export GALAXY_GLES_AA="${GALAXY_GLES_AA:-1}"
 export NEBULA_PAD_SCHEME="${NEBULA_PAD_SCHEME:-nintendo}"
 #   GALAXY_SHAKE_HOLD=1|0                1 (por defecto): mantener un boton de giro (X, Y o R2) sigue sacudiendo y el juego
