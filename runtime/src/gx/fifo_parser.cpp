@@ -1909,6 +1909,179 @@ void FifoParser::replay_cached_display_list(
     }
 }
 
+// A BP write: the register bank (and its one-shot mask), then the sink events it raises. Shared
+// by run_window and skim_event_classification so both raise exactly the same events.
+static void dispatch_bp_write(
+    std::uint32_t command,
+    FifoSink& sink,
+    GxState& state) {
+    state.load_bp(command);
+
+    const std::uint8_t  bp_reg = static_cast<std::uint8_t>(command >> 24);
+    const std::uint32_t bp_val = state.bp(bp_reg);
+
+    switch (bp_reg) {
+    case bp::kCopyExecute:      // 0x52: PE_COPY_EXECUTE
+        sink.on_efb_copy(bp_val);
+        break;
+    case bp::kPeDone:           // 0x45: GXDrawDone
+        if ((bp_val & 0xFFu) == 2u) {
+            sink.on_pe_finish();
+        }
+        break;
+    case bp::kPeToken:          // 0x47: draw-sync token (no interrupt)
+        sink.on_pe_token(
+            static_cast<std::uint16_t>(bp_val & 0xFFFFu),
+            false);
+        break;
+    case bp::kPeTokenInt:       // 0x48: draw-sync token (with interrupt)
+        sink.on_pe_token(
+            static_cast<std::uint16_t>(bp_val & 0xFFFFu),
+            true);
+        break;
+    case 0x66u:                 // GXInvalidateTexAll signal
+        if (bp_val == 0u) {
+            sink.on_invalidate_textures();
+        }
+        break;
+    case bp::kTlutDest:         // 0x65: TLUT transfer trigger
+        sink.on_tlut_load();
+        break;
+    default:
+        break;
+    }
+}
+
+// GALAXY_PE_CLASSIFY_SKIM=0: event classification parses the top-level FIFO with the general
+// dispatch, as before (the A/B switch for skim_event_classification).
+static bool pe_classify_skim_enabled() {
+    static const bool enabled = [] {
+#if defined(_WIN32)
+        char value[16]{};
+        std::size_t length = 0;
+        if (getenv_s(&length, value, sizeof(value), "GALAXY_PE_CLASSIFY_SKIM") != 0 || length <= 1u) {
+            return true;
+        }
+        return value[0] != '0';
+#else
+        const char* value = std::getenv("GALAXY_PE_CLASSIFY_SKIM");
+        return value == nullptr || value[0] == '\0' || value[0] != '0';
+#endif
+    }();
+    return enabled;
+}
+
+// The simulation thread classifies every drawn frame's FIFO a second time to learn its PE events
+// (FramePeEventClassifier); the general dispatch pays, per command, for the profile, trace,
+// history and display-list recording it never uses there. This loop reads the fixed-size
+// commands straight from the bytes, with the same effects as run_window's cases in event
+// classification mode: CP writes the register, XF and INDX only advance (that mode skips them),
+// BP is dispatch_bp_write, a draw asks the sink for its payload and hands it on_draw, and 0x48
+// calls on_invalidate_vertex_cache. A command split at the end of the window stops at its
+// opcode, as top_level_command_complete makes run_window stop. Anything else (CALL_DL, the host
+// marker, hardware no-ops, unknown opcodes) goes back to run_window at its opcode.
+bool FifoParser::skim_event_classification(
+    FifoCursor& cursor,
+    FifoSink& sink,
+    GxState& state) const {
+    const std::byte* const data = cursor.data.data();
+    const std::size_t size = cursor.data.size();
+    std::size_t at = cursor.offset;
+    const auto u8_at = [data](std::size_t i) {
+        return std::to_integer<std::uint8_t>(data[i]);
+    };
+    const auto u16_at = [data](std::size_t i) {
+        return static_cast<std::uint16_t>(
+            (std::to_integer<std::uint32_t>(data[i]) << 8) |
+            std::to_integer<std::uint32_t>(data[i + 1u]));
+    };
+    const auto u32_at = [data](std::size_t i) {
+        return (std::to_integer<std::uint32_t>(data[i]) << 24) |
+            (std::to_integer<std::uint32_t>(data[i + 1u]) << 16) |
+            (std::to_integer<std::uint32_t>(data[i + 2u]) << 8) |
+            std::to_integer<std::uint32_t>(data[i + 3u]);
+    };
+    while (at < size) {
+        const std::uint8_t opcode = u8_at(at);
+        const std::size_t available = size - at - 1u;  // bytes after the opcode
+        std::size_t length = 0u;                         // bytes after the opcode, when complete
+        switch (opcode) {
+        case op::kNop:
+        case op::kUnknownMetrics:
+            at += 1u;
+            continue;
+        case op::kLoadCpReg:
+            length = 5u;
+            if (available < length) {
+                break;
+            }
+            state.load_cp(u8_at(at + 1u), u32_at(at + 2u));
+            at += 1u + length;
+            continue;
+        case op::kLoadXfReg:
+            if (available < 4u) {
+                break;
+            }
+            length = 4u + 4u * ((static_cast<std::size_t>(u16_at(at + 1u)) & 0xFu) + 1u);
+            if (available < length) {
+                break;
+            }
+            at += 1u + length;
+            continue;
+        case op::kLoadIndxA:
+        case op::kLoadIndxB:
+        case op::kLoadIndxC:
+        case op::kLoadIndxD:
+            length = 4u;
+            if (available < length) {
+                break;
+            }
+            at += 1u + length;
+            continue;
+        case op::kInvalidateVertexCache:
+            cursor.command_offset = cursor.base_offset + at;
+            cursor.offset = at + 1u;
+            sink.on_invalidate_vertex_cache();
+            at += 1u;
+            continue;
+        case op::kLoadBpReg:
+            length = 4u;
+            if (available < length) {
+                break;
+            }
+            cursor.command_offset = cursor.base_offset + at;
+            cursor.offset = at + 1u;
+            dispatch_bp_write(u32_at(at + 1u), sink, state);
+            at += 1u + length;
+            continue;
+        default:
+            if (opcode >= op::kDrawFirst && opcode <= op::kDrawLast) {
+                if (available < 2u) {
+                    break;
+                }
+                const auto vtxfmt = static_cast<std::uint8_t>(opcode & 0x07u);
+                const std::size_t payload_size =
+                    sink.draw_payload_size(vtxfmt, u16_at(at + 1u));
+                if (available - 2u < payload_size) {
+                    break;
+                }
+                cursor.command_offset = cursor.base_offset + at;
+                cursor.offset = at + 1u;
+                sink.on_draw(static_cast<PrimitiveClass>(opcode >> 3u), vtxfmt, cursor);
+                at = cursor.offset;
+                continue;
+            }
+            cursor.offset = at;
+            return false;
+        }
+        // A command split by the end of the window: stop at its opcode.
+        cursor.offset = at;
+        return true;
+    }
+    cursor.offset = at;
+    return true;
+}
+
 // Whether the bytes after a top-level opcode hold the whole command. A command
 // split by a chunk boundary then stops the window at its opcode, which is what
 // the FifoNeedMoreData unwind from inside the command produced, without
@@ -1967,7 +2140,18 @@ void FifoParser::run_window(
     GxState& state,
     int depth,
     DisplayListRecording* recording) {
+    // Event classification's own loop for the top level (skim_event_classification), only where
+    // nothing the general dispatch adds is in use: no profile, trace, history, read recorder or
+    // display-list recording, and a window that may end in a split command.
+    const bool skim = event_classification_only_ && event_classification_skim_ &&
+        depth == 0 && recording == nullptr && cursor.recover_truncation &&
+        profile_ == nullptr && memory_read_recorder_ == nullptr &&
+        !fifo_history_enabled() && !fifo_trace_range().enabled &&
+        pe_classify_skim_enabled();
     while (!cursor.empty()) {
+        if (skim && skim_event_classification(cursor, sink, state)) {
+            return;
+        }
         const std::size_t local_opcode_offset = cursor.offset;
         const std::size_t opcode_offset =
             cursor.base_offset + local_opcode_offset;
@@ -2407,41 +2591,7 @@ void FifoParser::run_window(
                     command & 0x00FFFFFFu,
                     cursor.base_offset + cursor.offset);
             }
-            state.load_bp(command);
-
-            const std::uint8_t  bp_reg = static_cast<std::uint8_t>(command >> 24);
-            const std::uint32_t bp_val = state.bp(bp_reg);
-
-            switch (bp_reg) {
-            case bp::kCopyExecute:      // 0x52: PE_COPY_EXECUTE
-                sink.on_efb_copy(bp_val);
-                break;
-            case bp::kPeDone:           // 0x45: GXDrawDone
-                if ((bp_val & 0xFFu) == 2u) {
-                    sink.on_pe_finish();
-                }
-                break;
-            case bp::kPeToken:          // 0x47: draw-sync token (no interrupt)
-                sink.on_pe_token(
-                    static_cast<std::uint16_t>(bp_val & 0xFFFFu),
-                    false);
-                break;
-            case bp::kPeTokenInt:       // 0x48: draw-sync token (with interrupt)
-                sink.on_pe_token(
-                    static_cast<std::uint16_t>(bp_val & 0xFFFFu),
-                    true);
-                break;
-            case 0x66u:                 // GXInvalidateTexAll signal
-                if (bp_val == 0u) {
-                    sink.on_invalidate_textures();
-                }
-                break;
-            case bp::kTlutDest:         // 0x65: TLUT transfer trigger
-                sink.on_tlut_load();
-                break;
-            default:
-                break;
-            }
+            dispatch_bp_write(command, sink, state);
             if (recording != nullptr && recording->cacheable) {
                 CachedDisplayListCommand cached_command;
                 cached_command.kind = CachedDisplayListCommand::Kind::LoadBp;

@@ -3,6 +3,7 @@
 #include "galaxy/vi_boundary.h"
 #include "galaxy/gx/gx_backend.h"
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <cstddef>
@@ -424,6 +425,117 @@ bool fifo_preclassifier_follows_display_lists() {
                     0xBEEFu,
                     true}},
             "classifier observes changed CALL_DL event identity after invalidation");
+}
+
+// The classify-only top-level loop (FifoParser::skim_event_classification) against the general
+// dispatch: random streams of every command it handles (CP, XF, INDX, BP with the mask and the
+// PE registers, draws whose payload looks like PE commands, NOPs, 0x44, 0x48) plus CALL_DLs it
+// hands back, cut at random points; both classifiers must raise the same events in each chunk.
+bool fifo_preclassifier_skim_matches_general_dispatch() {
+    std::array<std::byte, 512> guest{};
+    constexpr std::size_t kDisplayListOffset = 0x100u;
+    const std::array<std::uint8_t, 8> display_list{0x90, 0x00, 0x00, 0x61, 0x48, 0x00, 0x0D, 0x15};
+    for (std::size_t i = 0; i < display_list.size(); ++i) {
+        guest[kDisplayListOffset + i] = std::byte{display_list[i]};
+    }
+    galaxy::GuestMemoryV1 memory{};
+    memory.fast_regions[8].host_base = guest.data();
+    memory.fast_regions[8].size = static_cast<std::uint32_t>(guest.size());
+
+    std::uint64_t seed = 0x5EEDC0FFEEull;
+    const auto next = [&seed](std::uint32_t bound) {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<std::uint32_t>((seed >> 33) % bound);
+    };
+    const auto put32 = [](std::vector<std::byte>& out, std::uint32_t value) {
+        for (unsigned shift = 0; shift < 4u; ++shift) {
+            out.push_back(static_cast<std::byte>(value >> (24u - 8u * shift)));
+        }
+    };
+    for (unsigned stream = 0; stream < 200u; ++stream) {
+        std::vector<std::byte> fifo;
+        // VCD_LO 0x200 with VAT 0 cleared: format 0 vertices are 2 bytes (as in the test above).
+        fifo.push_back(std::byte{0x08});
+        fifo.push_back(std::byte{galaxy::gx::cp::kVcdLo});
+        put32(fifo, 0x00000200u);
+        for (unsigned command = 0; command < 300u; ++command) {
+            switch (next(10u)) {
+            case 0:
+                fifo.push_back(std::byte{static_cast<std::uint8_t>(next(3u) == 0u ? 0x44 : (next(2u) ? 0x00 : 0x48))});
+                break;
+            case 1: {  // a CP write that leaves the vertex layout alone (array base)
+                fifo.push_back(std::byte{0x08});
+                fifo.push_back(std::byte{static_cast<std::uint8_t>(0xA0u + next(4u))});
+                put32(fifo, next(0x10000u));
+                break;
+            }
+            case 2: {  // XF, 1-16 words
+                const std::uint32_t count = next(16u);
+                fifo.push_back(std::byte{0x10});
+                put32(fifo, (count << 16) | (0x1000u + next(0x40u)));
+                for (std::uint32_t word = 0; word <= count; ++word) {
+                    put32(fifo, next(0xFFFFFFFFu));
+                }
+                break;
+            }
+            case 3:  // INDX A-D
+                fifo.push_back(std::byte{static_cast<std::uint8_t>(0x20u + 8u * next(4u))});
+                put32(fifo, next(0xFFFFFFFFu));
+                break;
+            case 4: {  // BP: mask, then a PE register or an ordinary one
+                if (next(3u) == 0u) {
+                    fifo.push_back(std::byte{0x61});
+                    put32(fifo, 0xFE000000u | next(0x1000000u));
+                }
+                static constexpr std::array<std::uint8_t, 4> regs{0x40, 0x45, 0x47, 0x48};
+                const std::uint8_t reg = regs[next(static_cast<std::uint32_t>(regs.size()))];
+                const std::uint32_t value = reg == 0x45 ? (next(2u) ? 2u : next(0x100u)) : next(0x1000000u);
+                fifo.push_back(std::byte{0x61});
+                put32(fifo, (static_cast<std::uint32_t>(reg) << 24) | value);
+                break;
+            }
+            case 5:
+            case 6: {  // a draw (format 0) whose payload is PE-shaped bytes
+                const std::uint32_t vertices = next(9u);
+                fifo.push_back(std::byte{static_cast<std::uint8_t>(0x90u + 8u * next(2u))});
+                fifo.push_back(std::byte{0});
+                fifo.push_back(std::byte{static_cast<std::uint8_t>(vertices)});
+                for (std::uint32_t i = 0; i < vertices * 2u; ++i) {
+                    fifo.push_back(std::byte{static_cast<std::uint8_t>(i % 2u ? 0x48 : 0x61)});
+                }
+                break;
+            }
+            case 7: {  // CALL_DL (run_window's own case)
+                fifo.push_back(std::byte{0x40});
+                put32(fifo, 0x80000100u);
+                put32(fifo, 0x20u);
+                break;
+            }
+            default: {  // a PE token
+                fifo.push_back(std::byte{0x61});
+                put32(fifo, (next(2u) ? 0x47000000u : 0x48000000u) | next(0x10000u));
+                break;
+            }
+            }
+        }
+        FramePeEventClassifier skim(true, true), general(true, false);
+        skim.reset();
+        general.reset();
+        std::size_t at = 0;
+        while (at < fifo.size()) {
+            const std::size_t chunk = std::min<std::size_t>(fifo.size() - at, 1u + next(64u));
+            std::vector<FramePeEventSignature> a, b;
+            skim.classify(fifo.data() + at, chunk, &memory, a);
+            general.classify(fifo.data() + at, chunk, &memory, b);
+            if (!expect(a == b, "classify-only loop raises the general dispatch's events in every chunk")) {
+                std::cerr << "  stream " << stream << " offset " << at << " chunk " << chunk
+                          << " skim " << a.size() << " general " << b.size() << '\n';
+                return false;
+            }
+            at += chunk;
+        }
+    }
+    return true;
 }
 
 struct BackendPeProbe {
@@ -1165,6 +1277,7 @@ int main() {
     ok = event_free_receipt_cannot_pass_older_pe_fence() && ok;
     ok = fifo_preclassifier_is_boundary_and_identity_exact() && ok;
     ok = fifo_preclassifier_follows_display_lists() && ok;
+    ok = fifo_preclassifier_skim_matches_general_dispatch() && ok;
     ok = backend_reinitialize_resets_all_fifo_parser_mirrors() && ok;
     ok = duplicate_stale_and_out_of_order_fail() && ok;
     ok = queue_depths_one_through_three_are_independent() && ok;

@@ -3036,9 +3036,10 @@ static_assert(
 
 }  // anonymous namespace
 
-FramePeEventClassifier::FramePeEventClassifier(bool event_only)
-    : event_only_(event_only) {
+FramePeEventClassifier::FramePeEventClassifier(bool event_only, bool skim)
+    : event_only_(event_only), skim_(skim) {
     parser_.set_event_classification_only(event_only_);
+    parser_.set_event_classification_skim(skim_);
     static const bool verify = [] {
         char value[16]{};
         std::size_t length = 0;
@@ -3061,6 +3062,7 @@ void FramePeEventClassifier::reset() {
     state_ = GxState{};
     parser_ = FifoParser{};
     parser_.set_event_classification_only(event_only_);
+    parser_.set_event_classification_skim(skim_);
     parser_.set_dump_dir("generated");
     pending_fifo_.clear();
 }

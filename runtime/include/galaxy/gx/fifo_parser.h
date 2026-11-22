@@ -511,6 +511,14 @@ public:
     void set_event_classification_only(bool enabled) {
         event_classification_only_ = enabled;
     }
+    // In that mode, the top-level FIFO's fixed-size commands (NOP, CP, XF, INDX, BP, draws and
+    // the no-payload ones) go through a dedicated loop (skim_event_classification) instead of the
+    // general dispatch; CALL_DL and everything else still take run_window's own cases. Same
+    // state writes, sink calls and boundaries. GALAXY_PE_CLASSIFY_SKIM=0 turns it off for the
+    // whole process; this switch turns it off for one parser (the tests' reference).
+    void set_event_classification_skim(bool enabled) {
+        event_classification_skim_ = enabled;
+    }
 
     // Invalidates cached CALL_DL replays whose guest byte window overlaps a
     // dirty guest-memory range. The address may be physical or a MEM1/MEM2
@@ -656,6 +664,14 @@ private:
         int depth,
         DisplayListRecording* recording);
 
+    // Event classification's top-level loop (set_event_classification_skim). Consumes commands
+    // from cursor.offset; true: the window is done (all of it, or a split command left at its
+    // opcode, as run_window leaves it); false: the cursor is at an opcode for run_window.
+    [[nodiscard]] bool skim_event_classification(
+        FifoCursor& cursor,
+        FifoSink& sink,
+        GxState& state) const;
+
     [[nodiscard]] CachedDisplayList* find_cached_display_list(
         std::uint32_t guest_addr,
         std::uint32_t byte_size,
@@ -715,6 +731,7 @@ private:
     FifoParserProfile* profile_ = nullptr;
     FifoGuestMemoryReadRecorder* memory_read_recorder_ = nullptr;
     bool event_classification_only_ = false;
+    bool event_classification_skim_ = true;
     std::uint64_t display_list_cache_tick_ = 0;
     std::uint64_t display_list_cache_token_ = 0;
     std::uint64_t memory_generation_ = 0;  // 0: never advanced, every call compares
