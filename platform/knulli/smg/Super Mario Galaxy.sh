@@ -169,15 +169,15 @@ else
   echo "mandos: perfil predeterminado"
 fi
 #   NEBULA_PERFIL=bajo|medio|normal      por defecto el del chip (soc_perfil arriba: medio en H700 y RK3566, bajo en
-#                                        RK3326 y los demas). medio: resolucion interna fija de 50 % (320x264) agrandada sin
-#                                        filtros (ni nitidez, ni suavizado de bordes, ni escalador), pensada para el pack
-#                                        de texturas HD, con el mismo salto de
+#                                        RK3326 y los demas). medio: resolucion interna fija de 75 % (480x396) con nitidez
+#                                        0.4 y suavizado de bordes (hd-75 de la prueba), con el pack de texturas HD si esta,
+#                                        con el mismo salto de
 #                                        frames, lecturas y caches que el bajo; bajo: pocos recursos, resolucion dinamica
 #                                        (baja sola cuando la GPU no llega); normal: 100 % y sin saltos.
 #                                        Prueba de rendimiento (21-nov, RG35XX H, 8 galaxias x6): 50 % frente a 75 %, +6 a
 #                                        +8 % imagenes dibujadas (+20 % en las pesadas: BreakDownPlanet, CannonFleet); el
-#                                        pack HD y la nitidez 0.5 no cuestan nada medible. 75 en Ajustes: nitidez 0.4 y
-#                                        suavizado de bordes, como antes (hd-75 de la prueba: -4 % imagenes dibujadas)
+#                                        pack HD y la nitidez no cuestan nada medible. hd-75 frente a hd-50: -4 % imagenes
+#                                        dibujadas, mismos tirones, mas detalle. 50 en Ajustes: agrandada sin filtros
 NEBULA_PERFIL="${NEBULA_PERFIL:-$soc_perfil}"
 if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_FRAMESKIP=auto|0|1|2|3      auto: ritmo estable de 60, 30 o 20 imagenes por segundo segun lo que
@@ -193,7 +193,7 @@ if [ "$NEBULA_PERFIL" = "bajo" ] || [ "$NEBULA_PERFIL" = "medio" ]; then
   #   GALAXY_GLES_RESOLUTION=auto        (perfil bajo) la resolucion interna dinamica: serie del 29-oct, GPU -48 %, p95 -20 %,
   #                                      recorrido -10 % frente a 100 fijo; 100: la del Wii siempre (en el perfil normal)
   if [ "$NEBULA_PERFIL" = "medio" ]; then
-    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-50}"
+    export GALAXY_GLES_RESOLUTION="${GALAXY_GLES_RESOLUTION:-75}"
     #   GALAXY_GLES_SLOT_POR_IMAGEN=1|0  (perfil medio) el renderer cambia de slot al presentar una imagen y no en cada
     #                                    trozo que manda el juego (el 78 % no dibuja nada y cada uno esperaba a la GPU):
     #                                    44 galaxias x2 (5-nov), +21-23 % FPS mostrados, +16-21 % dibujados, p95 -17 %,
