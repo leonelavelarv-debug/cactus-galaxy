@@ -211,6 +211,7 @@ if(NEBULA_SDL2_PREFIX)
         "${CMAKE_CURRENT_SOURCE_DIR}/native_game_host_knulli.cpp"
         "${nebula_root}/platform/sdl/display_clock.cpp"
         "${nebula_root}/platform/sdl/thread_sampler.cpp"
+        "${nebula_root}/platform/sdl/thread_cores.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/memtrace_knulli.cpp")
     set_target_properties(nebula_knulli PROPERTIES OUTPUT_NAME nebula)
     # NEBULA_MEMTRACE (memtrace_knulli.cpp): the executable's malloc family in front of glibc's for every module.

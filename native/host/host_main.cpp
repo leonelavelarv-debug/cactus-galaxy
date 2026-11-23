@@ -3176,6 +3176,7 @@ int main(int argc, char** argv) {
     std::thread(wpad_thread).detach();
 #if defined(NEBULA_HOST_SDL)
     galaxy::sdl::start_thread_sampler();
+    galaxy::sdl::start_thread_cores();
 #endif
     std::thread game([] {
         name_thread(L"Nebula Game");

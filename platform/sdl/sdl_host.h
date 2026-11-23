@@ -40,6 +40,8 @@ bool wait_display_retrace(std::int64_t period_ns, std::int64_t& last_ns) noexcep
 // Android, when `adb shell setprop debug.nebula.profile <seconds>` asks: that many seconds on, the GX, host-main and
 // game threads' instruction pointers are sampled for 2 s each and the busiest places logged (thread_sampler.cpp).
 void start_thread_sampler() noexcept;
+// KNULLI, NEBULA_NUCLEOS=vita|vita-todo: each busy thread fixed to a core of its own (thread_cores.cpp).
+void start_thread_cores() noexcept;
 
 // The on-screen controls (Android: the activity's overlay, through JNI).
 enum TouchButton : std::uint32_t {
